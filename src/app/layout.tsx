@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   },
   description:
     "Read-only community analytics, matchup matrices, deck snapshots, stream embeds, and news for RiftLite.",
-  metadataBase: new URL("https://riftlite.vercel.app"),
+  metadataBase: new URL("https://www.riftlite.com"),
   openGraph: {
     title: "RiftLite",
     description:
