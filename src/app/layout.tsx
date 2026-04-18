@@ -50,6 +50,13 @@ export default async function RootLayout({
 
   return (
     <html data-scroll-behavior="smooth" lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1277251394011398"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body
         className={`${bodyFont.variable} ${displayFont.variable} font-sans antialiased`}
       >
