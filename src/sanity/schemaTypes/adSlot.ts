@@ -9,7 +9,14 @@ export const adSlot = defineType({
       name: "placement",
       type: "string",
       options: {
-        list: ["home-hero", "home-mid", "community-sidebar", "news-inline", "news-footer"],
+        list: [
+          "home-hero",
+          "home-mid",
+          "community-top",
+          "community-sidebar",
+          "news-inline",
+          "news-footer",
+        ],
       },
       validation: (rule) => rule.required(),
     }),

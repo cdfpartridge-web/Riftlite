@@ -47,10 +47,21 @@ export const FIXTURE_AD_SLOTS: AdSlotConfig[] = [
   },
   {
     placement: "home-mid",
-    mode: "placeholder",
-    eyebrow: "Monetisation Ready",
-    title: "Ad slot ready for launch traffic",
-    body: "This placement can switch to AdSense or stay sponsor-led without changing the layout.",
+    mode: "adsense",
+    title: "Home mid ad",
+    adsenseSlot: "5763595628",
+  },
+  {
+    placement: "community-top",
+    mode: "adsense",
+    title: "Community top ad",
+    adsenseSlot: "2957455573",
+  },
+  {
+    placement: "news-inline",
+    mode: "adsense",
+    title: "News inline ad",
+    adsenseSlot: "2661942105",
   },
   {
     placement: "community-sidebar",
@@ -58,13 +69,6 @@ export const FIXTURE_AD_SLOTS: AdSlotConfig[] = [
     eyebrow: "Partner Placement",
     title: "Community sidebar sponsor slot",
     body: "Use this space for stream promos, partner offers, or future AdSense units.",
-  },
-  {
-    placement: "news-inline",
-    mode: "placeholder",
-    eyebrow: "Promotion",
-    title: "Inline article sponsor slot",
-    body: "Designed to fit inside news content without breaking readability.",
   },
   {
     placement: "news-footer",

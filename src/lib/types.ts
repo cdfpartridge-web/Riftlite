@@ -141,6 +141,7 @@ export type NewsPost = {
 export type AdSlotPlacement =
   | "home-hero"
   | "home-mid"
+  | "community-top"
   | "community-sidebar"
   | "news-inline"
   | "news-footer";
