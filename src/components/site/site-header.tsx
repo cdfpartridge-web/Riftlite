@@ -13,10 +13,10 @@ const primaryLinks = [
 ];
 
 type SiteHeaderProps = {
-  downloadUrl: string;
+  downloadUrl?: string;
 };
 
-export function SiteHeader({ downloadUrl }: SiteHeaderProps) {
+export function SiteHeader({}: SiteHeaderProps = {}) {
   return (
     <header className="sticky top-0 z-50 border-b border-white/[0.07] bg-[rgba(7,12,27,0.78)] backdrop-blur-2xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-6 py-3.5">
@@ -44,7 +44,7 @@ export function SiteHeader({ downloadUrl }: SiteHeaderProps) {
         </nav>
 
         <Button asChild size="sm">
-          <Link href={downloadUrl || SITE_PATHS.download}>Get The App</Link>
+          <Link href={SITE_PATHS.download}>Get The App</Link>
         </Button>
       </div>
     </header>
