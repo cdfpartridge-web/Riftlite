@@ -16,8 +16,8 @@ export default async function MetaPage({
     <div className="space-y-8">
       <SectionHeading
         eyebrow="Legend Meta"
-        title="Win rates by legend across the public community feed"
-        description="Legends are sorted by games played so the busiest archetypes rise to the top."
+        title="Which legends are actually winning?"
+        description="Win rates and play counts for every legend, ranked by popularity so you can see what's defining the meta this week."
       />
       <CommunityFilterBar filters={filters} />
       <MetaTable rows={rows} />

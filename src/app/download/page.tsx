@@ -6,10 +6,10 @@ import { Card } from "@/components/ui/card";
 import { getSiteSettings } from "@/lib/sanity/content";
 
 const features = [
-  "Automatic match capture and sync",
-  "Deck snapshot sharing",
-  "Live community feed contribution",
-  "Matchup tracking across legends",
+  "Automatic match tracking — no manual logging",
+  "Share decks and matches with the community",
+  "See your personal win rates and matchup history",
+  "Help build the most accurate Riftbound meta stats",
 ];
 
 export default async function DownloadPage() {
@@ -19,8 +19,8 @@ export default async function DownloadPage() {
     <div className="mx-auto max-w-4xl space-y-10 px-6 py-14">
       <SectionHeading
         eyebrow="Download"
-        title="Install RiftLite and start contributing to the public stats."
-        description="The desktop app is the source of truth for captured matches and shared deck snapshots. Everything you see on this site comes from players like you."
+        title="Get the RiftLite desktop app."
+        description="Track every match you play, study your own performance, and add your games to the community stats you see here."
       />
 
       <div className="grid gap-6 md:grid-cols-[1fr_auto]">
@@ -28,8 +28,8 @@ export default async function DownloadPage() {
           <div className="space-y-2">
             <h3 className="font-display text-lg font-semibold text-white">What you get</h3>
             <p className="text-sm leading-6 text-slate-400">
-              Install once and every match you play is automatically structured, synced, and
-              reflected in the community stats here.
+              Install once and play normally — RiftLite handles the tracking in the background and
+              keeps your stats up to date.
             </p>
           </div>
           <ul className="space-y-2.5">

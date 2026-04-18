@@ -8,3 +8,6 @@ test-results
 .env
 .env.local
 .env.production
+
+.vercel
+.env*.local

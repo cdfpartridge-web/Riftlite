@@ -9,7 +9,7 @@ import type {
 export const FIXTURE_SITE_SETTINGS: SiteSettings = {
   siteTitle: "RiftLite",
   siteDescription:
-    "Read-only community analytics, deck snapshots, news, and stream highlights for Riftbound players.",
+    "Live Riftbound stats, decks, and matchup data — built for players, by the community.",
   discordUrl: "https://discord.gg/KP3esbeBYF",
   twitchUrl: "https://www.twitch.tv/bmucasts",
   youtubeUrl: "https://www.youtube.com/@bmucasts",
@@ -17,11 +17,11 @@ export const FIXTURE_SITE_SETTINGS: SiteSettings = {
 };
 
 export const FIXTURE_HOME_HERO: HomeHero = {
-  eyebrow: "RiftLite Public Website",
-  headline: "The community dashboard Riftbound deserved.",
+  eyebrow: "Built for Riftbound players",
+  headline: "Know your matchups. Master your decks.",
   subheading:
-    "Track live public win rates, matchup matrices, deck snapshots, stream coverage, and every big update around RiftLite.",
-  primaryCtaLabel: "Download RiftLite",
+    "Track your win rates, study the meta, browse the decks winning right now — all powered by the Riftbound community.",
+  primaryCtaLabel: "Get the App",
   primaryCtaHref: "/download",
   secondaryCtaLabel: "Explore Community Stats",
   secondaryCtaHref: "/community/leaderboard",

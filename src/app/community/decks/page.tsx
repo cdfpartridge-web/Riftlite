@@ -16,8 +16,8 @@ export default async function DecksPage({
     <div className="space-y-8">
       <SectionHeading
         eyebrow="Decks"
-        title="Grouped public deck snapshots"
-        description="Deck groups are clustered by shared source key when available, with snapshot hashing as the fallback."
+        title="Browse what the community is playing"
+        description="Decks grouped intelligently by composition, so you can spot the popular builds and the off-meta gems winning right now."
       />
       <CommunityFilterBar filters={filters} />
       <div className="grid gap-6 md:grid-cols-2">

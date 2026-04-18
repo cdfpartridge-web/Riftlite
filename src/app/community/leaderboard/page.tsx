@@ -16,8 +16,8 @@ export default async function LeaderboardPage({
     <div className="space-y-8">
       <SectionHeading
         eyebrow="Leaderboard"
-        title="Confidence-ranked public win rates"
-        description="Rankings use the same Wilson lower-bound logic as the desktop app, balancing win rate against sample size."
+        title="The decks topping Riftbound right now"
+        description="Smart rankings that reward proven win rates over small-sample flukes — so the top of the board reflects real consistency."
       />
       <CommunityFilterBar filters={filters} />
       <LeaderboardTable rows={rows} />

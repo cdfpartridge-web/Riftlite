@@ -24,12 +24,12 @@ export const metadata: Metadata = {
     template: "%s | RiftLite",
   },
   description:
-    "Read-only community analytics, matchup matrices, deck snapshots, stream embeds, and news for RiftLite.",
+    "Live Riftbound stats, decks, and matchup data — powered by the community. Browse win rates, study the meta, and find what's winning right now.",
   metadataBase: new URL("https://www.riftlite.com"),
   openGraph: {
     title: "RiftLite",
     description:
-      "The official public home for RiftLite community stats, decks, stream coverage, and updates.",
+      "Live Riftbound stats, decks, and matchup data — built for players, by the community.",
     type: "website",
     images: ["/brand/riftlite-logo-transparent.png"],
   },
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "RiftLite",
     description:
-      "The official public home for RiftLite community stats, decks, stream coverage, and updates.",
+      "Live Riftbound stats, decks, and matchup data — built for players, by the community.",
     images: ["/brand/riftlite-logo-transparent.png"],
   },
 };

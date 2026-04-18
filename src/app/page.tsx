@@ -102,8 +102,8 @@ export default async function HomePage() {
       <FadeUp className="space-y-8">
         <SectionHeading
           eyebrow="Featured Decks"
-          title="Deck snapshots browsable without the app."
-          description="Deck groups are built from the same shared snapshot logic as the desktop app, keeping public browsing faithful to the source data."
+          title="See what the community is winning with."
+          description="Browse the decks players are running right now, with real win rates pulled straight from live community matches."
         />
         <div className="grid gap-6 lg:grid-cols-3">
           {overview.featuredDecks.map((deck) => (
@@ -117,7 +117,7 @@ export default async function HomePage() {
         <SectionHeading
           eyebrow="Live on Twitch"
           title="Watch BMU Casts while you browse the numbers."
-          description="Monetisation-friendly and built to support Twitch promotion and sponsor visibility side by side."
+          description="Catch the latest Riftbound streams without leaving the stats — perfect for studying matchups in real time."
         />
         <StreamPanel module={streamModule} status={streamStatus} />
       </FadeUp>
@@ -128,8 +128,8 @@ export default async function HomePage() {
       <FadeUp className="space-y-8">
         <SectionHeading
           eyebrow="Latest News"
-          title="Updates and announcements from the editor."
-          description="Sanity-backed news posts keep the public site fresh without touching the code every time you publish."
+          title="Patch notes, meta shifts, and announcements."
+          description="Stay on top of what's changing in Riftbound and what's new in RiftLite."
         />
         <div className="grid gap-6 lg:grid-cols-2">
           {newsPosts.slice(0, 2).map((post) => (

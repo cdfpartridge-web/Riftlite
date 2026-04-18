@@ -19,8 +19,8 @@ export default async function MatrixPage({
     <div className="space-y-8">
       <SectionHeading
         eyebrow="Match Matrix"
-        title="See which public matchups are trending up or down"
-        description="Each cell shows the filtered win rate for a specific matchup and opens the underlying matches on click."
+        title="Find the matchups that swing your win rate"
+        description="Every cell shows the head-to-head win rate between two legends — click through to study the actual games behind the numbers."
       />
       <CommunityFilterBar filters={filters} />
       <MatrixBrowser matches={matches} matrix={matrix} />

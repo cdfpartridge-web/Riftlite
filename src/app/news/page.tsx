@@ -14,8 +14,8 @@ export default async function NewsPage() {
     <div className="mx-auto max-w-7xl space-y-10 px-6 py-12">
       <SectionHeading
         eyebrow="News"
-        title="Updates, announcements, and feature notes"
-        description="This section is powered by Sanity so you can publish updates from a browser-friendly editor instead of editing code for every post."
+        title="Patch notes, meta shifts, and announcements"
+        description="Everything new in Riftbound and RiftLite — written for players, kept current."
       />
 
       {featured ? (

@@ -43,7 +43,7 @@ export function SiteFooter({ settings }: SiteFooterProps) {
               />
               <div>
                 <div className="font-display text-lg font-bold text-white">RiftLite</div>
-                <div className="text-xs text-slate-500">Community analytics & news</div>
+                <div className="text-xs text-slate-500">Riftbound stats & community</div>
               </div>
             </div>
             {settings.siteDescription && (

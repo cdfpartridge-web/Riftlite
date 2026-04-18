@@ -32,7 +32,7 @@ export function SiteHeader({}: SiteHeaderProps = {}) {
           <div>
             <div className="font-display text-[17px] font-bold tracking-tight text-white">RiftLite</div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.26em] text-slate-500">
-              Public
+              Community Stats
             </div>
           </div>
         </Link>

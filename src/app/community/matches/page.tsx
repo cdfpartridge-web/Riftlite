@@ -16,8 +16,8 @@ export default async function MatchesPage({
     <div className="space-y-8">
       <SectionHeading
         eyebrow="Recent Matches"
-        title="Browse the latest shared community matches"
-        description="The selected row reveals the per-game battlefield and points breakdown extracted from the stored game data."
+        title="See how the latest games actually played out"
+        description="Click any match for a full game-by-game breakdown — battlefields, points, and the moment things turned."
       />
       <CommunityFilterBar filters={filters} />
       <MatchesBrowser matches={data.items} />

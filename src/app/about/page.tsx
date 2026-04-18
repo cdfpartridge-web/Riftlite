@@ -3,16 +3,16 @@ import { Card } from "@/components/ui/card";
 
 const pillars = [
   {
-    title: "Structured match data",
-    body: "RiftLite captures game results, legend matchups, deck compositions, and battlefield data — all synced to a shared community feed automatically.",
+    title: "Real matches, tracked automatically",
+    body: "Play with the desktop app open and your matches feed straight into the community — no manual logging, no screenshots, no spreadsheets.",
   },
   {
-    title: "Read-only public surface",
-    body: "The public website exposes that data as a clean, sponsor-ready analytics layer — leaderboards, meta tables, matchup matrices, and deck snapshots.",
+    title: "Stats you can actually trust",
+    body: "Win rates, matchups, and deck performance all come from real games played by real players. Browse the numbers anytime, on any device.",
   },
   {
-    title: "No spreadsheets required",
-    body: "Every number on this site is derived from the same logic the desktop app uses, so community discussions start from a shared source of truth.",
+    title: "Built for the Riftbound community",
+    body: "Every player who tracks their games makes the data better for everyone. The more matches we share, the sharper the meta picture gets.",
   },
 ];
 
@@ -21,8 +21,8 @@ export default function AboutPage() {
     <div className="mx-auto max-w-5xl space-y-10 px-6 py-14">
       <SectionHeading
         eyebrow="About"
-        title="RiftLite turns scattered match logs into a coherent community picture."
-        description="The app captures and syncs structured match data, while the public site turns it into a clean, readable, sponsor-ready analytics surface."
+        title="The home for Riftbound stats, decks, and meta insights."
+        description="RiftLite turns the games you play into community-wide insights — so every player can study real matchups instead of guessing."
       />
 
       <div className="grid gap-5 md:grid-cols-3">
@@ -39,13 +39,12 @@ export default function AboutPage() {
       <Card className="space-y-4">
         <h3 className="font-display text-lg font-semibold text-white">The full picture</h3>
         <p className="text-base leading-7 text-slate-400">
-          RiftLite is built to help Riftbound players understand matchups, decks, and performance
-          trends without relying on screenshots or spreadsheets. The desktop app stays the source of
-          truth; this site gives that data a public home.
+          Whether you're chasing the top of the leaderboard or just trying to figure out what beats
+          the deck you keep losing to, RiftLite gives you the data to make smarter decisions.
         </p>
         <p className="text-base leading-7 text-slate-400">
-          Every stat on this site is a read-only window into the community feed — live, filterable,
-          and always in sync with the same snapshot logic the app uses.
+          Filter by legend, dig into matchups, study the decks topping the meta — all updated live
+          as the community plays. No login required to browse.
         </p>
       </Card>
     </div>
