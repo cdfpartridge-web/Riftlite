@@ -6,6 +6,8 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getAdSlots, getNewsPosts } from "@/lib/sanity/content";
 
+export const revalidate = 60;
+
 export default async function NewsPage() {
   const [posts, adSlots] = await Promise.all([getNewsPosts(), getAdSlots()]);
   const featured = posts[0];
