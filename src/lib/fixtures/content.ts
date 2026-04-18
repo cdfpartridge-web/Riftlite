@@ -13,7 +13,7 @@ export const FIXTURE_SITE_SETTINGS: SiteSettings = {
   discordUrl: "https://discord.gg/KP3esbeBYF",
   twitchUrl: "https://www.twitch.tv/bmucasts",
   youtubeUrl: "https://www.youtube.com/@bmucasts",
-  downloadUrl: "https://github.com/cdfpartridge-web/Riftlite/releases/download/0.34/RiftLiteSetup.0.34.exe",
+  downloadUrl: "https://github.com/cdfpartridge-web/Riftlite/releases/download/0.35/RiftLiteSetup.exe",
 };
 
 export const FIXTURE_HOME_HERO: HomeHero = {
