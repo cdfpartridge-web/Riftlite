@@ -23,18 +23,12 @@ export function SiteHeader({ downloadUrl }: SiteHeaderProps) {
         <Link className="flex items-center gap-3 group" href="/">
           <Image
             alt="RiftLite"
-            className="h-11 w-11 rounded-2xl object-cover shadow-[0_0_28px_rgba(89,167,255,0.4)] transition-shadow duration-300 group-hover:shadow-[0_0_40px_rgba(89,167,255,0.6)]"
-            height={44}
+            className="h-10 w-auto object-contain drop-shadow-[0_0_12px_rgba(89,167,255,0.5)] transition-all duration-300 group-hover:drop-shadow-[0_0_20px_rgba(89,167,255,0.7)]"
+            height={40}
             priority
-            src="/brand/riftlite-logo-ui.png"
-            width={44}
+            src="/brand/riftlite-logo-transparent.png"
+            width={160}
           />
-          <div>
-            <div className="font-display text-[17px] font-bold tracking-tight text-white">RiftLite</div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.26em] text-slate-500">
-              Public
-            </div>
-          </div>
         </Link>
 
         <nav className="hidden items-center gap-7 lg:flex">
