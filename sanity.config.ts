@@ -9,7 +9,6 @@ const singletons = ["siteSettings", "homeHero", "streamModule"];
 export default defineConfig({
   name: "default",
   title: "RiftLite Studio",
-  basePath: "/studio",
   projectId: process.env.NEXT_PUBLIC_SANITY_PROJECT_ID ?? "demo",
   dataset: process.env.NEXT_PUBLIC_SANITY_DATASET ?? "production",
   plugins: [
