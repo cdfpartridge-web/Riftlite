@@ -18,3 +18,4 @@ The `web/` folder contains the new public RiftLite website built with Next.js Ap
 - Twitch status API and embed module
 - Sponsor / AdSense-ready ad slot system
 - Unit tests, API route tests, and Playwright smoke tests
+"# Riftlite" 
