@@ -12,7 +12,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getCommunityOverview } from "@/lib/community/service";
 import { getAdSlots, getHomeHero, getNewsPosts, getStreamModule } from "@/lib/sanity/content";
 import { getStreamStatus } from "@/lib/twitch/status";
-import { formatPercent } from "@/lib/utils";
+import { formatPercent, safeHref } from "@/lib/utils";
 
 export default async function HomePage() {
   const [hero, overview, newsPosts, adSlots, streamModule, streamStatus] =
@@ -44,10 +44,10 @@ export default async function HomePage() {
           </div>
           <div className="flex flex-wrap gap-4">
             <Button asChild size="lg">
-              <Link href={hero.primaryCtaHref}>{hero.primaryCtaLabel}</Link>
+              <Link href={safeHref(hero.primaryCtaHref)}>{hero.primaryCtaLabel}</Link>
             </Button>
             <Button asChild size="lg" variant="secondary">
-              <Link href={hero.secondaryCtaHref}>{hero.secondaryCtaLabel}</Link>
+              <Link href={safeHref(hero.secondaryCtaHref)}>{hero.secondaryCtaLabel}</Link>
             </Button>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { StreamEmbed } from "@/components/site/stream-embed";
 import type { StreamModule, StreamStatus } from "@/lib/types";
+import { safeHref } from "@/lib/utils";
 
 type StreamPanelProps = {
   module: StreamModule;
@@ -47,7 +48,7 @@ export function StreamPanel({ module, status }: StreamPanelProps) {
         </div>
 
         <Button asChild variant="secondary">
-          <Link href={module.channelUrl}>Open on Twitch</Link>
+          <Link href={safeHref(module.channelUrl)}>Open on Twitch</Link>
         </Button>
       </div>
 

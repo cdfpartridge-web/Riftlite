@@ -4,6 +4,7 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { getSiteSettings } from "@/lib/sanity/content";
+import { safeHref } from "@/lib/utils";
 
 const features = [
   "Automatic match tracking — no manual logging",
@@ -43,7 +44,7 @@ export default async function DownloadPage() {
             ))}
           </ul>
           <Button asChild size="lg">
-            <Link href={settings.downloadUrl}>Download RiftLite</Link>
+            <Link href={safeHref(settings.downloadUrl)}>Download RiftLite</Link>
           </Button>
         </Card>
       </div>

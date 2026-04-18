@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
 import { getDeckDetail } from "@/lib/community/service";
 import type { DeckSnapshot } from "@/lib/types";
-import { formatPercent } from "@/lib/utils";
+import { formatPercent, safeHref } from "@/lib/utils";
 
 function toPiltoverArchiveText(snapshot: DeckSnapshot): string {
   const sections: string[] = [];
@@ -147,7 +147,7 @@ export default async function DeckDetailPage({
               </div>
               <Link
                 className="mt-2 block truncate text-sm text-cyan-300 underline-offset-4 hover:underline"
-                href={deck.sourceUrl}
+                href={safeHref(deck.sourceUrl)}
               >
                 {deck.sourceUrl}
               </Link>

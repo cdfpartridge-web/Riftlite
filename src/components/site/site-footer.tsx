@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { SITE_PATHS } from "@/lib/constants";
 import type { SiteSettings } from "@/lib/types";
+import { safeHref } from "@/lib/utils";
 
 type SiteFooterProps = {
   settings: SiteSettings;
@@ -80,7 +81,7 @@ export function SiteFooter({ settings }: SiteFooterProps) {
               {social.map((s) => (
                 <Link
                   className="block text-sm text-slate-400 transition-colors hover:text-white"
-                  href={s.href}
+                  href={safeHref(s.href)}
                   key={s.label}
                 >
                   {s.label}

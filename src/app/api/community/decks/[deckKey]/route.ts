@@ -1,3 +1,4 @@
+import { communityJson } from "@/lib/community/response";
 import { getDeckDetail } from "@/lib/community/service";
 
 export async function GET(
@@ -9,5 +10,5 @@ export async function GET(
   if (!detail.deck) {
     return Response.json({ message: "Deck not found" }, { status: 404 });
   }
-  return Response.json(detail);
+  return communityJson(detail);
 }

@@ -33,3 +33,11 @@ export function formatDate(value: string) {
     year: "numeric",
   }).format(date);
 }
+
+const SAFE_URL_PATTERN = /^(https?:\/\/|mailto:|tel:|\/|#)/i;
+
+export function safeHref(href: string | undefined | null, fallback = "/"): string {
+  if (!href) return fallback;
+  const trimmed = href.trim();
+  return SAFE_URL_PATTERN.test(trimmed) ? trimmed : fallback;
+}

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import type { AdSlotConfig, AdSlotPlacement } from "@/lib/types";
+import { safeHref } from "@/lib/utils";
 
 type AdSlotProps = {
   slots: AdSlotConfig[];
@@ -31,7 +32,7 @@ export function AdSlot({ slots, placement }: AdSlotProps) {
         {slot.ctaHref && slot.ctaLabel ? (
           <Link
             className="inline-flex text-sm font-semibold text-cyan-200 underline-offset-4 hover:underline"
-            href={slot.ctaHref}
+            href={safeHref(slot.ctaHref)}
           >
             {slot.ctaLabel}
           </Link>

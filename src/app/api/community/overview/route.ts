@@ -1,5 +1,6 @@
+import { communityJson } from "@/lib/community/response";
 import { getCommunityOverview } from "@/lib/community/service";
 
 export async function GET() {
-  return Response.json(await getCommunityOverview());
+  return communityJson(await getCommunityOverview());
 }

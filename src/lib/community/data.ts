@@ -142,20 +142,28 @@ async function fetchFromFirestore(): Promise<CommunityMatch[] | null> {
   );
 }
 
+async function fetchCommunityMatchesSafe() {
+  try {
+    const firestoreMatches = await fetchFromFirestore();
+    return firestoreMatches ?? FIXTURE_MATCHES;
+  } catch (error) {
+    console.error("[community/data] Firestore fetch failed, using fixtures", error);
+    return FIXTURE_MATCHES;
+  }
+}
+
 const cachedFetchCommunityMatches = unstable_cache(
-  async () => {
-    try {
-      const firestoreMatches = await fetchFromFirestore();
-      return firestoreMatches ?? FIXTURE_MATCHES;
-    } catch (error) {
-      console.error("[community/data] Firestore fetch failed, using fixtures", error);
-      return FIXTURE_MATCHES;
-    }
-  },
+  fetchCommunityMatchesSafe,
   ["community-match-window-v1"],
   { revalidate: COMMUNITY_CACHE_TTL_SECONDS, tags: ["community-matches"] },
 );
 
 export async function getCommunityMatchWindow() {
-  return cachedFetchCommunityMatches();
+  try {
+    return await cachedFetchCommunityMatches();
+  } catch {
+    // `unstable_cache` throws when there is no Next.js request context
+    // (e.g. inside vitest). Fall through to a direct fetch in that case.
+    return fetchCommunityMatchesSafe();
+  }
 }
