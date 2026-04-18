@@ -1,11 +1,13 @@
 import "server-only";
 
-import { COMMUNITY_WINDOW_SIZE, MATCH_CACHE_MS } from "@/lib/constants";
+import { unstable_cache } from "next/cache";
+
+import { COMMUNITY_WINDOW_SIZE } from "@/lib/constants";
 import { FIXTURE_MATCHES } from "@/lib/fixtures/community";
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import type { CommunityMatch, DeckSnapshot, MatchGame } from "@/lib/types";
 
-let cachedWindow: { fetchedAt: number; matches: CommunityMatch[] } | null = null;
+const COMMUNITY_CACHE_TTL_SECONDS = 300;
 
 function safeJsonParse(value: string) {
   try {
@@ -140,13 +142,20 @@ async function fetchFromFirestore(): Promise<CommunityMatch[] | null> {
   );
 }
 
-export async function getCommunityMatchWindow() {
-  if (cachedWindow && Date.now() - cachedWindow.fetchedAt < MATCH_CACHE_MS) {
-    return cachedWindow.matches;
-  }
+const cachedFetchCommunityMatches = unstable_cache(
+  async () => {
+    try {
+      const firestoreMatches = await fetchFromFirestore();
+      return firestoreMatches ?? FIXTURE_MATCHES;
+    } catch (error) {
+      console.error("[community/data] Firestore fetch failed, using fixtures", error);
+      return FIXTURE_MATCHES;
+    }
+  },
+  ["community-match-window-v1"],
+  { revalidate: COMMUNITY_CACHE_TTL_SECONDS, tags: ["community-matches"] },
+);
 
-  const firestoreMatches = await fetchFromFirestore();
-  const matches = firestoreMatches ?? FIXTURE_MATCHES;
-  cachedWindow = { fetchedAt: Date.now(), matches };
-  return matches;
+export async function getCommunityMatchWindow() {
+  return cachedFetchCommunityMatches();
 }

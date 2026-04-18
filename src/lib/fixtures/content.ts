@@ -43,7 +43,7 @@ export const FIXTURE_AD_SLOTS: AdSlotConfig[] = [
     title: "Reserve this RiftLite headline placement",
     body: "Direct sponsors can run branded art, a short message, and a tracked CTA here without cluttering the experience.",
     ctaLabel: "Become A Sponsor",
-    ctaHref: "mailto:partnerships@riftlite.app",
+    ctaHref: "mailto:bmucasts@gmail.com",
   },
   {
     placement: "home-mid",
