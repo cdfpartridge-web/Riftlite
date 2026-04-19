@@ -49,8 +49,8 @@ const steps = [
     body: "Download the installer, run it, and RiftLite sits quietly in the background — no account required, no configuration forms.",
   },
   {
-    title: "Play Riftbound normally",
-    body: "Match tracking happens automatically. Your games, matchups, and deck performance are logged the moment they finish.",
+    title: "Log each match in seconds",
+    body: "RiftLite auto-fills what it can — legends, decks, and matchup details — so logging a game comes down to a couple of taps to confirm the result.",
   },
   {
     title: "Read your stats — or share them",
