@@ -3,8 +3,8 @@ import { Card } from "@/components/ui/card";
 
 const pillars = [
   {
-    title: "Real matches, tracked automatically",
-    body: "Play with the desktop app open and your matches feed straight into the community — no manual logging, no screenshots, no spreadsheets.",
+    title: "Real matches, logged fast",
+    body: "The app auto-fills legends, decks, and matchup details — you just confirm the result. From there your games feed straight into the community stats.",
   },
   {
     title: "Stats you can actually trust",

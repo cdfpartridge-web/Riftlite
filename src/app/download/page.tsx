@@ -8,7 +8,7 @@ import { getSiteSettings } from "@/lib/sanity/content";
 import { safeHref } from "@/lib/utils";
 
 const features = [
-  "Automatic match tracking — no manual logging",
+  "Fast match logging — most fields fill themselves in",
   "Share decks and matches with the community",
   "See your personal win rates and matchup history",
   "Help build the most accurate Riftbound meta stats",
@@ -30,8 +30,8 @@ export default async function DownloadPage() {
           <div className="space-y-2">
             <h3 className="font-display text-lg font-semibold text-white">What you get</h3>
             <p className="text-sm leading-6 text-slate-400">
-              Install once and play normally — RiftLite handles the tracking in the background and
-              keeps your stats up to date.
+              Install once, log each match in a couple of taps, and your stats — plus the community
+              meta — stay up to date without the spreadsheet homework.
             </p>
           </div>
           <ul className="space-y-2.5">
