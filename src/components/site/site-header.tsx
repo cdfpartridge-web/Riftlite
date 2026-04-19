@@ -7,6 +7,7 @@ import { SITE_PATHS } from "@/lib/constants";
 import { safeHref } from "@/lib/utils";
 
 const primaryLinks = [
+  { href: SITE_PATHS.guide, label: "Guide" },
   { href: SITE_PATHS.leaderboard, label: "Leaderboard" },
   { href: SITE_PATHS.meta, label: "Meta" },
   { href: SITE_PATHS.matrix, label: "Matrix" },

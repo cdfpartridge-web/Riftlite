@@ -31,7 +31,8 @@ export const siteSettingsQuery = `
     discordUrl,
     twitchUrl,
     youtubeUrl,
-    downloadUrl
+    downloadUrl,
+    guideVideoId
   }
 `;
 

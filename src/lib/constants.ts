@@ -33,6 +33,7 @@ export const SITE_PATHS = {
   matches: "/community/matches",
   decks: "/community/decks",
   news: "/news",
+  guide: "/guide",
   download: "/download",
   about: "/about",
   privacy: "/privacy",

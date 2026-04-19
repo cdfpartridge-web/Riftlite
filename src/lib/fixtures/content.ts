@@ -14,6 +14,7 @@ export const FIXTURE_SITE_SETTINGS: SiteSettings = {
   twitchUrl: "https://www.twitch.tv/bmucasts",
   youtubeUrl: "https://www.youtube.com/@bmucasts",
   downloadUrl: "https://github.com/cdfpartridge-web/Riftlite/releases/download/0.35/RiftLiteSetup.exe",
+  guideVideoId: "",
 };
 
 export const FIXTURE_HOME_HERO: HomeHero = {

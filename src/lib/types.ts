@@ -166,6 +166,7 @@ export type SiteSettings = {
   twitchUrl: string;
   youtubeUrl: string;
   downloadUrl: string;
+  guideVideoId?: string;
 };
 
 export type HomeHero = {

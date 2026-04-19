@@ -11,5 +11,12 @@ export const siteSettings = defineType({
     defineField({ name: "twitchUrl", type: "url" }),
     defineField({ name: "youtubeUrl", type: "url" }),
     defineField({ name: "downloadUrl", type: "url" }),
+    defineField({
+      name: "guideVideoId",
+      title: "Guide Video ID (YouTube)",
+      description:
+        "Paste the YouTube video ID or full URL shown on the How to Use page. Leave blank to hide the video.",
+      type: "string",
+    }),
   ],
 });
