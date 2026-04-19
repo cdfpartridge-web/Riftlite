@@ -10,6 +10,7 @@ import { StatCard } from "@/components/site/stat-card";
 import { StreamPanel } from "@/components/site/stream-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { SITE_PATHS } from "@/lib/constants";
 import { getCommunityOverview } from "@/lib/community/service";
 import {
   getAdSlots,
@@ -56,6 +57,9 @@ export default async function HomePage() {
             </Button>
             <Button asChild size="lg" variant="secondary">
               <Link href={safeHref(hero.secondaryCtaHref)}>{hero.secondaryCtaLabel}</Link>
+            </Button>
+            <Button asChild size="lg" variant="secondary">
+              <Link href={SITE_PATHS.matrix}>See the Match Matrix</Link>
             </Button>
           </div>
         </div>
