@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { AdSlot } from "@/components/site/ad-slot";
 import { DeckCard } from "@/components/site/deck-card";
+import { DiscordCta } from "@/components/site/discord-cta";
 import { FadeUp } from "@/components/site/fade-up";
 import { NewsCard } from "@/components/site/news-card";
 import { SectionHeading } from "@/components/site/section-heading";
@@ -10,12 +11,18 @@ import { StreamPanel } from "@/components/site/stream-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getCommunityOverview } from "@/lib/community/service";
-import { getAdSlots, getHomeHero, getNewsPosts, getStreamModule } from "@/lib/sanity/content";
+import {
+  getAdSlots,
+  getHomeHero,
+  getNewsPosts,
+  getSiteSettings,
+  getStreamModule,
+} from "@/lib/sanity/content";
 import { getStreamStatus } from "@/lib/twitch/status";
 import { formatPercent, safeHref } from "@/lib/utils";
 
 export default async function HomePage() {
-  const [hero, overview, newsPosts, adSlots, streamModule, streamStatus] =
+  const [hero, overview, newsPosts, adSlots, streamModule, streamStatus, settings] =
     await Promise.all([
       getHomeHero(),
       getCommunityOverview(),
@@ -23,6 +30,7 @@ export default async function HomePage() {
       getAdSlots(),
       getStreamModule(),
       getStreamStatus(),
+      getSiteSettings(),
     ]);
 
   return (
@@ -123,6 +131,11 @@ export default async function HomePage() {
       </FadeUp>
 
       <AdSlot placement="home-mid" slots={adSlots} />
+
+      {/* Discord community CTA */}
+      <FadeUp>
+        <DiscordCta href={settings.discordUrl} />
+      </FadeUp>
 
       {/* Latest News */}
       <FadeUp className="space-y-8">

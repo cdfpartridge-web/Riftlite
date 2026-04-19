@@ -55,7 +55,7 @@ export default async function RootLayout({
         className={`${bodyFont.variable} ${displayFont.variable} font-sans antialiased`}
       >
         <div className="surface-grid min-h-screen">
-          <SiteHeader downloadUrl={settings.downloadUrl} />
+          <SiteHeader discordUrl={settings.discordUrl} downloadUrl={settings.downloadUrl} />
           <main>{children}</main>
           <SiteFooter settings={settings} />
         </div>

@@ -1,8 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { DiscordLogo } from "@/components/site/discord-cta";
 import { Button } from "@/components/ui/button";
 import { SITE_PATHS } from "@/lib/constants";
+import { safeHref } from "@/lib/utils";
 
 const primaryLinks = [
   { href: SITE_PATHS.leaderboard, label: "Leaderboard" },
@@ -14,9 +16,10 @@ const primaryLinks = [
 
 type SiteHeaderProps = {
   downloadUrl?: string;
+  discordUrl?: string;
 };
 
-export function SiteHeader({}: SiteHeaderProps = {}) {
+export function SiteHeader({ discordUrl }: SiteHeaderProps = {}) {
   return (
     <header className="sticky top-0 z-50 border-b border-white/[0.07] bg-[rgba(7,12,27,0.78)] backdrop-blur-2xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-6 py-3.5">
@@ -49,9 +52,23 @@ export function SiteHeader({}: SiteHeaderProps = {}) {
           ))}
         </nav>
 
-        <Button asChild size="sm">
-          <Link href={SITE_PATHS.download}>Get The App</Link>
-        </Button>
+        <div className="flex items-center gap-2 sm:gap-3">
+          {discordUrl ? (
+            <Link
+              aria-label="Join the RiftLite Discord"
+              className="inline-flex items-center gap-2 rounded-full border border-[#5865F2]/40 bg-[#5865F2]/15 px-3 py-2 text-xs font-semibold text-white shadow-[0_0_20px_rgba(88,101,242,0.2)] transition-all duration-200 hover:border-[#5865F2]/80 hover:bg-[#5865F2]/30 hover:shadow-[0_0_28px_rgba(88,101,242,0.45)] sm:px-4"
+              href={safeHref(discordUrl)}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <DiscordLogo className="h-4 w-4 text-[#c7ccff]" />
+              <span className="hidden sm:inline">Discord</span>
+            </Link>
+          ) : null}
+          <Button asChild size="sm">
+            <Link href={SITE_PATHS.download}>Get The App</Link>
+          </Button>
+        </div>
       </div>
     </header>
   );
