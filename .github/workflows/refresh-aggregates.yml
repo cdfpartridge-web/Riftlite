@@ -18,11 +18,14 @@ name: Refresh community aggregate
 
 on:
   schedule:
-    # Every 30 minutes. 48 runs/day × 1 Firestore read (aggregate write
-    # is a write, not a read) = ~0 daily reads from the cron itself.
-    # User traffic then hits the aggregate doc (1 read/miss) instead
-    # of scanning the matches collection (500 reads/miss).
-    - cron: "*/30 * * * *"
+    # Every 4 hours. This is the SAFETY NET, not the fast path.
+    # The desktop client triggers /api/community/aggregate/append after
+    # each match save for near-instant freshness — this cron only exists
+    # to catch edits, deletions, and anything the append path missed.
+    # 6 runs/day × 500 reads = 3,000 reads/day (~6% of the 50k Spark
+    # quota). Bumping this cadence is the knob to turn if the desktop
+    # webhook proves unreliable.
+    - cron: "0 */4 * * *"
   # Manual trigger so we can prime the aggregate doc on first deploy
   # and recover quickly if something gets wedged.
   workflow_dispatch:

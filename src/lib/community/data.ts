@@ -115,7 +115,7 @@ function normalizeSnapshot(value: unknown): DeckSnapshot | null {
   };
 }
 
-function normalizeMatch(id: string, raw: Record<string, unknown>): CommunityMatch {
+export function normalizeMatch(id: string, raw: Record<string, unknown>): CommunityMatch {
   const uid = String(raw.uid ?? "").trim();
   const username = String(raw.username ?? "").trim() || `Player#${uid.slice(0, 6)}`;
   return {
@@ -258,6 +258,63 @@ export async function getCommunityMatchWindow() {
     // (e.g. inside vitest). Fall through to a direct fetch in that case.
     return fetchCommunityMatchesSafe();
   }
+}
+
+/**
+ * Incrementally merge a single new match into the aggregate doc.
+ *
+ * Why this exists: the cron path costs COMMUNITY_WINDOW_SIZE reads per
+ * run. The desktop client knows exactly when a match is added, so it
+ * can trigger this endpoint instead — 1 read + 1 write per match, and
+ * near-instant freshness on the site. See the append API route for the
+ * caller.
+ *
+ * Dedup by id: if the same match arrives twice (retries, the cron
+ * happening to race the append), we keep only one copy.
+ */
+export async function appendMatchToAggregate(
+  match: CommunityMatch,
+): Promise<{ matchCount: number; updatedAt: number; alreadyPresent: boolean }> {
+  const db = getFirestoreAdmin();
+  if (!db) {
+    throw new Error("Firestore admin is not configured");
+  }
+
+  const ref = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID);
+  const snap = await ref.get();
+
+  let existing: CommunityMatch[] = [];
+  if (snap.exists) {
+    const data = snap.data() ?? {};
+    const raw = typeof data.matchesJson === "string" ? data.matchesJson : "";
+    const parsed = raw ? safeJsonParse(raw) : null;
+    if (Array.isArray(parsed)) {
+      existing = parsed as CommunityMatch[];
+    }
+  }
+
+  // If the doc didn't exist yet, the append alone creates a minimal
+  // aggregate with just this match. The next scheduled full refresh
+  // will populate it properly. That's a cold-start edge case — normal
+  // flow assumes the aggregate already exists.
+
+  const alreadyPresent = existing.some((m) => m.id === match.id);
+  const merged = alreadyPresent
+    ? existing
+    : [match, ...existing].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+
+  // Trim to the window size so the doc doesn't grow unboundedly between
+  // full refreshes.
+  const trimmed = merged.slice(0, COMMUNITY_WINDOW_SIZE);
+  const updatedAt = Date.now();
+
+  await ref.set({
+    updatedAt,
+    matchCount: trimmed.length,
+    matchesJson: JSON.stringify(trimmed),
+  });
+
+  return { matchCount: trimmed.length, updatedAt, alreadyPresent };
 }
 
 /**

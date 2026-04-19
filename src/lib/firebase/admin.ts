@@ -1,6 +1,7 @@
 import "server-only";
 
-import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
 type FirebaseServiceAccount = {
@@ -45,13 +46,13 @@ export function isFirebaseAdminConfigured() {
   return Boolean(readServiceAccount());
 }
 
-export function getFirestoreAdmin() {
+function getAdminApp(): App | null {
   const serviceAccount = readServiceAccount();
   if (!serviceAccount) {
     return null;
   }
 
-  const app =
+  return (
     getApps()[0] ??
     initializeApp({
       credential: cert({
@@ -59,7 +60,34 @@ export function getFirestoreAdmin() {
         clientEmail: serviceAccount.clientEmail,
         privateKey: serviceAccount.privateKey,
       }),
-    });
+    })
+  );
+}
 
+export function getFirestoreAdmin() {
+  const app = getAdminApp();
+  if (!app) return null;
   return getFirestore(app);
+}
+
+/**
+ * Verify a Firebase ID token issued to a signed-in desktop client.
+ * Returns the decoded token (with .uid) on success, null on any failure
+ * — malformed token, expired token, wrong project, admin SDK not
+ * configured, etc. Callers must treat null as "unauthenticated" and
+ * reject the request.
+ *
+ * This is a pure JWT verification against Google's public keys and
+ * costs zero Firestore reads. See:
+ *   https://firebase.google.com/docs/auth/admin/verify-id-tokens
+ */
+export async function verifyFirebaseIdToken(idToken: string) {
+  const app = getAdminApp();
+  if (!app) return null;
+
+  try {
+    return await getAuth(app).verifyIdToken(idToken);
+  } catch {
+    return null;
+  }
 }
