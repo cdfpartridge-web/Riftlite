@@ -25,7 +25,7 @@ const env = Object.fromEntries(
 );
 
 const DOWNLOAD_URL =
-  "https://github.com/cdfpartridge-web/Riftlite/releases/download/0.37/RiftLiteSetup.exe";
+  "https://github.com/cdfpartridge-web/Riftlite/releases/download/0.4/RiftLiteSetup.exe";
 
 const client = createClient({
   projectId: env.NEXT_PUBLIC_SANITY_PROJECT_ID,
