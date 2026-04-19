@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 
 import { Card } from "@/components/ui/card";
@@ -80,17 +81,22 @@ export function MetaTable({ rows }: MetaTableProps) {
                 key={row.legend}
               >
                 <td className="px-5 py-3.5">
-                  <div className="flex items-center gap-3">
+                  <Link
+                    className="group flex items-center gap-3"
+                    href={`/community/legends/${encodeURIComponent(row.legend)}`}
+                  >
                     <LegendPortrait legend={row.legend} />
                     <div>
-                      <div className="text-sm font-medium text-white">{row.legend}</div>
+                      <div className="text-sm font-medium text-white underline-offset-4 group-hover:text-cyan-200 group-hover:underline">
+                        {row.legend}
+                      </div>
                       {i === 0 && (
                         <div className="mt-0.5 text-[10px] uppercase tracking-wider text-amber-400/80">
                           Most played
                         </div>
                       )}
                     </div>
-                  </div>
+                  </Link>
                 </td>
                 <td className="px-5 py-3.5">
                   <div className="flex items-center gap-2">

@@ -110,6 +110,11 @@ export default async function DeckDetailPage({
         />
         <div className="flex flex-wrap items-center gap-3 pt-1">
           {copyText && <CopyDeckButton text={copyText} />}
+          <Button asChild size="sm" variant="secondary">
+            <Link href={`/community/decks/compare?a=${encodeURIComponent(deck.deckKey)}`}>
+              Compare vs…
+            </Link>
+          </Button>
           <Button asChild variant="secondary" size="sm">
             <Link href="/community/decks">← Back to decks</Link>
           </Button>

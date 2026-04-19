@@ -15,6 +15,14 @@ import type {
 } from "@/lib/types";
 import { formatDate, formatPercent } from "@/lib/utils";
 
+function legendHref(legend: string) {
+  return `/community/legends/${encodeURIComponent(legend)}`;
+}
+
+function playerHref(username: string) {
+  return `/community/players/${encodeURIComponent(username)}`;
+}
+
 type MatrixBrowserProps = {
   matrix: MatrixView;
   matches: CommunityMatch[];
@@ -441,7 +449,17 @@ function MatchDetailPanel({
                         {formatDate(match.date)}
                       </td>
                       <td className="py-2 pr-3 font-medium text-white">
-                        {match.username || "—"}
+                        {match.username ? (
+                          <Link
+                            className="underline-offset-4 hover:text-cyan-200 hover:underline"
+                            href={playerHref(match.username)}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {match.username}
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className={`py-2 pr-3 font-semibold ${resultColorClass(match.result)}`}>
                         {match.result || "—"}
@@ -569,9 +587,12 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
                     key={legend}
                     title={legend}
                   >
-                    <div className="flex flex-col items-center gap-1">
+                    <Link
+                      className="flex flex-col items-center gap-1 rounded-lg p-0.5 transition-colors hover:bg-white/5"
+                      href={legendHref(legend)}
+                    >
                       <LegendPortrait legend={legend} size={36} />
-                    </div>
+                    </Link>
                   </th>
                 ))}
               </tr>
@@ -583,12 +604,15 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
                     className="sticky left-0 z-10 pr-2"
                     style={{ background: "#080c1a" }}
                   >
-                    <div className="flex min-w-[154px] items-center gap-2.5 rounded-[14px] border border-white/8 bg-white/[0.04] px-3 py-2.5 shadow-[2px_0_8px_rgba(0,0,0,0.4)]">
+                    <Link
+                      className="flex min-w-[154px] items-center gap-2.5 rounded-[14px] border border-white/8 bg-white/[0.04] px-3 py-2.5 shadow-[2px_0_8px_rgba(0,0,0,0.4)] transition-colors hover:border-cyan-300/40 hover:bg-white/[0.06]"
+                      href={legendHref(rowLegend)}
+                    >
                       <LegendPortrait legend={rowLegend} size={34} />
                       <span className="max-w-[100px] truncate text-xs font-medium text-slate-300">
                         {rowLegend.split(" ")[0]}
                       </span>
-                    </div>
+                    </Link>
                   </td>
                   {matrix.columns.map((colLegend) => {
                     const cell = matrix.cells.find(

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Card } from "@/components/ui/card";
 import type { LeaderboardRow } from "@/lib/types";
 import { formatPercent } from "@/lib/utils";
@@ -73,7 +75,12 @@ export function LeaderboardTable({ rows }: LeaderboardTableProps) {
                     </span>
                   </td>
                   <td className="px-5 py-3.5">
-                    <span className="text-sm font-semibold text-white">{row.player}</span>
+                    <Link
+                      className="text-sm font-semibold text-white underline-offset-4 hover:text-cyan-200 hover:underline"
+                      href={`/community/players/${encodeURIComponent(row.player)}`}
+                    >
+                      {row.player}
+                    </Link>
                   </td>
                   <td className="px-5 py-3.5 text-sm text-slate-300">{row.games}</td>
                   <td className="px-5 py-3.5">

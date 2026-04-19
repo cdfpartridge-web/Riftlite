@@ -10,6 +10,12 @@ import {
 import { applyCommunityFilters, paginate } from "@/lib/community/filters";
 import { getCommunityMatchWindow } from "@/lib/community/data";
 import { buildCommunityMetaAlerts } from "@/lib/community/meta-alerts";
+import {
+  buildDeckComparison,
+  buildLegendProfile,
+  buildPlayerProfile,
+  listPlayerNames,
+} from "@/lib/community/profiles";
 import type { CommunityFilterParams } from "@/lib/types";
 
 export async function getFilteredCommunityMatches(filters: CommunityFilterParams) {
@@ -59,4 +65,29 @@ export async function getDeckDetail(deckKey: string) {
     deck,
     matches: deckMatches,
   };
+}
+
+export async function getPlayerProfile(username: string) {
+  const matches = await getCommunityMatchWindow();
+  return buildPlayerProfile(matches, username);
+}
+
+export async function getLegendProfile(legend: string) {
+  const matches = await getCommunityMatchWindow();
+  return buildLegendProfile(matches, legend);
+}
+
+export async function getDeckComparison(keyA: string, keyB: string) {
+  const matches = await getCommunityMatchWindow();
+  return buildDeckComparison(matches, keyA, keyB);
+}
+
+export async function listAllPlayerNames() {
+  const matches = await getCommunityMatchWindow();
+  return listPlayerNames(matches);
+}
+
+export async function listAllDeckGroups() {
+  const matches = await getCommunityMatchWindow();
+  return buildDeckGroups(matches);
 }
