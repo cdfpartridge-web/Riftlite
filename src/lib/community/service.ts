@@ -9,6 +9,7 @@ import {
 } from "@/lib/community/aggregate";
 import { applyCommunityFilters, paginate } from "@/lib/community/filters";
 import { getCommunityMatchWindow } from "@/lib/community/data";
+import { buildCommunityMetaAlerts } from "@/lib/community/meta-alerts";
 import type { CommunityFilterParams } from "@/lib/types";
 
 export async function getFilteredCommunityMatches(filters: CommunityFilterParams) {
@@ -19,6 +20,11 @@ export async function getFilteredCommunityMatches(filters: CommunityFilterParams
 export async function getCommunityOverview() {
   const matches = await getCommunityMatchWindow();
   return buildOverview(matches);
+}
+
+export async function getCommunityMetaAlerts() {
+  const matches = await getCommunityMatchWindow();
+  return buildCommunityMetaAlerts(matches);
 }
 
 export async function getLeaderboard(filters: CommunityFilterParams) {
