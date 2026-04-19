@@ -19,7 +19,10 @@ export const BRAND = {
   violet: "#A67CFF",
 };
 
-export const COMMUNITY_WINDOW_SIZE = 2000;
+// Sized to match the desktop client (community_panel.py uses limit=500) so
+// we don't read 4× more from Firestore than the app does. Every cache miss
+// reads this many docs, so keep it in sync with the desktop window.
+export const COMMUNITY_WINDOW_SIZE = 500;
 export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
 export const MATCH_CACHE_MS = 60_000;

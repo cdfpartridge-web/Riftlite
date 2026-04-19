@@ -9,7 +9,7 @@ import { getDeckComparison, listAllDeckGroups } from "@/lib/community/service";
 import type { DeckGroup } from "@/lib/types";
 import { formatPercent } from "@/lib/utils";
 
-export const revalidate = 300;
+export const revalidate = 600;
 
 export const metadata = {
   title: "Deck comparison · RiftLite",

@@ -1,18 +1,18 @@
 import { CommunityNav } from "@/components/site/community-nav";
-import { MetaAlertsStrip } from "@/components/site/meta-alerts-strip";
-import { getCommunityMetaAlerts } from "@/lib/community/service";
 
-export default async function CommunityLayout({
+// Note: the meta-alerts strip used to live here. It was moved into the
+// five overview pages (leaderboard, meta, matrix, matches, decks) via
+// <CommunityMetaAlerts /> so that drill-down pages (player/legend/deck
+// detail/compare) don't spend render time aggregating alerts that the
+// visitor already saw on the way in.
+export default function CommunityLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const alerts = await getCommunityMetaAlerts();
-
   return (
     <div className="mx-auto max-w-screen-2xl space-y-8 px-6 py-12">
       <CommunityNav />
-      <MetaAlertsStrip alerts={alerts} />
       <div>{children}</div>
     </div>
   );

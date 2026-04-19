@@ -10,7 +10,7 @@ import { LEGENDS } from "@/lib/constants";
 import { getLegendProfile } from "@/lib/community/service";
 import { formatDate, formatPercent } from "@/lib/utils";
 
-export const revalidate = 300;
+export const revalidate = 600;
 
 function StatBlock({
   label,

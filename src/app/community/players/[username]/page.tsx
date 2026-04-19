@@ -9,7 +9,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getPlayerProfile } from "@/lib/community/service";
 import { formatDate, formatPercent } from "@/lib/utils";
 
-export const revalidate = 300;
+export const revalidate = 600;
 
 function StreakBadge({ streak }: { streak: { type: string; length: number } }) {
   if (!streak.type || streak.length === 0) return null;

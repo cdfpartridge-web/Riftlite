@@ -1,5 +1,6 @@
 import { AdSlot } from "@/components/site/ad-slot";
 import { CommunityFilterBar } from "@/components/site/community-filter-bar";
+import { CommunityMetaAlerts } from "@/components/site/community-meta-alerts";
 import { LeaderboardTable } from "@/components/site/leaderboard-table";
 import { SectionHeading } from "@/components/site/section-heading";
 import { parseFilters } from "@/lib/community/filters";
@@ -16,6 +17,7 @@ export default async function LeaderboardPage({
 
   return (
     <div className="space-y-8">
+      <CommunityMetaAlerts />
       <SectionHeading
         eyebrow="Leaderboard"
         title="The decks topping Riftbound right now"

@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { CommunityFilterBar } from "@/components/site/community-filter-bar";
+import { CommunityMetaAlerts } from "@/components/site/community-meta-alerts";
 import { DeckCard } from "@/components/site/deck-card";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ export default async function DecksPage({
 
   return (
     <div className="space-y-8">
+      <CommunityMetaAlerts />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Decks"

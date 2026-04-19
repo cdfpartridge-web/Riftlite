@@ -4,9 +4,14 @@ import { buildDeckGroups } from "@/lib/community/aggregate";
 import { getCommunityMatchWindow } from "@/lib/community/data";
 import { getNewsPosts } from "@/lib/sanity/content";
 
+// Cap the number of deck URLs we emit so crawlers don't create an ISR
+// entry for every one-game deck. buildDeckGroups already sorts by
+// games DESC, so this keeps the most-played decks indexed.
+const SITEMAP_DECK_LIMIT = 30;
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const [posts, matches] = await Promise.all([getNewsPosts(), getCommunityMatchWindow()]);
-  const decks = buildDeckGroups(matches);
+  const decks = buildDeckGroups(matches).slice(0, SITEMAP_DECK_LIMIT);
   const staticRoutes = [
     "",
     "/community/leaderboard",
@@ -14,6 +19,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/community/matrix",
     "/community/matches",
     "/community/decks",
+    "/community/decks/compare",
     "/news",
     "/download",
     "/about",

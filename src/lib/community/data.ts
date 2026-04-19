@@ -7,7 +7,10 @@ import { FIXTURE_MATCHES } from "@/lib/fixtures/community";
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import type { CommunityMatch, DeckSnapshot, MatchGame } from "@/lib/types";
 
-const COMMUNITY_CACHE_TTL_SECONDS = 300;
+// 10 minutes. Community stats are intentionally not real-time — sync from
+// the desktop app is already a ~30s async pipeline. Longer TTL halves the
+// cache-miss rate, which directly halves Firestore reads in steady state.
+const COMMUNITY_CACHE_TTL_SECONDS = 600;
 
 function safeJsonParse(value: string) {
   try {

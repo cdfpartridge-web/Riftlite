@@ -1,4 +1,5 @@
 import { CommunityFilterBar } from "@/components/site/community-filter-bar";
+import { CommunityMetaAlerts } from "@/components/site/community-meta-alerts";
 import { MatchesBrowser } from "@/components/site/matches-browser";
 import { SectionHeading } from "@/components/site/section-heading";
 import { parseFilters } from "@/lib/community/filters";
@@ -14,6 +15,7 @@ export default async function MatchesPage({
 
   return (
     <div className="space-y-8">
+      <CommunityMetaAlerts />
       <SectionHeading
         eyebrow="Recent Matches"
         title="See how the latest games actually played out"
