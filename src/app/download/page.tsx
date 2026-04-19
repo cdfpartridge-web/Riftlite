@@ -7,6 +7,8 @@ import { SITE_PATHS } from "@/lib/constants";
 import { getSiteSettings } from "@/lib/sanity/content";
 import { safeHref } from "@/lib/utils";
 
+export const revalidate = 600;
+
 const features = [
   "Fast match logging — most fields fill themselves in",
   "Share decks and matches with the community",

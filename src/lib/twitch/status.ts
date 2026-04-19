@@ -1,13 +1,14 @@
 import "server-only";
 
-import { TWITCH_STATUS_CACHE_MS } from "@/lib/constants";
+import { unstable_cache } from "next/cache";
+
 import type { StreamStatus } from "@/lib/types";
 
 const TOKEN_URL = "https://id.twitch.tv/oauth2/token";
 const STREAMS_URL = "https://api.twitch.tv/helix/streams";
+const STATUS_CACHE_SECONDS = 60;
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
-let cachedStatus: { value: StreamStatus; fetchedAt: number } | null = null;
 
 function getTwitchConfig() {
   return {
@@ -52,11 +53,7 @@ async function getAppToken(clientId: string, clientSecret: string) {
   return token;
 }
 
-export async function getStreamStatus(): Promise<StreamStatus> {
-  if (cachedStatus && Date.now() - cachedStatus.fetchedAt < TWITCH_STATUS_CACHE_MS) {
-    return cachedStatus.value;
-  }
-
+async function fetchStreamStatus(): Promise<StreamStatus> {
   const { clientId, clientSecret, channelLogin } = getTwitchConfig();
   const channelUrl = `https://www.twitch.tv/${channelLogin}`;
 
@@ -88,19 +85,16 @@ export async function getStreamStatus(): Promise<StreamStatus> {
     }
 
     const data = (await response.json()) as { data?: unknown[] };
-    const value: StreamStatus = {
-      state: Array.isArray(data.data) && data.data.length > 0 ? "live" : "offline",
-      isLive: Array.isArray(data.data) && data.data.length > 0,
-      tooltip:
-        Array.isArray(data.data) && data.data.length > 0
-          ? `${channelLogin} is live on Twitch`
-          : `${channelLogin} is offline on Twitch`,
+    const isLive = Array.isArray(data.data) && data.data.length > 0;
+    return {
+      state: isLive ? "live" : "offline",
+      isLive,
+      tooltip: isLive
+        ? `${channelLogin} is live on Twitch`
+        : `${channelLogin} is offline on Twitch`,
       channelLogin,
       channelUrl,
     };
-
-    cachedStatus = { value, fetchedAt: Date.now() };
-    return value;
   } catch {
     return {
       state: "unavailable",
@@ -109,5 +103,19 @@ export async function getStreamStatus(): Promise<StreamStatus> {
       channelLogin,
       channelUrl,
     };
+  }
+}
+
+const cachedStreamStatus = unstable_cache(fetchStreamStatus, ["twitch-stream-status-v1"], {
+  revalidate: STATUS_CACHE_SECONDS,
+  tags: ["twitch-status"],
+});
+
+export async function getStreamStatus(): Promise<StreamStatus> {
+  try {
+    return await cachedStreamStatus();
+  } catch {
+    // unstable_cache throws outside a Next.js request context (vitest).
+    return fetchStreamStatus();
   }
 }

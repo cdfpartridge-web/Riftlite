@@ -14,6 +14,8 @@ export const metadata = {
     "Video walkthrough and quick steps for installing RiftLite, tracking your first match, and sharing stats with the community.",
 };
 
+export const revalidate = 600;
+
 // Accepts a raw ID ("dQw4w9WgXcQ") or a full YouTube URL and returns the 11-char video ID.
 function parseYouTubeId(input: string | undefined): string | null {
   if (!input) return null;

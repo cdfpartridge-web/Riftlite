@@ -22,6 +22,8 @@ import {
 import { getStreamStatus } from "@/lib/twitch/status";
 import { formatPercent, safeHref } from "@/lib/utils";
 
+export const revalidate = 300;
+
 export default async function HomePage() {
   const [hero, overview, newsPosts, adSlots, streamModule, streamStatus, settings] =
     await Promise.all([

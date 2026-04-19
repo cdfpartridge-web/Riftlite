@@ -1,6 +1,8 @@
 import { SectionHeading } from "@/components/site/section-heading";
 import { Card } from "@/components/ui/card";
 
+export const revalidate = 600;
+
 const pillars = [
   {
     title: "Real matches, logged fast",
