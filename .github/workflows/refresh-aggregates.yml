@@ -1,0 +1,63 @@
+# Cron that refreshes the community aggregate Firestore doc.
+#
+# Why GitHub Actions instead of Vercel Cron: the Hobby Vercel plan only
+# allows a single daily cron. We want sub-hour freshness, so we drive
+# the refresh from here (free, 5-minute minimum cadence) and just hit
+# the secret-gated webhook on the deployed site.
+#
+# What the webhook does: reads COMMUNITY_WINDOW_SIZE matches from
+# Firestore, writes a normalized blob into `aggregates/community-v1`,
+# and invalidates the `community-matches` cache tag. This reduces
+# the per-cache-miss read cost from 500 to 1, which is the whole
+# point of the exercise — Firebase Spark tier has a 50k/day read quota.
+#
+# See: web/src/app/api/community/aggregate/refresh/route.ts
+#      web/src/lib/community/data.ts
+
+name: Refresh community aggregate
+
+on:
+  schedule:
+    # Every 30 minutes. 48 runs/day × 1 Firestore read (aggregate write
+    # is a write, not a read) = ~0 daily reads from the cron itself.
+    # User traffic then hits the aggregate doc (1 read/miss) instead
+    # of scanning the matches collection (500 reads/miss).
+    - cron: "*/30 * * * *"
+  # Manual trigger so we can prime the aggregate doc on first deploy
+  # and recover quickly if something gets wedged.
+  workflow_dispatch:
+
+concurrency:
+  # If a previous run is still going (shouldn't happen — the endpoint
+  # is fast — but just in case), skip this one instead of piling up.
+  group: refresh-community-aggregate
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Hit refresh webhook
+        env:
+          REFRESH_SECRET: ${{ secrets.COMMUNITY_AGGREGATE_SECRET }}
+        run: |
+          if [ -z "$REFRESH_SECRET" ]; then
+            echo "::error::COMMUNITY_AGGREGATE_SECRET is not set in repo secrets"
+            exit 1
+          fi
+
+          # --fail makes curl exit non-zero on 4xx/5xx so the job turns red.
+          # --show-error + --silent keeps the log clean on success but still
+          # prints errors. -w dumps the HTTP status for easy scanning.
+          response=$(curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer $REFRESH_SECRET" \
+            -w "\nHTTP %{http_code} in %{time_total}s\n" \
+            "https://riftlite.vercel.app/api/community/aggregate/refresh")
+
+          echo "$response"
