@@ -11,7 +11,6 @@ import { ShareButton } from "@/components/site/share-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { getAdSlots, getNewsPostBySlug, getSiteSettings } from "@/lib/sanity/content";
-import { urlForImage } from "@/lib/sanity/client";
 import { formatDate } from "@/lib/utils";
 
 export const revalidate = 60;
@@ -58,7 +57,12 @@ export default async function NewsPostPage({ params }: Props) {
   }
 
   const url = `https://www.riftlite.com/news/${slug}`;
-  const coverImageUrl = post.coverImage ? urlForImage(post.coverImage, { width: 1200, height: 480 }) : null;
+  // coverImage is already a plain CDN URL from the GROQ projection.
+  // Append Sanity's image transform params: resize, auto format, fill
+  // transparent areas with the site background so PNGs don't go black.
+  const coverImageUrl = post.coverImage
+    ? `${post.coverImage}?w=1200&h=480&fit=crop&auto=format&bg=0c1021`
+    : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-6 py-12">

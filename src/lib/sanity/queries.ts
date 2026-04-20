@@ -4,7 +4,7 @@ export const newsPostsQuery = `
     "slug": slug.current,
     excerpt,
     publishedAt,
-    coverImage,
+    "coverImage": coverImage.asset->url,
     body,
     tags,
     featured
@@ -17,7 +17,7 @@ export const newsPostBySlugQuery = `
     "slug": slug.current,
     excerpt,
     publishedAt,
-    coverImage,
+    "coverImage": coverImage.asset->url,
     body,
     tags,
     featured

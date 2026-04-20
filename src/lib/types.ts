@@ -132,7 +132,7 @@ export type NewsPost = {
   title: string;
   excerpt: string;
   publishedAt: string;
-  coverImage?: unknown; // raw Sanity image reference — pass to urlForImage()
+  coverImage?: string; // plain CDN URL projected from GROQ (coverImage.asset->url)
   body: unknown[];
   tags: string[];
   featured?: boolean;
