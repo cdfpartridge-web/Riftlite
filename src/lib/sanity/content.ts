@@ -60,7 +60,18 @@ async function fetchNewsPostBySlug(slug: string): Promise<NewsPost | null> {
 
 async function fetchSiteSettings(): Promise<SiteSettings> {
   if (!isSanityConfigured()) return FIXTURE_SITE_SETTINGS;
-  return (await sanityClient.fetch(siteSettingsQuery)) ?? FIXTURE_SITE_SETTINGS;
+  const fromSanity = ((await sanityClient.fetch(siteSettingsQuery)) ?? {}) as Partial<SiteSettings>;
+  // Merge: fixture provides the hardcoded defaults; Sanity values win only when
+  // they're actually set (non-empty string, non-null). This means fields like
+  // guideVideoId that are set in code never silently vanish because the Sanity
+  // doc has an empty string for that field.
+  const merged: SiteSettings = { ...FIXTURE_SITE_SETTINGS };
+  for (const [key, value] of Object.entries(fromSanity)) {
+    if (value !== null && value !== undefined && value !== "") {
+      (merged as Record<string, unknown>)[key] = value;
+    }
+  }
+  return merged;
 }
 
 async function fetchHomeHero(): Promise<HomeHero> {
