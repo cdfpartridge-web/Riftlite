@@ -1,0 +1,135 @@
+# Weekly meta report pipeline, split into two scheduled jobs so the
+# snapshot can be inspected before the article publishes.
+#
+# Flow:
+#   Sunday 23:30 UTC — snapshot job reads last week's matches from
+#     Firestore and writes aggregates/weekly-YYYY-Www.
+#   Monday 09:00 UTC — generate job reads the snapshot, diffs against
+#     the prior week, publishes a newsPost doc to Sanity.
+#
+# Why two jobs and not one: the snapshot is the expensive read (scales
+# with match volume) and the generate is a Sanity write. Decoupling
+# them means a flaky Sanity API doesn't lose the snapshot, and if the
+# article template breaks we can iterate on generate without re-reading
+# matches.
+#
+# Both jobs share COMMUNITY_AGGREGATE_SECRET with the existing cron —
+# no new secret needed. Manual triggering (workflow_dispatch) is
+# supported for priming the first run and for re-generating past weeks.
+
+name: Weekly meta report
+
+on:
+  schedule:
+    # Sunday 23:30 UTC → closes out the ISO week that ends Sunday 23:59.
+    - cron: "30 23 * * 0"
+    # Monday 09:00 UTC → a reasonable publish time across EU/NA mornings.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which step to run manually"
+        required: true
+        default: "both"
+        type: choice
+        options:
+          - snapshot
+          - generate
+          - both
+      week:
+        description: "Override week (YYYY-Www). Leave blank for auto."
+        required: false
+        type: string
+      force:
+        description: "Overwrite an existing article (generate only)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: weekly-meta-report
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    # Run on Sunday's scheduled tick, or when manual run asks for snapshot/both.
+    if: >
+      github.event_name == 'schedule' && github.event.schedule == '30 23 * * 0'
+      || github.event_name == 'workflow_dispatch'
+      && (github.event.inputs.job == 'snapshot' || github.event.inputs.job == 'both')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Freeze weekly snapshot
+        env:
+          SECRET: ${{ secrets.COMMUNITY_AGGREGATE_SECRET }}
+          WEEK: ${{ github.event.inputs.week }}
+        run: |
+          if [ -z "$SECRET" ]; then
+            echo "::error::COMMUNITY_AGGREGATE_SECRET is not set in repo secrets"
+            exit 1
+          fi
+
+          url="https://riftlite.vercel.app/api/community/weekly-snapshot"
+          if [ -n "$WEEK" ]; then
+            url="${url}?week=${WEEK}"
+          fi
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 120 \
+            -X POST \
+            -H "Authorization: Bearer $SECRET" \
+            -w "\nHTTP %{http_code} in %{time_total}s\n" \
+            "$url"
+
+  generate:
+    # Run on Monday's scheduled tick, or when manual run asks for generate/both.
+    # If "both" was selected manually, this job depends on `snapshot` so we
+    # don't try to read a snapshot that isn't written yet.
+    needs: [snapshot]
+    if: >
+      always()
+      && (
+        github.event_name == 'schedule' && github.event.schedule == '0 9 * * 1'
+        || github.event_name == 'workflow_dispatch'
+        && (github.event.inputs.job == 'generate' || github.event.inputs.job == 'both')
+      )
+      && (needs.snapshot.result == 'success' || needs.snapshot.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Publish meta report article
+        env:
+          SECRET: ${{ secrets.COMMUNITY_AGGREGATE_SECRET }}
+          WEEK: ${{ github.event.inputs.week }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          if [ -z "$SECRET" ]; then
+            echo "::error::COMMUNITY_AGGREGATE_SECRET is not set in repo secrets"
+            exit 1
+          fi
+
+          url="https://riftlite.vercel.app/api/community/meta-report/generate"
+          params=""
+          if [ -n "$WEEK" ]; then
+            params="week=${WEEK}"
+          fi
+          if [ "$FORCE" = "true" ]; then
+            params="${params:+${params}&}force=true"
+          fi
+          if [ -n "$params" ]; then
+            url="${url}?${params}"
+          fi
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer $SECRET" \
+            -w "\nHTTP %{http_code} in %{time_total}s\n" \
+            "$url"
