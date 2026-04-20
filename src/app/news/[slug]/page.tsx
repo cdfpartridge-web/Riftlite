@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -10,6 +11,7 @@ import { ShareButton } from "@/components/site/share-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { getAdSlots, getNewsPostBySlug, getSiteSettings } from "@/lib/sanity/content";
+import { urlForImage } from "@/lib/sanity/client";
 import { formatDate } from "@/lib/utils";
 
 export const revalidate = 60;
@@ -56,6 +58,7 @@ export default async function NewsPostPage({ params }: Props) {
   }
 
   const url = `https://www.riftlite.com/news/${slug}`;
+  const coverImageUrl = post.coverImage ? urlForImage(post.coverImage, { width: 1200, height: 480 }) : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-6 py-12">
@@ -82,6 +85,19 @@ export default async function NewsPostPage({ params }: Props) {
               {tag}
             </span>
           ))}
+        </div>
+      )}
+
+      {coverImageUrl && (
+        <div className="overflow-hidden rounded-2xl border border-white/[0.08]">
+          <Image
+            src={coverImageUrl}
+            alt={post.title}
+            width={1200}
+            height={480}
+            className="w-full object-cover"
+            priority
+          />
         </div>
       )}
 

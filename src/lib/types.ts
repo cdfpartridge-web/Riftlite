@@ -132,7 +132,7 @@ export type NewsPost = {
   title: string;
   excerpt: string;
   publishedAt: string;
-  coverImage?: string;
+  coverImage?: unknown; // raw Sanity image reference — pass to urlForImage()
   body: unknown[];
   tags: string[];
   featured?: boolean;
