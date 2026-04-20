@@ -285,10 +285,15 @@ export async function buildWeeklySnapshot(window: {
     return buildWeeklySnapshotFromMatches([], window);
   }
 
+  // The Python desktop app stores `created_at` as Unix seconds (int(time.time())).
+  // Convert the millisecond window bounds to seconds before comparing.
+  const startSec = Math.floor(window.startMs / 1000);
+  const endSec = Math.floor(window.endMs / 1000);
+
   const snap = await db
     .collection("matches")
-    .where("created_at", ">=", window.startMs)
-    .where("created_at", "<", window.endMs)
+    .where("created_at", ">=", startSec)
+    .where("created_at", "<", endSec)
     .orderBy("created_at", "desc")
     .get();
 
@@ -297,6 +302,9 @@ export async function buildWeeklySnapshot(window: {
   // testable without a Firebase admin stub for everything.
   const matches: CommunityMatch[] = snap.docs.map((doc) => {
     const raw = doc.data() as Record<string, unknown>;
+    // created_at is stored in seconds by the Python client; multiply to get ms
+    // so CommunityMatch.createdAt is consistently in milliseconds.
+    const createdAtSec = Number(raw.created_at ?? 0);
     return {
       id: doc.id,
       uid: String(raw.uid ?? "").trim(),
@@ -317,7 +325,7 @@ export async function buildWeeklySnapshot(window: {
       deckSourceUrl: String(raw.my_deck_source_url ?? "").trim(),
       deckSourceKey: String(raw.my_deck_source_key ?? "").trim(),
       deckSnapshot: null,
-      createdAt: Number(raw.created_at ?? 0),
+      createdAt: createdAtSec * 1000,
     };
   });
 
@@ -330,22 +338,21 @@ export async function writeWeeklySnapshot(snapshot: WeeklySnapshot): Promise<voi
     throw new Error("Firestore admin is not configured");
   }
   const docId = weeklySnapshotDocId(snapshot.year, snapshot.weekNumber);
+
+  // Destructure the arrays out before spreading so we never pass `undefined`
+  // to Firestore — the Admin SDK rejects undefined values and throws. The
+  // arrays are stored as JSON strings to keep the doc well under the 1 MiB
+  // limit even at high match volume.
+  const { legends, decks, players, battlefields, ...scalars } = snapshot;
   await db
     .collection(WEEKLY_SNAPSHOT_COLLECTION)
     .doc(docId)
     .set({
-      ...snapshot,
-      // Serialize the bulky arrays as JSON to keep the doc under the
-      // 1 MiB limit even at high match volume. Stats blobs are already
-      // small so this is mostly future-proofing.
-      legendsJson: JSON.stringify(snapshot.legends),
-      decksJson: JSON.stringify(snapshot.decks),
-      playersJson: JSON.stringify(snapshot.players),
-      battlefieldsJson: JSON.stringify(snapshot.battlefields),
-      legends: undefined,
-      decks: undefined,
-      players: undefined,
-      battlefields: undefined,
+      ...scalars,
+      legendsJson: JSON.stringify(legends),
+      decksJson: JSON.stringify(decks),
+      playersJson: JSON.stringify(players),
+      battlefieldsJson: JSON.stringify(battlefields),
     });
 }
 
