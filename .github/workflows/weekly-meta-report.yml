@@ -75,8 +75,11 @@ jobs:
             url="${url}?week=${WEEK}"
           fi
 
+          # --fail-with-body so we still see the error body on 4xx/5xx
+          # instead of curl swallowing it. Means we can actually diagnose
+          # "why did it fail" from the workflow log.
           curl \
-            --fail \
+            --fail-with-body \
             --silent \
             --show-error \
             --max-time 120 \
