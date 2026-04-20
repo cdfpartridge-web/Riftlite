@@ -60,8 +60,11 @@ export default async function NewsPostPage({ params }: Props) {
   // coverImage is already a plain CDN URL from the GROQ projection.
   // Append Sanity's image transform params: resize, auto format, fill
   // transparent areas with the site background so PNGs don't go black.
+  // No crop or fixed height — infographics and portrait images should
+  // display at their natural proportions. Just cap the width so it
+  // doesn't exceed the content column.
   const coverImageUrl = post.coverImage
-    ? `${post.coverImage}?w=1200&h=480&fit=crop&auto=format&bg=0c1021`
+    ? `${post.coverImage}?w=1200&auto=format&bg=0c1021`
     : null;
 
   return (
@@ -98,8 +101,9 @@ export default async function NewsPostPage({ params }: Props) {
             src={coverImageUrl}
             alt={post.title}
             width={1200}
-            height={480}
-            className="w-full object-cover"
+            height={900}
+            style={{ height: "auto" }}
+            className="w-full"
             priority
           />
         </div>
