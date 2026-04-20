@@ -281,40 +281,52 @@ export async function appendMatchToAggregate(
   }
 
   const ref = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID);
-  const snap = await ref.get();
 
-  let existing: CommunityMatch[] = [];
-  if (snap.exists) {
-    const data = snap.data() ?? {};
-    const raw = typeof data.matchesJson === "string" ? data.matchesJson : "";
-    const parsed = raw ? safeJsonParse(raw) : null;
-    if (Array.isArray(parsed)) {
-      existing = parsed as CommunityMatch[];
+  // Wrapped in a transaction so concurrent appends don't stomp each
+  // other. Without this, two matches finishing at the same moment
+  // would both read the current state, each merge in their own match,
+  // then race to overwrite — and whichever write lands second silently
+  // drops the other match. Firestore retries the transaction up to 5x
+  // automatically on contention, so the happy path stays 1 read + 1
+  // write and only gets more expensive under actual concurrency.
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+
+    let existing: CommunityMatch[] = [];
+    if (snap.exists) {
+      const data = snap.data() ?? {};
+      const raw = typeof data.matchesJson === "string" ? data.matchesJson : "";
+      const parsed = raw ? safeJsonParse(raw) : null;
+      if (Array.isArray(parsed)) {
+        existing = parsed as CommunityMatch[];
+      }
     }
-  }
 
-  // If the doc didn't exist yet, the append alone creates a minimal
-  // aggregate with just this match. The next scheduled full refresh
-  // will populate it properly. That's a cold-start edge case — normal
-  // flow assumes the aggregate already exists.
+    // If the doc didn't exist yet, the append alone creates a minimal
+    // aggregate with just this match. The next scheduled full refresh
+    // will populate it properly. That's a cold-start edge case —
+    // normal flow assumes the aggregate already exists.
 
-  const alreadyPresent = existing.some((m) => m.id === match.id);
-  const merged = alreadyPresent
-    ? existing
-    : [match, ...existing].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    const alreadyPresent = existing.some((m) => m.id === match.id);
+    const merged = alreadyPresent
+      ? existing
+      : [match, ...existing].sort(
+          (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0),
+        );
 
-  // Trim to the window size so the doc doesn't grow unboundedly between
-  // full refreshes.
-  const trimmed = merged.slice(0, COMMUNITY_WINDOW_SIZE);
-  const updatedAt = Date.now();
+    // Trim to the window size so the doc doesn't grow unboundedly
+    // between full refreshes.
+    const trimmed = merged.slice(0, COMMUNITY_WINDOW_SIZE);
+    const updatedAt = Date.now();
 
-  await ref.set({
-    updatedAt,
-    matchCount: trimmed.length,
-    matchesJson: JSON.stringify(trimmed),
+    tx.set(ref, {
+      updatedAt,
+      matchCount: trimmed.length,
+      matchesJson: JSON.stringify(trimmed),
+    });
+
+    return { matchCount: trimmed.length, updatedAt, alreadyPresent };
   });
-
-  return { matchCount: trimmed.length, updatedAt, alreadyPresent };
 }
 
 /**
