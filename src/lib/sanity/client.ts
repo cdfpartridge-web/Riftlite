@@ -22,12 +22,12 @@ export function isSanityConfigured() {
 }
 
 export function urlForImage(source: unknown, options?: { width?: number; height?: number }) {
-  // bg fills transparent areas (e.g. PNG legends/card art) with the site's
-  // background colour instead of black. auto("format") serves WebP/AVIF which
-  // preserve transparency when the browser supports them, but the bg fallback
-  // handles the cases where it converts to JPEG.
-  let b = builder.image(source as never).bg("0c1021").auto("format").fit("crop");
+  let b = builder.image(source as never).auto("format").fit("crop");
   if (options?.width) b = b.width(options.width);
   if (options?.height) b = b.height(options.height);
-  return b.url();
+  const url = b.url();
+  // Append bg manually — @sanity/image-url doesn't expose .bg() but the
+  // Sanity image pipeline accepts it as a query param. Fills transparent
+  // areas (e.g. PNG card art) with the site background so they don't go black.
+  return `${url}${url.includes("?") ? "&" : "?"}bg=0c1021`;
 }
