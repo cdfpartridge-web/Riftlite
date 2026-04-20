@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { PortableText } from "@portabletext/react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { PortableTextRenderer } from "@/components/site/portable-text-renderer";
 import { AdSlot } from "@/components/site/ad-slot";
 import { DiscordCta } from "@/components/site/discord-cta";
 import { SectionHeading } from "@/components/site/section-heading";
@@ -85,8 +85,8 @@ export default async function NewsPostPage({ params }: Props) {
         </div>
       )}
 
-      <Card className="prose prose-invert max-w-none prose-p:text-slate-300 prose-headings:text-white prose-li:text-slate-300 prose-strong:text-white">
-        <PortableText value={post.body as never} />
+      <Card>
+        <PortableTextRenderer value={post.body as unknown[]} />
       </Card>
 
       <DiscordCta
