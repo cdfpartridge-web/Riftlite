@@ -49,11 +49,49 @@ export default async function RootLayout({
 }>) {
   const settings = await getSiteSettings();
 
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      name: "RiftLite",
+      url: "https://www.riftlite.com",
+      logo: "https://www.riftlite.com/brand/riftlite-logo-transparent.png",
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: "RiftLite",
+      url: "https://www.riftlite.com",
+      potentialAction: {
+        "@type": "SearchAction",
+        target: "https://www.riftlite.com/community/decks?q={search_term_string}",
+        "query-input": "required name=search_term_string",
+      },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: "RiftLite",
+      applicationCategory: "GameApplication",
+      operatingSystem: "Windows",
+      url: "https://www.riftlite.com/download",
+      description:
+        "Desktop companion app for Legends of Runeterra. Auto-logs matches, streamer overlay for OBS, turn-by-turn replay viewer, and personal matchup matrix.",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    },
+  ];
+
   return (
     <html data-scroll-behavior="smooth" lang="en" suppressHydrationWarning>
       <body
         className={`${bodyFont.variable} ${displayFont.variable} font-sans antialiased`}
       >
+        <Script
+          id="jsonld-site"
+          type="application/ld+json"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
         <div className="surface-grid min-h-screen">
           <SiteHeader discordUrl={settings.discordUrl} downloadUrl={settings.downloadUrl} />
           <main>{children}</main>

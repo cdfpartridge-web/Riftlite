@@ -4,14 +4,15 @@ type SectionHeadingProps = {
   eyebrow: string;
   title: string;
   description?: string;
+  id?: string;
 };
 
-export function SectionHeading({ eyebrow, title, description }: SectionHeadingProps) {
+export function SectionHeading({ eyebrow, title, description, id }: SectionHeadingProps) {
   return (
     <div className="space-y-4">
       <Badge>{eyebrow}</Badge>
       <div className="space-y-3">
-        <h2 className="font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
+        <h2 className="font-display text-3xl font-bold tracking-tight text-white md:text-4xl" id={id}>
           {title}
         </h2>
         {description ? (

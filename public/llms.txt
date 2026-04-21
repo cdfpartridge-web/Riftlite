@@ -1,0 +1,29 @@
+# RiftLite
+
+> RiftLite is a free Windows desktop companion app for Legends of Runeterra. It auto-logs matches, tracks your matchup stats, includes a streamer overlay for OBS, and provides a turn-by-turn replay viewer. The website hosts download links, the community meta (leaderboard, matchup matrix, deck stats), guides, and news.
+
+## Core pages
+
+- [Home](https://www.riftlite.com/): Overview and download CTA.
+- [Download](https://www.riftlite.com/download): Get the Windows desktop app. Free, no account required.
+- [Guide](https://www.riftlite.com/guide): How to install and use RiftLite.
+- [News](https://www.riftlite.com/news): Patch notes and release announcements.
+- [About](https://www.riftlite.com/about): What RiftLite is and who makes it.
+
+## Community data
+
+- [Leaderboard](https://www.riftlite.com/community/leaderboard): Top players by win rate.
+- [Meta](https://www.riftlite.com/community/meta): Deck archetype play rate and win rate.
+- [Matchup matrix](https://www.riftlite.com/community/matrix): Deck-vs-deck win rates.
+- [Matches](https://www.riftlite.com/community/matches): Recent community matches.
+- [Decks](https://www.riftlite.com/community/decks): Deck list and stats.
+- [Deck compare](https://www.riftlite.com/community/decks/compare): Compare two decks head-to-head.
+
+## Features of the desktop app
+
+- Auto-logs matches — most fields fill themselves in.
+- Streamer overlay for OBS (new in 0.47).
+- Turn-by-turn replay viewer for every logged game.
+- Personal matchup matrix with going-first splits.
+- Piltover Archive deck import with per-match snapshots.
+- Community leaderboard, meta, and matrix all accessible in-app.

@@ -33,13 +33,13 @@ export default async function HomePage() {
   return (
     <div className="mx-auto max-w-7xl space-y-24 px-6 py-14">
       {/* Hero — download-first */}
-      <section className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+      <section aria-labelledby="hero-title" className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
         <div className="animate-fade-up space-y-7">
           <div className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/8 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">
             Free desktop app · Riftbound
           </div>
           <div className="space-y-4">
-            <h1 className="font-display text-5xl font-bold tracking-tight text-white md:text-6xl lg:text-7xl">
+            <h1 className="font-display text-5xl font-bold tracking-tight text-white md:text-6xl lg:text-7xl" id="hero-title">
               Track every match. Stream like a pro.
             </h1>
             <p className="max-w-xl text-lg leading-8 text-slate-400">
@@ -112,6 +112,7 @@ export default async function HomePage() {
       {/* Feature 1: Streamer Overlay (the headliner) */}
       <FadeUp className="space-y-10">
         <SectionHeading
+          id="feature-overlay"
           eyebrow="★ New in 0.47"
           title="A streamer overlay built for Riftbound."
           description="Drop one URL into OBS as a Browser Source and your viewers see the same matchup intel you do — personal win rates, community averages, going-first splits, and the most-played battlefield for game one. No cloud round-trip, no extra setup; it reads from your already-synced history."
@@ -156,6 +157,7 @@ export default async function HomePage() {
       {/* Feature 2: Replay viewer */}
       <FadeUp className="space-y-10">
         <SectionHeading
+          id="feature-replay"
           eyebrow="Replay viewer"
           title="Walk through every game, turn by turn."
           description="RiftLite captures the action feed from each match and rebuilds it as a navigable replay. Jump between turns, see points scored, cards played, and battlefields conquered — perfect for studying matchups or reviewing a tight Bo3."
@@ -197,6 +199,7 @@ export default async function HomePage() {
       {/* Feature 3: Stats matrix */}
       <FadeUp className="space-y-10">
         <SectionHeading
+          id="feature-stats"
           eyebrow="Your stats"
           title="See your matchup matrix at a glance."
           description="Every legend you've played, every legend you've faced — win rates colour-coded, with going-first splits, recent form, battlefield performance, and a rolling win-rate chart. The kind of dashboard you'd spend a weekend building in a spreadsheet, except it's already there."
@@ -215,6 +218,7 @@ export default async function HomePage() {
       {/* Feature 4: Deck library */}
       <FadeUp className="space-y-10">
         <SectionHeading
+          id="feature-decks"
           eyebrow="Deck library"
           title="Piltover Archive, linked and cached."
           description="Paste a Piltover Archive link and RiftLite imports the full visual deck — runes, battlefields, mainboard, sideboard. Every match locks its deck snapshot, so your history stays accurate even when the live list keeps evolving."
@@ -233,6 +237,7 @@ export default async function HomePage() {
       {/* Feature 5: Community */}
       <FadeUp className="space-y-10">
         <SectionHeading
+          id="feature-community"
           eyebrow="Community data"
           title="The whole meta, inside the app."
           description="Every game you log (anonymously, if you want) feeds the leaderboard, legend meta, and community matchup matrix — and they feed you right back inside RiftLite. No tab-hopping, no scraping Discord."
@@ -333,6 +338,7 @@ export default async function HomePage() {
       {/* Latest News */}
       <FadeUp className="space-y-8">
         <SectionHeading
+          id="latest-news"
           eyebrow="Latest News"
           title="Patch notes, meta shifts, and announcements."
           description="Stay on top of what's changing in Riftbound and what's new in RiftLite."

@@ -3,6 +3,33 @@
 @theme inline {
   --font-sans: var(--font-rift-body);
   --font-display: var(--font-rift-display);
+
+  /* ---- Fluid type scale (1.25 ratio, clamp-based) ----
+     Each size scales between a min (mobile, ~360px) and max (~1440px).
+     Redefining Tailwind's --text-* vars makes text-xs…text-7xl utilities
+     automatically fluid site-wide. */
+  --text-xs: clamp(0.75rem, 0.72rem + 0.1vw, 0.8125rem);
+  --text-xs--line-height: 1.5;
+  --text-sm: clamp(0.875rem, 0.85rem + 0.125vw, 0.9375rem);
+  --text-sm--line-height: 1.55;
+  --text-base: clamp(1rem, 0.95rem + 0.2vw, 1.125rem);
+  --text-base--line-height: 1.65;
+  --text-lg: clamp(1.125rem, 1.05rem + 0.3vw, 1.25rem);
+  --text-lg--line-height: 1.6;
+  --text-xl: clamp(1.25rem, 1.15rem + 0.4vw, 1.5rem);
+  --text-xl--line-height: 1.5;
+  --text-2xl: clamp(1.5rem, 1.35rem + 0.6vw, 1.875rem);
+  --text-2xl--line-height: 1.35;
+  --text-3xl: clamp(1.875rem, 1.65rem + 0.9vw, 2.5rem);
+  --text-3xl--line-height: 1.25;
+  --text-4xl: clamp(2.25rem, 1.9rem + 1.4vw, 3.25rem);
+  --text-4xl--line-height: 1.15;
+  --text-5xl: clamp(2.75rem, 2.2rem + 2.2vw, 4.25rem);
+  --text-5xl--line-height: 1.08;
+  --text-6xl: clamp(3.25rem, 2.5rem + 3vw, 5rem);
+  --text-6xl--line-height: 1.05;
+  --text-7xl: clamp(3.75rem, 2.8rem + 3.8vw, 5.75rem);
+  --text-7xl--line-height: 1;
 }
 
 :root {
@@ -37,6 +64,35 @@ body {
     linear-gradient(180deg, #0c1021 0%, #090d1b 50%, #060810 100%);
   color: var(--foreground);
   font-family: var(--font-rift-body), sans-serif;
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Element-level defaults so raw h1/h2/h3/p inherit the type scale even
+   without Tailwind utility classes. Tailwind text-* utilities still win
+   when applied. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-rift-display), var(--font-rift-body), sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+h1 { font-size: var(--text-5xl); line-height: var(--text-5xl--line-height); letter-spacing: -0.02em; }
+h2 { font-size: var(--text-3xl); line-height: var(--text-3xl--line-height); }
+h3 { font-size: var(--text-xl);  line-height: var(--text-xl--line-height); }
+h4 { font-size: var(--text-lg);  line-height: var(--text-lg--line-height); }
+p  { font-size: var(--text-base); line-height: var(--text-base--line-height); }
+
+/* Respect reduced-motion preferences for all the animations below. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 a {
