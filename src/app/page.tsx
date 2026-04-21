@@ -52,7 +52,7 @@ export default async function HomePage() {
               <Link href={downloadHref}>Download RiftLite — free</Link>
             </Button>
             <Button asChild size="lg" variant="secondary">
-              <Link href={SITE_PATHS.guide}>Watch the 2-min guide</Link>
+              <Link href={SITE_PATHS.guide}>Guide</Link>
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
