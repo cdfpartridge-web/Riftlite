@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { SectionHeading } from "@/components/site/section-heading";
@@ -10,24 +11,27 @@ import { safeHref } from "@/lib/utils";
 export const revalidate = 600;
 
 const features = [
-  "Fast match logging — most fields fill themselves in",
-  "Share decks and matches with the community",
-  "See your personal win rates and matchup history",
-  "Help build the most accurate Riftbound meta stats",
+  "Auto-logs matches — most fields fill themselves in",
+  "Streamer overlay for OBS (new in 0.47)",
+  "Turn-by-turn replay viewer for every logged game",
+  "Personal matchup matrix with going-first splits",
+  "Piltover Archive deck import with per-match snapshots",
+  "Community leaderboard, meta, and matrix — all in-app",
 ];
 
 export default async function DownloadPage() {
   const settings = await getSiteSettings();
+  const downloadHref = safeHref(settings.downloadUrl);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-10 px-6 py-14">
+    <div className="mx-auto max-w-5xl space-y-14 px-6 py-14">
       <SectionHeading
         eyebrow="Download"
         title="Get the RiftLite desktop app."
-        description="Track every match you play, study your own performance, and add your games to the community stats you see here."
+        description="Auto-track every match, study your matchups, and stream with a live overlay. Free, Windows, no account required."
       />
 
-      <div className="grid gap-6 md:grid-cols-[1fr_auto]">
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
         <Card className="space-y-6">
           <div className="space-y-2">
             <h3 className="font-display text-lg font-semibold text-white">What you get</h3>
@@ -39,16 +43,76 @@ export default async function DownloadPage() {
           <ul className="space-y-2.5">
             {features.map((f) => (
               <li className="flex items-center gap-3 text-sm text-slate-300" key={f}>
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400/15 text-emerald-300 text-xs">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400/15 text-xs text-emerald-300">
                   ✓
                 </span>
                 {f}
               </li>
             ))}
           </ul>
-          <Button asChild size="lg">
-            <Link href={safeHref(settings.downloadUrl)}>Download RiftLite</Link>
-          </Button>
+          <div className="flex flex-wrap gap-3">
+            <Button asChild size="lg">
+              <Link href={downloadHref}>Download RiftLite</Link>
+            </Button>
+            <Button asChild size="lg" variant="secondary">
+              <Link href={SITE_PATHS.guide}>How to use it</Link>
+            </Button>
+          </div>
+          <div className="text-xs text-slate-500">Windows · free · no account required</div>
+        </Card>
+
+        <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-4 shadow-[0_0_60px_rgba(89,167,255,0.08)]">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
+          <div className="relative space-y-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.26em] text-cyan-200">
+              New · Streamer Overlay
+            </div>
+            <Image
+              alt="RiftLite streamer overlay — matchup stats for Ezreal vs Vex"
+              className="h-auto w-full rounded-xl"
+              height={290}
+              src="/screenshots/overlay.png"
+              width={470}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Feature preview grid */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card className="space-y-3">
+          <div className="text-[10px] font-bold uppercase tracking-[0.26em] text-cyan-200">
+            Replay viewer
+          </div>
+          <h3 className="font-display text-lg font-semibold text-white">
+            Walk through every turn.
+          </h3>
+          <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-slate-950/60">
+            <Image
+              alt="Replay viewer showing turn timeline and action feed"
+              className="h-auto w-full"
+              height={819}
+              src="/screenshots/replay-viewer.png"
+              width={1456}
+            />
+          </div>
+        </Card>
+        <Card className="space-y-3">
+          <div className="text-[10px] font-bold uppercase tracking-[0.26em] text-cyan-200">
+            Your stats
+          </div>
+          <h3 className="font-display text-lg font-semibold text-white">
+            Matchup matrix, colour-coded.
+          </h3>
+          <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-slate-950/60">
+            <Image
+              alt="Personal stats — matchup matrix and summary"
+              className="h-auto w-full"
+              height={819}
+              src="/screenshots/stats-matrix.png"
+              width={1456}
+            />
+          </div>
         </Card>
       </div>
 

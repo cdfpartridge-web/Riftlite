@@ -1,106 +1,105 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import { AdSlot } from "@/components/site/ad-slot";
-import { DeckCard } from "@/components/site/deck-card";
 import { DiscordCta } from "@/components/site/discord-cta";
 import { FadeUp } from "@/components/site/fade-up";
 import { NewsCard } from "@/components/site/news-card";
 import { SectionHeading } from "@/components/site/section-heading";
 import { StatCard } from "@/components/site/stat-card";
-import { StreamPanel } from "@/components/site/stream-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { SITE_PATHS } from "@/lib/constants";
 import { getCommunityOverview } from "@/lib/community/service";
 import {
   getAdSlots,
-  getHomeHero,
   getNewsPosts,
   getSiteSettings,
-  getStreamModule,
 } from "@/lib/sanity/content";
-import { getStreamStatus } from "@/lib/twitch/status";
 import { formatPercent, safeHref } from "@/lib/utils";
 
 export const revalidate = 300;
 
 export default async function HomePage() {
-  const [hero, overview, newsPosts, adSlots, streamModule, streamStatus, settings] =
-    await Promise.all([
-      getHomeHero(),
-      getCommunityOverview(),
-      getNewsPosts(),
-      getAdSlots(),
-      getStreamModule(),
-      getStreamStatus(),
-      getSiteSettings(),
-    ]);
+  const [overview, newsPosts, adSlots, settings] = await Promise.all([
+    getCommunityOverview(),
+    getNewsPosts(),
+    getAdSlots(),
+    getSiteSettings(),
+  ]);
+
+  const downloadHref = safeHref(settings.downloadUrl);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-20 px-6 py-14">
-
-      {/* Hero */}
+    <div className="mx-auto max-w-7xl space-y-24 px-6 py-14">
+      {/* Hero — download-first */}
       <section className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
         <div className="animate-fade-up space-y-7">
           <div className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/8 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">
-            {hero.eyebrow}
+            Free desktop app · Riftbound
           </div>
           <div className="space-y-4">
             <h1 className="font-display text-5xl font-bold tracking-tight text-white md:text-6xl lg:text-7xl">
-              {hero.headline}
+              Track every match. Stream like a pro.
             </h1>
             <p className="max-w-xl text-lg leading-8 text-slate-400">
-              {hero.subheading}
+              RiftLite auto-logs your Riftbound games, surfaces your real win rates, and
+              drops a live matchup overlay straight into OBS — no spreadsheets, no setup.
             </p>
           </div>
           <div className="flex flex-wrap gap-4">
             <Button asChild size="lg">
-              <Link href={safeHref(hero.primaryCtaHref)}>{hero.primaryCtaLabel}</Link>
+              <Link href={downloadHref}>Download RiftLite — free</Link>
             </Button>
             <Button asChild size="lg" variant="secondary">
-              <Link href={safeHref(hero.secondaryCtaHref)}>{hero.secondaryCtaLabel}</Link>
+              <Link href={SITE_PATHS.guide}>Watch the 2-min guide</Link>
             </Button>
-            <Button asChild size="lg" variant="secondary">
-              <Link href={SITE_PATHS.matrix}>See the Match Matrix</Link>
-            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
+            <span className="inline-flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Windows · installs in under a minute
+            </span>
+            <span>No account required</span>
+            <span>{overview.totalMatches.toLocaleString()} community matches tracked</span>
           </div>
         </div>
 
+        {/* Hero visual — the overlay, front and centre */}
         <div className="animate-fade-up delay-150">
           <Card className="overflow-hidden bg-[linear-gradient(145deg,rgba(89,167,255,0.1),rgba(166,124,255,0.12))] shadow-[0_0_80px_rgba(89,167,255,0.08),0_8px_40px_rgba(4,8,23,0.5),inset_0_1px_0_rgba(255,255,255,0.08)]">
-            <div className="space-y-5">
-              <div className="text-[10px] font-bold uppercase tracking-[0.26em] text-slate-500">
-                Live community snapshot
-              </div>
-              <CardTitle className="text-3xl">
-                {overview.totalMatches} public matches tracked
-              </CardTitle>
-              <CardDescription className="text-base">
-                {overview.totalPlayers} players · {overview.totalDecks} grouped decks ·{" "}
-                {overview.trackedLegends} legends in the current window.
-              </CardDescription>
-              {overview.topDeck ? (
-                <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-5">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">
-                    Most-played deck
-                  </div>
-                  <div className="mt-2 font-display text-xl font-semibold text-white">
-                    {overview.topDeck.title}
-                  </div>
-                  <div className="mt-1.5 text-sm text-slate-400">
-                    {overview.topDeck.legend} · {overview.topDeck.games} games ·{" "}
-                    <span className="text-emerald-300 font-medium">{formatPercent(overview.topDeck.winRate)} WR</span>
-                  </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] font-bold uppercase tracking-[0.26em] text-cyan-200">
+                  New · Streamer Overlay
                 </div>
-              ) : null}
+                <div className="rounded-full border border-rose-400/30 bg-rose-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-300">
+                  Live
+                </div>
+              </div>
+              <CardTitle className="text-2xl">Matchup stats, live on your stream.</CardTitle>
+              <CardDescription className="text-base">
+                One browser source in OBS — the overlay reads from your local history and updates
+                the instant you pick a matchup.
+              </CardDescription>
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                <Image
+                  alt="RiftLite streamer overlay showing personal and community matchup stats for Ezreal vs Vex"
+                  className="h-auto w-full rounded-lg"
+                  height={290}
+                  priority
+                  src="/screenshots/overlay.png"
+                  width={470}
+                />
+              </div>
             </div>
           </Card>
         </div>
       </section>
 
-      {/* Stat cards */}
+      {/* Stat cards — social proof */}
       <FadeUp className="grid gap-4 md:grid-cols-4">
-        <StatCard label="Matches" value={String(overview.totalMatches)} />
+        <StatCard label="Matches tracked" value={String(overview.totalMatches)} />
         <StatCard label="Players" value={String(overview.totalPlayers)} />
         <StatCard label="Top Legend" value={overview.topLegend?.legend ?? "—"} />
         <StatCard
@@ -110,38 +109,226 @@ export default async function HomePage() {
         />
       </FadeUp>
 
-      <AdSlot placement="home-hero" slots={adSlots} />
-
-      {/* Featured Decks */}
-      <FadeUp className="space-y-8">
+      {/* Feature 1: Streamer Overlay (the headliner) */}
+      <FadeUp className="space-y-10">
         <SectionHeading
-          eyebrow="Featured Decks"
-          title="See what the community is winning with."
-          description="Browse the decks players are running right now, with real win rates pulled straight from live community matches."
+          eyebrow="★ New in 0.47"
+          title="A streamer overlay built for Riftbound."
+          description="Drop one URL into OBS as a Browser Source and your viewers see the same matchup intel you do — personal win rates, community averages, going-first splits, and the most-played battlefield for game one. No cloud round-trip, no extra setup; it reads from your already-synced history."
         />
-        <div className="grid gap-6 lg:grid-cols-3">
-          {overview.featuredDecks.map((deck) => (
-            <DeckCard deck={deck} key={deck.deckKey} />
-          ))}
+        <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr] lg:items-center">
+          <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-6 shadow-[0_0_80px_rgba(89,167,255,0.08)]">
+            <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
+            <Image
+              alt="Landscape streamer overlay — Ezreal vs Vex with personal and community win rates"
+              className="relative h-auto w-full rounded-xl"
+              height={290}
+              src="/screenshots/overlay.png"
+              width={470}
+            />
+          </div>
+          <ul className="space-y-4">
+            {[
+              {
+                title: "Zero-lag, local-first",
+                body: "Served from 127.0.0.1 — instant updates when you change legend, no Firebase reads while you're live.",
+              },
+              {
+                title: "Portrait or landscape",
+                body: "Two layouts built in. Pick whichever fits your scene and grab the URL from the app.",
+              },
+              {
+                title: "Personal + community side-by-side",
+                body: "Your own matchup history next to community averages, so your chat sees the real picture.",
+              },
+            ].map((item) => (
+              <li className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5" key={item.title}>
+                <div className="font-display text-base font-semibold text-white">{item.title}</div>
+                <p className="mt-1.5 text-sm leading-6 text-slate-400">{item.body}</p>
+              </li>
+            ))}
+          </ul>
         </div>
       </FadeUp>
 
-      {/* Stream */}
-      <FadeUp className="space-y-8">
+      <AdSlot placement="home-hero" slots={adSlots} />
+
+      {/* Feature 2: Replay viewer */}
+      <FadeUp className="space-y-10">
         <SectionHeading
-          eyebrow="Live on Twitch"
-          title="Watch BMU Casts while you browse the numbers."
-          description="Catch the latest Riftbound streams without leaving the stats — perfect for studying matchups in real time."
+          eyebrow="Replay viewer"
+          title="Walk through every game, turn by turn."
+          description="RiftLite captures the action feed from each match and rebuilds it as a navigable replay. Jump between turns, see points scored, cards played, and battlefields conquered — perfect for studying matchups or reviewing a tight Bo3."
         />
-        <StreamPanel module={streamModule} status={streamStatus} />
+        <div className="grid gap-8 lg:grid-cols-[1fr_1.2fr] lg:items-center">
+          <ul className="order-2 space-y-4 lg:order-1">
+            {[
+              {
+                title: "Turn-by-turn timeline",
+                body: "Scrub through both players' turns with scoreboard state at every point.",
+              },
+              {
+                title: "Full action feed",
+                body: "Cards played, runes drawn, battlefields taken — exactly what happened, when.",
+              },
+              {
+                title: "Works on your logged matches",
+                body: "Every tracked game becomes a replay automatically. No extra step.",
+              },
+            ].map((item) => (
+              <li className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5" key={item.title}>
+                <div className="font-display text-base font-semibold text-white">{item.title}</div>
+                <p className="mt-1.5 text-sm leading-6 text-slate-400">{item.body}</p>
+              </li>
+            ))}
+          </ul>
+          <div className="relative order-1 overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3 shadow-[0_0_80px_rgba(166,124,255,0.08)] lg:order-2">
+            <Image
+              alt="RiftLite replay viewer showing turn timeline and action feed for a match"
+              className="h-auto w-full rounded-xl"
+              height={819}
+              src="/screenshots/replay-viewer.png"
+              width={1456}
+            />
+          </div>
+        </div>
+      </FadeUp>
+
+      {/* Feature 3: Stats matrix */}
+      <FadeUp className="space-y-10">
+        <SectionHeading
+          eyebrow="Your stats"
+          title="See your matchup matrix at a glance."
+          description="Every legend you've played, every legend you've faced — win rates colour-coded, with going-first splits, recent form, battlefield performance, and a rolling win-rate chart. The kind of dashboard you'd spend a weekend building in a spreadsheet, except it's already there."
+        />
+        <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3 shadow-[0_0_80px_rgba(89,167,255,0.08)]">
+          <Image
+            alt="RiftLite personal stats panel — matchup matrix and summary sidebar"
+            className="h-auto w-full rounded-xl"
+            height={819}
+            src="/screenshots/stats-matrix.png"
+            width={1456}
+          />
+        </div>
+      </FadeUp>
+
+      {/* Feature 4: Deck library */}
+      <FadeUp className="space-y-10">
+        <SectionHeading
+          eyebrow="Deck library"
+          title="Piltover Archive, linked and cached."
+          description="Paste a Piltover Archive link and RiftLite imports the full visual deck — runes, battlefields, mainboard, sideboard. Every match locks its deck snapshot, so your history stays accurate even when the live list keeps evolving."
+        />
+        <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3 shadow-[0_0_80px_rgba(166,124,255,0.08)]">
+          <Image
+            alt="RiftLite deck viewer showing visual cards and deck text for a Vex deck"
+            className="h-auto w-full rounded-xl"
+            height={819}
+            src="/screenshots/deck-viewer.png"
+            width={1456}
+          />
+        </div>
+      </FadeUp>
+
+      {/* Feature 5: Community */}
+      <FadeUp className="space-y-10">
+        <SectionHeading
+          eyebrow="Community data"
+          title="The whole meta, inside the app."
+          description="Every game you log (anonymously, if you want) feeds the leaderboard, legend meta, and community matchup matrix — and they feed you right back inside RiftLite. No tab-hopping, no scraping Discord."
+        />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3">
+            <Image
+              alt="RiftLite community leaderboard tab"
+              className="h-auto w-full rounded-xl"
+              height={819}
+              src="/screenshots/community.png"
+              width={1456}
+            />
+          </div>
+          <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3">
+            <Image
+              alt="Community match matrix — every legend vs every legend"
+              className="h-auto w-full rounded-xl"
+              height={819}
+              src="/screenshots/match-matrix.png"
+              width={1456}
+            />
+          </div>
+        </div>
+      </FadeUp>
+
+      {/* Final download CTA */}
+      <FadeUp>
+        <Card className="relative overflow-hidden bg-[linear-gradient(135deg,rgba(89,167,255,0.18),rgba(166,124,255,0.16))]">
+          <div className="pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full bg-cyan-400/15 blur-3xl" />
+          <div className="pointer-events-none absolute -left-24 -bottom-24 h-80 w-80 rounded-full bg-violet-400/10 blur-3xl" />
+          <div className="relative flex flex-col items-start gap-6 md:flex-row md:items-center md:justify-between">
+            <div className="max-w-xl space-y-2">
+              <h3 className="font-display text-3xl font-bold text-white md:text-4xl">
+                Ready to track your next match?
+              </h3>
+              <p className="text-base leading-7 text-slate-300">
+                Download RiftLite, open Riftbound, and your first game logs itself. Stream overlay,
+                replays, and community stats — all included.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button asChild size="lg">
+                <Link href={downloadHref}>Download — free</Link>
+              </Button>
+              <Button asChild size="lg" variant="secondary">
+                <Link href={SITE_PATHS.guide}>How it works</Link>
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </FadeUp>
+
+      {/* Community snapshot — smaller, under fold */}
+      <FadeUp className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
+        <Card className="space-y-4">
+          <div className="text-[10px] font-bold uppercase tracking-[0.26em] text-slate-500">
+            Live community snapshot
+          </div>
+          <CardTitle className="text-2xl">
+            {overview.totalMatches} matches · {overview.totalPlayers} players · {overview.totalDecks}{" "}
+            decks
+          </CardTitle>
+          <CardDescription className="text-base">
+            {overview.trackedLegends} legends tracked in the current window. Pulled straight from
+            the same data RiftLite shows you in-app.
+          </CardDescription>
+          {overview.topDeck ? (
+            <div className="rounded-2xl border border-white/8 bg-slate-950/30 p-5">
+              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                Most-played deck
+              </div>
+              <div className="mt-2 font-display text-xl font-semibold text-white">
+                {overview.topDeck.title}
+              </div>
+              <div className="mt-1.5 text-sm text-slate-400">
+                {overview.topDeck.legend} · {overview.topDeck.games} games ·{" "}
+                <span className="font-medium text-emerald-300">
+                  {formatPercent(overview.topDeck.winRate)} WR
+                </span>
+              </div>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-3">
+            <Button asChild variant="secondary">
+              <Link href={SITE_PATHS.matrix}>See the Match Matrix</Link>
+            </Button>
+            <Button asChild variant="secondary">
+              <Link href={SITE_PATHS.leaderboard}>Leaderboard</Link>
+            </Button>
+          </div>
+        </Card>
+        <DiscordCta href={settings.discordUrl} />
       </FadeUp>
 
       <AdSlot placement="home-mid" slots={adSlots} />
-
-      {/* Discord community CTA */}
-      <FadeUp>
-        <DiscordCta href={settings.discordUrl} />
-      </FadeUp>
 
       {/* Latest News */}
       <FadeUp className="space-y-8">
