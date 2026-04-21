@@ -642,7 +642,7 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
                           </span>
                           {hasGames && (
                             <span className="mt-1.5 text-[10px] leading-none text-slate-500">
-                              {cell!.totalGames}g
+                              {cell!.totalGames} {cell!.totalGames === 1 ? "match" : "matches"}
                             </span>
                           )}
                         </button>
