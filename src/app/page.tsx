@@ -40,11 +40,12 @@ export default async function HomePage() {
           </div>
           <div className="space-y-4">
             <h1 className="font-display text-5xl font-bold tracking-tight text-white md:text-6xl lg:text-7xl" id="hero-title">
-              Track every match. Stream like a pro.
+              Know your matchups. Improve every game.
             </h1>
             <p className="max-w-xl text-lg leading-8 text-slate-400">
-              RiftLite auto-logs your Riftbound games, surfaces your real win rates, and
-              drops a live matchup overlay straight into OBS — no spreadsheets, no setup.
+              RiftLite helps you log Riftbound games in seconds, surfaces your real
+              win rates by matchup, and gives you the community meta — plus a live
+              overlay for OBS when you stream.
             </p>
           </div>
           <div className="flex flex-wrap gap-4">
@@ -107,6 +108,36 @@ export default async function HomePage() {
           value={overview.topLegend ? formatPercent(overview.topLegend.winRate) : "—"}
           tone="win"
         />
+      </FadeUp>
+
+      {/* Community — the whole meta, right up top */}
+      <FadeUp className="space-y-10">
+        <SectionHeading
+          id="feature-community"
+          eyebrow="Community data"
+          title="The whole meta, inside the app."
+          description="Every game you log (anonymously, if you want) feeds the leaderboard, legend meta, and community matchup matrix — and they feed you right back inside RiftLite. No tab-hopping, no scraping Discord."
+        />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3">
+            <Image
+              alt="RiftLite community leaderboard tab"
+              className="h-auto w-full rounded-xl"
+              height={819}
+              src="/screenshots/community.png"
+              width={1456}
+            />
+          </div>
+          <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3">
+            <Image
+              alt="Community match matrix — every legend vs every legend"
+              className="h-auto w-full rounded-xl"
+              height={819}
+              src="/screenshots/match-matrix.png"
+              width={1456}
+            />
+          </div>
+        </div>
       </FadeUp>
 
       {/* Feature 1: Streamer Overlay (the headliner) */}
@@ -223,45 +254,6 @@ export default async function HomePage() {
           title="Piltover Archive, linked and cached."
           description="Paste a Piltover Archive link and RiftLite imports the full visual deck — runes, battlefields, mainboard, sideboard. Every match locks its deck snapshot, so your history stays accurate even when the live list keeps evolving."
         />
-        <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3 shadow-[0_0_80px_rgba(166,124,255,0.08)]">
-          <Image
-            alt="RiftLite deck viewer showing visual cards and deck text for a Vex deck"
-            className="h-auto w-full rounded-xl"
-            height={819}
-            src="/screenshots/deck-viewer.png"
-            width={1456}
-          />
-        </div>
-      </FadeUp>
-
-      {/* Feature 5: Community */}
-      <FadeUp className="space-y-10">
-        <SectionHeading
-          id="feature-community"
-          eyebrow="Community data"
-          title="The whole meta, inside the app."
-          description="Every game you log (anonymously, if you want) feeds the leaderboard, legend meta, and community matchup matrix — and they feed you right back inside RiftLite. No tab-hopping, no scraping Discord."
-        />
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3">
-            <Image
-              alt="RiftLite community leaderboard tab"
-              className="h-auto w-full rounded-xl"
-              height={819}
-              src="/screenshots/community.png"
-              width={1456}
-            />
-          </div>
-          <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3">
-            <Image
-              alt="Community match matrix — every legend vs every legend"
-              className="h-auto w-full rounded-xl"
-              height={819}
-              src="/screenshots/match-matrix.png"
-              width={1456}
-            />
-          </div>
-        </div>
       </FadeUp>
 
       {/* Final download CTA */}
