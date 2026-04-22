@@ -8,7 +8,7 @@ import {
   getDeckGroupByKey,
 } from "@/lib/community/aggregate";
 import { applyCommunityFilters, paginate } from "@/lib/community/filters";
-import { getCommunityMatchWindow } from "@/lib/community/data";
+import { getCommunityMatchWindow, getCommunityPrivateBoost } from "@/lib/community/data";
 import { buildCommunityMetaAlerts } from "@/lib/community/meta-alerts";
 import {
   buildDeckComparison,
@@ -24,8 +24,11 @@ export async function getFilteredCommunityMatches(filters: CommunityFilterParams
 }
 
 export async function getCommunityOverview() {
-  const matches = await getCommunityMatchWindow();
-  return buildOverview(matches);
+  const [matches, privateBoost] = await Promise.all([
+    getCommunityMatchWindow(),
+    getCommunityPrivateBoost(),
+  ]);
+  return buildOverview(matches, privateBoost);
 }
 
 export async function getCommunityMetaAlerts() {

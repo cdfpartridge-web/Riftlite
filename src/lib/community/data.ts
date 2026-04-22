@@ -143,6 +143,55 @@ export function normalizeMatch(id: string, raw: Record<string, unknown>): Commun
 }
 
 /**
+ * Scan all private hubs and return aggregate-only counts.
+ *
+ * Private hubs live at `hubs/{id}/matches/{doc}` in Firestore — a
+ * completely separate tree from the public `matches` collection. We
+ * deliberately only extract COUNTS and unique UIDs here; the actual
+ * match bodies, deck lists, matchup results, etc. never leave this
+ * function. That keeps private hub data private while still letting
+ * the homepage reflect that those games happened.
+ */
+async function fetchPrivateHubStats(): Promise<{
+  privateMatchCount: number;
+  privatePlayerCount: number;
+}> {
+  const db = getFirestoreAdmin();
+  if (!db) {
+    return { privateMatchCount: 0, privatePlayerCount: 0 };
+  }
+
+  const hubsSnap = await db.collection("hubs").get();
+  if (hubsSnap.empty) {
+    return { privateMatchCount: 0, privatePlayerCount: 0 };
+  }
+
+  let privateMatchCount = 0;
+  const uids = new Set<string>();
+
+  for (const hub of hubsSnap.docs) {
+    // .select("uid") fetches only that field; Firestore still charges 1
+    // read per doc but the payload is tiny. Good enough at private-hub
+    // volume (handful of hubs, tens of matches each).
+    const matchesSnap = await db
+      .collection("hubs")
+      .doc(hub.id)
+      .collection("matches")
+      .select("uid")
+      .get();
+    privateMatchCount += matchesSnap.size;
+    for (const doc of matchesSnap.docs) {
+      const uid = doc.get("uid");
+      if (typeof uid === "string" && uid) {
+        uids.add(uid);
+      }
+    }
+  }
+
+  return { privateMatchCount, privatePlayerCount: uids.size };
+}
+
+/**
  * Read the raw match window straight from the `matches` collection.
  * Costs COMMUNITY_WINDOW_SIZE reads per call — avoid on hot user paths.
  * Used by (a) the cron refresh route, (b) the fallback path when the
@@ -209,8 +258,15 @@ async function fetchMatchesFromAggregate(): Promise<CommunityMatch[] | null> {
 /**
  * Write the full normalized match window to the aggregate doc. Called
  * only by the cron refresh route, never on a user request path.
+ *
+ * Also stamps privateMatchCount / privatePlayerCount on the same doc
+ * so user-facing pages can read both public matches + private boost
+ * in a single Firestore read.
  */
-async function writeMatchesToAggregate(matches: CommunityMatch[]): Promise<void> {
+async function writeMatchesToAggregate(
+  matches: CommunityMatch[],
+  privateBoost: { privateMatchCount: number; privatePlayerCount: number },
+): Promise<void> {
   const db = getFirestoreAdmin();
   if (!db) {
     throw new Error("Firestore admin is not configured");
@@ -220,7 +276,55 @@ async function writeMatchesToAggregate(matches: CommunityMatch[]): Promise<void>
     updatedAt: Date.now(),
     matchCount: matches.length,
     matchesJson: JSON.stringify(matches),
+    privateMatchCount: privateBoost.privateMatchCount,
+    privatePlayerCount: privateBoost.privatePlayerCount,
   });
+}
+
+/**
+ * Read the private-hub boost numbers from the aggregate doc. Cheap:
+ * 1 Firestore read, no match bodies. Returns zeros if the doc is
+ * missing or the fields aren't populated yet.
+ */
+async function fetchPrivateBoostFromAggregate(): Promise<{
+  privateMatchCount: number;
+  privatePlayerCount: number;
+}> {
+  const db = getFirestoreAdmin();
+  if (!db) {
+    return { privateMatchCount: 0, privatePlayerCount: 0 };
+  }
+  try {
+    const snap = await db
+      .collection(AGGREGATE_COLLECTION)
+      .doc(AGGREGATE_DOC_ID)
+      .get();
+    if (!snap.exists) {
+      return { privateMatchCount: 0, privatePlayerCount: 0 };
+    }
+    const data = snap.data() ?? {};
+    return {
+      privateMatchCount: Number(data.privateMatchCount ?? 0) || 0,
+      privatePlayerCount: Number(data.privatePlayerCount ?? 0) || 0,
+    };
+  } catch (error) {
+    console.error("[community/data] Private boost fetch failed", error);
+    return { privateMatchCount: 0, privatePlayerCount: 0 };
+  }
+}
+
+const cachedFetchPrivateBoost = unstable_cache(
+  fetchPrivateBoostFromAggregate,
+  ["community-private-boost-v1"],
+  { revalidate: COMMUNITY_CACHE_TTL_SECONDS, tags: ["community-matches"] },
+);
+
+export async function getCommunityPrivateBoost() {
+  try {
+    return await cachedFetchPrivateBoost();
+  } catch {
+    return fetchPrivateBoostFromAggregate();
+  }
 }
 
 async function fetchCommunityMatchesSafe() {
@@ -293,6 +397,10 @@ export async function appendMatchToAggregate(
     const snap = await tx.get(ref);
 
     let existing: CommunityMatch[] = [];
+    // Preserve private-hub counts across appends; the full-refresh cron
+    // is the only thing that should recompute them.
+    let privateMatchCount = 0;
+    let privatePlayerCount = 0;
     if (snap.exists) {
       const data = snap.data() ?? {};
       const raw = typeof data.matchesJson === "string" ? data.matchesJson : "";
@@ -300,6 +408,8 @@ export async function appendMatchToAggregate(
       if (Array.isArray(parsed)) {
         existing = parsed as CommunityMatch[];
       }
+      privateMatchCount = Number(data.privateMatchCount ?? 0) || 0;
+      privatePlayerCount = Number(data.privatePlayerCount ?? 0) || 0;
     }
 
     // If the doc didn't exist yet, the append alone creates a minimal
@@ -323,6 +433,8 @@ export async function appendMatchToAggregate(
       updatedAt,
       matchCount: trimmed.length,
       matchesJson: JSON.stringify(trimmed),
+      privateMatchCount,
+      privatePlayerCount,
     });
 
     return { matchCount: trimmed.length, updatedAt, alreadyPresent };
@@ -337,6 +449,8 @@ export async function appendMatchToAggregate(
  */
 export async function refreshCommunityAggregate(): Promise<{
   matchCount: number;
+  privateMatchCount: number;
+  privatePlayerCount: number;
   updatedAt: number;
   source: "firestore" | "fixtures";
 }> {
@@ -348,10 +462,21 @@ export async function refreshCommunityAggregate(): Promise<{
     );
   }
 
-  await writeMatchesToAggregate(live);
+  // Compute private-hub counts in parallel-safe fashion; failures
+  // shouldn't block the public refresh — we just record zeros.
+  let privateBoost = { privateMatchCount: 0, privatePlayerCount: 0 };
+  try {
+    privateBoost = await fetchPrivateHubStats();
+  } catch (error) {
+    console.error("[community/data] Private hub stats failed", error);
+  }
+
+  await writeMatchesToAggregate(live, privateBoost);
 
   return {
     matchCount: live.length,
+    privateMatchCount: privateBoost.privateMatchCount,
+    privatePlayerCount: privateBoost.privatePlayerCount,
     updatedAt: Date.now(),
     source: "firestore",
   };

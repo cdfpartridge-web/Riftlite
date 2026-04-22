@@ -284,15 +284,25 @@ export function buildDeckGroups(matches: CommunityMatch[]): DeckGroup[] {
     });
 }
 
-export function buildOverview(matches: CommunityMatch[]): CommunityOverview {
+export function buildOverview(
+  matches: CommunityMatch[],
+  privateBoost: { privateMatchCount: number; privatePlayerCount: number } = {
+    privateMatchCount: 0,
+    privatePlayerCount: 0,
+  },
+): CommunityOverview {
   const leaderboard = buildLeaderboard(matches);
   const meta = buildLegendMeta(matches);
   const decks = buildDeckGroups(matches);
   const players = new Set(matches.map((match) => match.username));
 
   return {
-    totalMatches: matches.length,
-    totalPlayers: players.size,
+    // Total counts include private-hub volume (counts only — no deck
+    // lists, matchups, or usernames from private hubs leak). Derived
+    // views (leaderboard, legend meta, deck groups) stay strictly
+    // public-only so matchup %, deck stats, etc. remain private.
+    totalMatches: matches.length + privateBoost.privateMatchCount,
+    totalPlayers: players.size + privateBoost.privatePlayerCount,
     totalDecks: decks.length,
     trackedLegends: meta.length,
     topLegend: meta[0] ?? null,
