@@ -27,10 +27,10 @@ const env = Object.fromEntries(
 // GitHub's "latest release" redirect. Always 302s to the most recent
 // release's asset with this exact filename, so we never have to bump
 // the download link when a new version ships — just upload the asset
-// as `RiftLiteSetup.exe` on the GitHub release and we're done.
+// as `RiftLiteBetaInstall.exe` on the GitHub release and we're done.
 //   https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases
 const DOWNLOAD_URL =
-  "https://github.com/cdfpartridge-web/Riftlite/releases/latest/download/RiftLiteSetup.exe";
+  "https://github.com/cdfpartridge-web/RiftLite-Desktop/releases/latest/download/RiftLiteBetaInstall.exe";
 
 const client = createClient({
   projectId: env.NEXT_PUBLIC_SANITY_PROJECT_ID,
