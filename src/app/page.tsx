@@ -85,12 +85,12 @@ export default async function HomePage() {
               </CardDescription>
               <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50 p-4">
                 <Image
-                  alt="RiftLite streamer overlay showing personal and community matchup stats for Ezreal vs Vex"
+                  alt="RiftLite stream overlay configuration with live preview of matchup stats"
                   className="h-auto w-full rounded-lg"
-                  height={290}
+                  height={1009}
                   priority
                   src="/screenshots/overlay.png"
-                  width={470}
+                  width={1920}
                 />
               </div>
             </div>
@@ -132,15 +132,15 @@ export default async function HomePage() {
             <Image
               alt="Community match matrix — every legend vs every legend"
               className="h-auto w-full rounded-xl"
-              height={819}
+              height={1009}
               src="/screenshots/match-matrix.png"
-              width={1456}
+              width={1920}
             />
           </div>
         </div>
       </FadeUp>
 
-      {/* Feature 1: Streamer Overlay (the headliner) */}
+      {/* Feature 1: Streamer Overlay details */}
       <FadeUp className="space-y-10">
         <SectionHeading
           id="feature-overlay"
@@ -148,84 +148,30 @@ export default async function HomePage() {
           title="A streamer overlay built for Riftbound."
           description="Drop one URL into OBS as a Browser Source and your viewers see the same matchup intel you do — personal win rates, community averages, going-first splits, and the most-played battlefield for game one. No cloud round-trip, no extra setup; it reads from your already-synced history."
         />
-        <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr] lg:items-center">
-          <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-6 shadow-[0_0_80px_rgba(89,167,255,0.08)]">
-            <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
-            <Image
-              alt="Landscape streamer overlay — Ezreal vs Vex with personal and community win rates"
-              className="relative h-auto w-full rounded-xl"
-              height={290}
-              src="/screenshots/overlay.png"
-              width={470}
-            />
-          </div>
-          <ul className="space-y-4">
-            {[
-              {
-                title: "Zero-lag, local-first",
-                body: "Served from 127.0.0.1 — instant updates when you change legend, no Firebase reads while you're live.",
-              },
-              {
-                title: "Portrait or landscape",
-                body: "Two layouts built in. Pick whichever fits your scene and grab the URL from the app.",
-              },
-              {
-                title: "Personal + community side-by-side",
-                body: "Your own matchup history next to community averages, so your chat sees the real picture.",
-              },
-            ].map((item) => (
-              <li className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5" key={item.title}>
-                <div className="font-display text-base font-semibold text-white">{item.title}</div>
-                <p className="mt-1.5 text-sm leading-6 text-slate-400">{item.body}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ul className="grid gap-4 md:grid-cols-3">
+          {[
+            {
+              title: "Zero-lag, local-first",
+              body: "Served from 127.0.0.1 — instant updates when you change legend, no Firebase reads while you're live.",
+            },
+            {
+              title: "Portrait or landscape",
+              body: "Two layouts built in. Pick whichever fits your scene and grab the URL from the app.",
+            },
+            {
+              title: "Personal + community side-by-side",
+              body: "Your own matchup history next to community averages, so your chat sees the real picture.",
+            },
+          ].map((item) => (
+            <li className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5" key={item.title}>
+              <div className="font-display text-base font-semibold text-white">{item.title}</div>
+              <p className="mt-1.5 text-sm leading-6 text-slate-400">{item.body}</p>
+            </li>
+          ))}
+        </ul>
       </FadeUp>
 
       <AdSlot placement="home-hero" slots={adSlots} />
-
-      {/* Feature 2: Replay viewer */}
-      <FadeUp className="space-y-10">
-        <SectionHeading
-          id="feature-replay"
-          eyebrow="Replay viewer"
-          title="Walk through every game, turn by turn."
-          description="RiftLite captures the action feed from each match and rebuilds it as a navigable replay. Jump between turns, see points scored, cards played, and battlefields conquered — perfect for studying matchups or reviewing a tight Bo3."
-        />
-        <div className="grid gap-8 lg:grid-cols-[1fr_1.2fr] lg:items-center">
-          <ul className="order-2 space-y-4 lg:order-1">
-            {[
-              {
-                title: "Turn-by-turn timeline",
-                body: "Scrub through both players' turns with scoreboard state at every point.",
-              },
-              {
-                title: "Full action feed",
-                body: "Cards played, runes drawn, battlefields taken — exactly what happened, when.",
-              },
-              {
-                title: "Works on your logged matches",
-                body: "Every tracked game becomes a replay automatically. No extra step.",
-              },
-            ].map((item) => (
-              <li className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5" key={item.title}>
-                <div className="font-display text-base font-semibold text-white">{item.title}</div>
-                <p className="mt-1.5 text-sm leading-6 text-slate-400">{item.body}</p>
-              </li>
-            ))}
-          </ul>
-          <div className="relative order-1 overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3 shadow-[0_0_80px_rgba(166,124,255,0.08)] lg:order-2">
-            <Image
-              alt="RiftLite replay viewer showing turn timeline and action feed for a match"
-              className="h-auto w-full rounded-xl"
-              height={819}
-              src="/screenshots/replay-viewer.png"
-              width={1456}
-            />
-          </div>
-        </div>
-      </FadeUp>
 
       {/* Feature 3: Stats matrix */}
       <FadeUp className="space-y-10">
@@ -239,9 +185,9 @@ export default async function HomePage() {
           <Image
             alt="RiftLite personal stats panel — matchup matrix and summary sidebar"
             className="h-auto w-full rounded-xl"
-            height={819}
+            height={1009}
             src="/screenshots/stats-matrix.png"
-            width={1456}
+            width={1920}
           />
         </div>
       </FadeUp>
@@ -267,8 +213,8 @@ export default async function HomePage() {
                 Ready to track your next match?
               </h3>
               <p className="text-base leading-7 text-slate-300">
-                Download RiftLite, open Riftbound, and your first game logs itself. Stream overlay,
-                replays, and community stats — all included.
+                Download RiftLite, open Riftbound, and your first game logs itself. Stream overlay
+                and community stats — all included.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">

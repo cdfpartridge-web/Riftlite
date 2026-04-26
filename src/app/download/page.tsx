@@ -13,10 +13,10 @@ export const revalidate = 600;
 const features = [
   "Auto-logs matches — most fields fill themselves in",
   "Streamer overlay for OBS (new in 0.47)",
-  "Turn-by-turn replay viewer for every logged game",
   "Personal matchup matrix with going-first splits",
   "Piltover Archive deck import with per-match snapshots",
   "Community leaderboard, meta, and matrix — all in-app",
+  "Turn-by-turn replay viewer — coming soon",
 ];
 
 export default async function DownloadPage() {
@@ -68,11 +68,11 @@ export default async function DownloadPage() {
               New · Streamer Overlay
             </div>
             <Image
-              alt="RiftLite streamer overlay — matchup stats for Ezreal vs Vex"
+              alt="RiftLite stream overlay configuration with live matchup preview"
               className="h-auto w-full rounded-xl"
-              height={290}
+              height={1009}
               src="/screenshots/overlay.png"
-              width={470}
+              width={1920}
             />
           </div>
         </div>
@@ -82,17 +82,17 @@ export default async function DownloadPage() {
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="space-y-3">
           <div className="text-[10px] font-bold uppercase tracking-[0.26em] text-cyan-200">
-            Replay viewer
+            Community
           </div>
           <h3 className="font-display text-lg font-semibold text-white">
-            Walk through every turn.
+            The whole meta, in-app.
           </h3>
           <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-slate-950/60">
             <Image
-              alt="Replay viewer showing turn timeline and action feed"
+              alt="Community leaderboard and meta inside RiftLite"
               className="h-auto w-full"
               height={819}
-              src="/screenshots/replay-viewer.png"
+              src="/screenshots/community.png"
               width={1456}
             />
           </div>
@@ -108,9 +108,9 @@ export default async function DownloadPage() {
             <Image
               alt="Personal stats — matchup matrix and summary"
               className="h-auto w-full"
-              height={819}
+              height={1009}
               src="/screenshots/stats-matrix.png"
-              width={1456}
+              width={1920}
             />
           </div>
         </Card>

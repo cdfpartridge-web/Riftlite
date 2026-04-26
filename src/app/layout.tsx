@@ -76,7 +76,7 @@ export default async function RootLayout({
       operatingSystem: "Windows",
       url: "https://www.riftlite.com/download",
       description:
-        "Desktop companion app for Legends of Runeterra. Auto-logs matches, streamer overlay for OBS, turn-by-turn replay viewer, and personal matchup matrix.",
+        "Desktop companion app for Riftbound. Auto-logs matches, streamer overlay for OBS, personal matchup matrix, and community meta.",
       offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     },
   ];
