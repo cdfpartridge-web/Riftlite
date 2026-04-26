@@ -11,7 +11,7 @@ import { safeHref } from "@/lib/utils";
 export const revalidate = 600;
 
 const features = [
-  "Auto-logs matches — most fields fill themselves in",
+  "Fully automatic match tracking on TCGA and RiftAtlas",
   "Streamer overlay for OBS (new in 0.47)",
   "Personal matchup matrix with going-first splits",
   "Piltover Archive deck import with per-match snapshots",
@@ -28,7 +28,7 @@ export default async function DownloadPage() {
       <SectionHeading
         eyebrow="Download"
         title="Get the RiftLite desktop app."
-        description="Auto-track every match, study your matchups, and stream with a live overlay. Free, Windows, no account required."
+        description="Fully automatic match tracking on TCGA and RiftAtlas, a personal matchup matrix, and a live OBS overlay. Free, Windows, no account required."
       />
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
@@ -36,8 +36,9 @@ export default async function DownloadPage() {
           <div className="space-y-2">
             <h3 className="font-display text-lg font-semibold text-white">What you get</h3>
             <p className="text-sm leading-6 text-slate-400">
-              Install once, log each match in a couple of taps, and your stats — plus the community
-              meta — stay up to date without the spreadsheet homework.
+              Install once, play Riftbound on TCGA or RiftAtlas, and every match logs itself.
+              Your stats — plus the community meta — stay up to date without the spreadsheet
+              homework.
             </p>
           </div>
           <ul className="space-y-2.5">

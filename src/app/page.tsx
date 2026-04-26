@@ -35,17 +35,18 @@ export default async function HomePage() {
       {/* Hero — download-first */}
       <section aria-labelledby="hero-title" className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
         <div className="animate-fade-up space-y-7">
-          <div className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/8 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">
-            Free desktop app · Riftbound
+          <div className="inline-flex rounded-full border border-emerald-300/25 bg-emerald-300/8 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200">
+            New · Fully automatic tracking
           </div>
           <div className="space-y-4">
             <h1 className="font-display text-5xl font-bold tracking-tight text-white md:text-6xl lg:text-7xl" id="hero-title">
               Know your matchups. Improve every game.
             </h1>
             <p className="max-w-xl text-lg leading-8 text-slate-400">
-              RiftLite helps you log Riftbound games in seconds, surfaces your real
-              win rates by matchup, and gives you the community meta — plus a live
-              overlay for OBS when you stream.
+              RiftLite now tracks every Riftbound match you play on TCGA and RiftAtlas
+              — fully automatic, no buttons to press. Your real win rates by matchup,
+              the community meta, and a live OBS overlay all update themselves while
+              you focus on the game.
             </p>
           </div>
           <div className="flex flex-wrap gap-4">
@@ -108,6 +109,43 @@ export default async function HomePage() {
           value={overview.topLegend ? formatPercent(overview.topLegend.winRate) : "—"}
           tone="win"
         />
+      </FadeUp>
+
+      {/* Feature: Fully automatic tracking */}
+      <FadeUp className="space-y-10">
+        <SectionHeading
+          id="feature-auto"
+          eyebrow="★ Fully automatic"
+          title="Every game logs itself — on TCGA and RiftAtlas."
+          description="Open RiftLite, play Riftbound where you already play it. RiftLite watches the match, captures your legend, your opponent's legend, the deck, and the result, and writes it to your history the second the game ends. No screenshots, no copy-paste, no end-of-session cleanup."
+        />
+        <ul className="grid gap-4 md:grid-cols-3">
+          {[
+            {
+              eyebrow: "TCGA",
+              title: "Browser-based play, captured live",
+              body: "Plays through tcg-arena.fr? RiftLite reads the match feed in real time and turns each game into a logged match — including deck, points, and result.",
+            },
+            {
+              eyebrow: "RiftAtlas",
+              title: "Native client, fully tracked",
+              body: "Same story for RiftAtlas matches: every game lands in your history with the right legends, the right deck, and the right outcome.",
+            },
+            {
+              eyebrow: "Zero friction",
+              title: "Nothing to press, nothing to forget",
+              body: "No \"start tracking\" button, no manual result entry. Just play. RiftLite handles the rest, including syncing to community stats if you opt in.",
+            },
+          ].map((item) => (
+            <li className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5" key={item.title}>
+              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-300">
+                {item.eyebrow}
+              </div>
+              <div className="mt-2 font-display text-base font-semibold text-white">{item.title}</div>
+              <p className="mt-1.5 text-sm leading-6 text-slate-400">{item.body}</p>
+            </li>
+          ))}
+        </ul>
       </FadeUp>
 
       {/* Community — the whole meta, right up top */}
@@ -213,8 +251,8 @@ export default async function HomePage() {
                 Ready to track your next match?
               </h3>
               <p className="text-base leading-7 text-slate-300">
-                Download RiftLite, open Riftbound, and your first game logs itself. Stream overlay
-                and community stats — all included.
+                Download RiftLite, play on TCGA or RiftAtlas, and every match logs itself.
+                Stream overlay and community stats — all included.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">

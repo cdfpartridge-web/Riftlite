@@ -51,8 +51,8 @@ const steps = [
     body: "Download the installer, run it, and RiftLite sits quietly in the background — no account required, no configuration forms.",
   },
   {
-    title: "Log each match in seconds",
-    body: "RiftLite auto-fills what it can — legends, decks, and matchup details — so logging a game comes down to a couple of taps to confirm the result.",
+    title: "Every match tracked automatically",
+    body: "Play Riftbound on TCGA or RiftAtlas and RiftLite captures the legends, deck, points, and result for you — no buttons to press, no end-of-session cleanup.",
   },
   {
     title: "Read your stats — or share them",

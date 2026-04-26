@@ -5,8 +5,8 @@ export const revalidate = 600;
 
 const pillars = [
   {
-    title: "Real matches, logged fast",
-    body: "The app auto-fills legends, decks, and matchup details — you just confirm the result. From there your games feed straight into the community stats.",
+    title: "Real matches, logged automatically",
+    body: "Play on TCGA or RiftAtlas and RiftLite tracks every match for you — legends, decks, and results all captured in real time. From there your games feed straight into the community stats.",
   },
   {
     title: "Stats you can actually trust",

@@ -1,6 +1,6 @@
 # RiftLite
 
-> RiftLite is a free Windows desktop companion app for Legends of Runeterra. It auto-logs matches, tracks your matchup stats, includes a streamer overlay for OBS, and provides a turn-by-turn replay viewer. The website hosts download links, the community meta (leaderboard, matchup matrix, deck stats), guides, and news.
+> RiftLite is a free Windows desktop companion app for Riftbound. It fully automatically tracks every match you play on TCGA and RiftAtlas, surfaces your matchup stats, and includes a streamer overlay for OBS. The website hosts download links, the community meta (leaderboard, matchup matrix, deck stats), guides, and news.
 
 ## Core pages
 
@@ -21,9 +21,9 @@
 
 ## Features of the desktop app
 
-- Auto-logs matches — most fields fill themselves in.
+- Fully automatic match tracking on TCGA and RiftAtlas — no buttons to press.
 - Streamer overlay for OBS (new in 0.47).
-- Turn-by-turn replay viewer for every logged game.
 - Personal matchup matrix with going-first splits.
 - Piltover Archive deck import with per-match snapshots.
 - Community leaderboard, meta, and matrix all accessible in-app.
+- Turn-by-turn replay viewer (coming soon).
