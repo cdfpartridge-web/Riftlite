@@ -111,11 +111,18 @@ export function weeklySnapshotDocId(year: number, week: number): string {
 }
 
 /**
- * Return the ISO week that just ended, assuming we're running this
- * shortly after Sunday 23:00 UTC. "Shortly after" is fuzzy on purpose:
- * we always snapshot the week that contains `now - 1 hour`, so a cron
- * that fires at Sunday 23:50 or Monday 00:10 both correctly target the
- * week that just finished rather than the one that just started.
+ * Return the ISO week that most recently *fully ended* before `now`.
+ *
+ * Rules:
+ *  - For any day Mon-Sat (or Sun before 22:00 UTC), the answer is the
+ *    previous Mon-Sun week.
+ *  - On Sunday from 22:00 UTC onwards, the current week is treated as
+ *    "ending now" so the Sunday-night cron snapshots the week it's
+ *    closing out (rather than the one before it).
+ *
+ * This replaces the older "now − 1 hour" trick, which was only correct
+ * within ~1h of midnight Sun→Mon. A manual Monday-morning run under that
+ * logic would land in the *new* ISO week and snapshot the wrong one.
  */
 export function weekJustEnded(now: Date = new Date()): {
   year: number;
@@ -123,7 +130,19 @@ export function weekJustEnded(now: Date = new Date()): {
   startMs: number;
   endMs: number;
 } {
-  const anchor = new Date(now.getTime() - 60 * 60 * 1000);
+  const dayNum = now.getUTCDay() || 7; // 1 = Mon … 7 = Sun
+  // How many days back from `now` to land in the just-ended week.
+  // Mon..Sat: walk back to last Sunday (the end of the just-ended week).
+  // Sun late (>=22:00 UTC): treat today's week as the just-ended one.
+  // Sun early: walk back a full week to last Sunday.
+  let daysBack: number;
+  if (dayNum === 7) {
+    daysBack = now.getUTCHours() >= 22 ? 0 : 7;
+  } else {
+    daysBack = dayNum;
+  }
+  const anchor = new Date(now);
+  anchor.setUTCDate(anchor.getUTCDate() - daysBack);
   const { year, week } = isoWeek(anchor);
   const startMs = isoWeekStartMs(anchor);
   const endMs = startMs + 7 * 24 * 60 * 60 * 1000;
