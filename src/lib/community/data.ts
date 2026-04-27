@@ -1,11 +1,36 @@
 import "server-only";
 
+import { gzipSync, gunzipSync } from "node:zlib";
+
 import { unstable_cache } from "next/cache";
 
 import { COMMUNITY_WINDOW_SIZE } from "@/lib/constants";
 import { FIXTURE_MATCHES } from "@/lib/fixtures/community";
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import type { CommunityMatch, DeckSnapshot, MatchGame } from "@/lib/types";
+
+// Firestore caps a single doc at ~1 MB. Once the community started
+// hitting 500+ matches with full deck snapshots (cards, image URLs,
+// runes, battlefields), the raw JSON crossed that line and the cron's
+// `set()` started 500ing. Gzipping the matches blob shrinks it ~6-8x
+// because deck lists and field names repeat heavily. We base64 the
+// result so it can live in a Firestore string field.
+function encodeMatches(matches: CommunityMatch[]): string {
+  const json = JSON.stringify(matches);
+  return gzipSync(json).toString("base64");
+}
+
+function decodeMatches(encoded: string): CommunityMatch[] | null {
+  try {
+    const buf = Buffer.from(encoded, "base64");
+    const json = gunzipSync(buf).toString("utf8");
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? (parsed as CommunityMatch[]) : null;
+  } catch (error) {
+    console.error("[community/data] decodeMatches failed", error);
+    return null;
+  }
+}
 
 // 10 minutes. Community stats are intentionally not real-time — sync from
 // the desktop app is already a ~30s async pipeline. Longer TTL halves the
@@ -233,9 +258,10 @@ async function fetchMatchesFromAggregate(): Promise<CommunityMatch[] | null> {
 
   const data = snap.data() ?? {};
   const updatedAt = Number(data.updatedAt ?? 0);
+  const matchesGz = typeof data.matchesGz === "string" ? data.matchesGz : "";
   const matchesJson = typeof data.matchesJson === "string" ? data.matchesJson : "";
 
-  if (!matchesJson) {
+  if (!matchesGz && !matchesJson) {
     return null;
   }
 
@@ -246,13 +272,19 @@ async function fetchMatchesFromAggregate(): Promise<CommunityMatch[] | null> {
     return null;
   }
 
-  const parsed = safeJsonParse(matchesJson);
-  if (!Array.isArray(parsed)) {
-    return null;
+  // Prefer the gzipped blob; fall back to legacy uncompressed field for
+  // a single read after deploy, before the next cron rewrite.
+  if (matchesGz) {
+    const decoded = decodeMatches(matchesGz);
+    if (decoded) return decoded;
   }
 
-  // The doc stores already-normalized matches — no re-normalization needed.
-  return parsed as CommunityMatch[];
+  if (matchesJson) {
+    const parsed = safeJsonParse(matchesJson);
+    if (Array.isArray(parsed)) return parsed as CommunityMatch[];
+  }
+
+  return null;
 }
 
 /**
@@ -275,7 +307,11 @@ async function writeMatchesToAggregate(
   await db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID).set({
     updatedAt: Date.now(),
     matchCount: matches.length,
-    matchesJson: JSON.stringify(matches),
+    // gzip+base64 to fit comfortably under Firestore's 1 MB doc cap.
+    // Drop the legacy uncompressed field so it stops eating doc budget;
+    // readers fall back to it only if matchesGz is missing.
+    matchesGz: encodeMatches(matches),
+    matchesJson: null,
     privateMatchCount: privateBoost.privateMatchCount,
     privatePlayerCount: privateBoost.privatePlayerCount,
   });
@@ -403,10 +439,14 @@ export async function appendMatchToAggregate(
     let privatePlayerCount = 0;
     if (snap.exists) {
       const data = snap.data() ?? {};
+      const gz = typeof data.matchesGz === "string" ? data.matchesGz : "";
       const raw = typeof data.matchesJson === "string" ? data.matchesJson : "";
-      const parsed = raw ? safeJsonParse(raw) : null;
-      if (Array.isArray(parsed)) {
-        existing = parsed as CommunityMatch[];
+      if (gz) {
+        const decoded = decodeMatches(gz);
+        if (decoded) existing = decoded;
+      } else if (raw) {
+        const parsed = safeJsonParse(raw);
+        if (Array.isArray(parsed)) existing = parsed as CommunityMatch[];
       }
       privateMatchCount = Number(data.privateMatchCount ?? 0) || 0;
       privatePlayerCount = Number(data.privatePlayerCount ?? 0) || 0;
@@ -432,7 +472,8 @@ export async function appendMatchToAggregate(
     tx.set(ref, {
       updatedAt,
       matchCount: trimmed.length,
-      matchesJson: JSON.stringify(trimmed),
+      matchesGz: encodeMatches(trimmed),
+      matchesJson: null,
       privateMatchCount,
       privatePlayerCount,
     });
