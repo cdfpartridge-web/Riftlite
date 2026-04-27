@@ -46,10 +46,27 @@ const AGGREGATE_COLLECTION = "aggregates";
 const AGGREGATE_DOC_ID = "community-v1";
 
 // If the aggregate doc hasn't been updated in this long, treat it as
-// unreliable (maybe the cron broke) and fall back to a direct collection
-// read so users don't see wildly stale data. Set high enough that a few
-// missed cron runs don't trigger the fallback.
-const AGGREGATE_MAX_AGE_MS = 4 * 60 * 60 * 1000; // 4 hours
+// unreliable. Tuned to absorb several missed cron runs (cron is every
+// 4h) without triggering the expensive fallback. Past this threshold
+// the read path returns fixtures rather than live-scanning the matches
+// collection — see fetchCommunityMatchesSafe for why.
+const AGGREGATE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Hard daily ceiling on the live-collection fallback. The cron runs
+// every 4h; if it breaks, the unstable_cache miss path would otherwise
+// trigger a WINDOW_SIZE-doc scan up to 144×/day, blowing past the
+// Spark 50k/day quota on a single failed cron. We allow at most this
+// many live scans per process before falling back to fixtures.
+//
+// Module-level state — Vercel function instances each carry their own
+// counter, but each instance handles many requests so this still
+// flattens fallback storms within an instance. For belt-and-braces
+// across instances we'd need a shared store; this guard is "good
+// enough" given the cron is reliable post-gzip-fix.
+const FALLBACK_DAILY_CAP = 6;
+let fallbackCount = 0;
+let fallbackWindowStart = 0;
+const FALLBACK_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function safeJsonParse(value: string) {
   try {
@@ -365,16 +382,31 @@ export async function getCommunityPrivateBoost() {
 
 async function fetchCommunityMatchesSafe() {
   try {
-    // Preferred path: single-doc read.
+    // Preferred path: single-doc read of the cron-maintained aggregate.
     const fromAggregate = await fetchMatchesFromAggregate();
     if (fromAggregate) {
       return fromAggregate;
     }
 
-    // Fallback path: live collection scan. Only hit when the aggregate
-    // doc is missing (first deployment, before any cron run) or stale.
+    // Fallback path: live collection scan. Costs WINDOW_SIZE Firestore
+    // reads, which is fine occasionally but ruinous if it fires on
+    // every cache miss. Hard-cap to FALLBACK_DAILY_CAP per process per
+    // 24h so a broken cron can't quietly drain the read quota. After
+    // the cap, return fixtures and lean on the cron being fixed.
+    const now = Date.now();
+    if (now - fallbackWindowStart > FALLBACK_WINDOW_MS) {
+      fallbackWindowStart = now;
+      fallbackCount = 0;
+    }
+    if (fallbackCount >= FALLBACK_DAILY_CAP) {
+      console.warn(
+        "[community/data] Aggregate unavailable AND fallback budget spent; serving fixtures",
+      );
+      return FIXTURE_MATCHES;
+    }
+    fallbackCount += 1;
     console.warn(
-      "[community/data] Aggregate doc unavailable, falling back to live collection read",
+      `[community/data] Aggregate unavailable, live-scan fallback #${fallbackCount}/${FALLBACK_DAILY_CAP}`,
     );
     const live = await fetchMatchesFromCollection();
     return live ?? FIXTURE_MATCHES;
