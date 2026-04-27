@@ -19,10 +19,20 @@ export const BRAND = {
   violet: "#A67CFF",
 };
 
-// Sized to match the desktop client (community_panel.py uses limit=500) so
-// we don't read 4× more from Firestore than the app does. Every cache miss
-// reads this many docs, so keep it in sync with the desktop window.
-export const COMMUNITY_WINDOW_SIZE = 500;
+// Upper bound on how many matches the aggregate doc holds and the cron
+// scans from Firestore. The desktop client now expects the website to
+// return the full set (limit=all), so this is also the cap on what the
+// `/api/community/desktop` endpoint can serve.
+//
+// Cost: cron reads this many docs every 4 hours = 6 × WINDOW per day.
+// At 2000 that's 12k Firestore reads/day, well under the Spark 50k quota.
+//
+// Doc size: matches are gzip+base64 packed before writing to Firestore
+// (see data.ts encodeMatches). Real-world ratio is ~6-8× because deck
+// lists and field names repeat heavily, so 2000 matches still fits well
+// under Firestore's 1 MB per-document cap. If we ever push toward
+// 4-5k+ we'll need to shard the aggregate across multiple docs.
+export const COMMUNITY_WINDOW_SIZE = 2000;
 export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
 export const MATCH_CACHE_MS = 60_000;
