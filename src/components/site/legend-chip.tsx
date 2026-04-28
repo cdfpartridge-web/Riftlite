@@ -15,7 +15,11 @@ type LegendChipProps = {
 
 export function LegendChip({ legend, size = 28, href, label }: LegendChipProps) {
   const [failed, setFailed] = useState(false);
-  const display = label ?? legend.split(" ")[0];
+  // Defensive: incoming legend values have been observed to be null
+  // (empty/unknown opponents in upstream data). Coerce so .split() and
+  // image-url builders never throw at render time.
+  const safeLegend = typeof legend === "string" ? legend : "";
+  const display = label ?? safeLegend.split(" ")[0] ?? "—";
   const common = (
     <>
       {failed ? (
@@ -24,16 +28,16 @@ export function LegendChip({ legend, size = 28, href, label }: LegendChipProps) 
           style={{ width: size, height: size, fontSize: size * 0.34 }}
         >
           <span className="font-display font-bold text-white">
-            {getLegendInitials(legend)}
+            {getLegendInitials(safeLegend)}
           </span>
         </span>
       ) : (
         <Image
-          alt={legend}
+          alt={safeLegend}
           className="rounded-full object-cover ring-1 ring-white/15"
           height={size}
-          src={getLegendImageUrl(legend)}
-          title={legend}
+          src={getLegendImageUrl(safeLegend)}
+          title={safeLegend}
           width={size}
           onError={() => setFailed(true)}
         />

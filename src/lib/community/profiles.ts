@@ -383,10 +383,19 @@ export function buildLegendProfile(
 
   const matchupGroups = groupBy(sorted, (m) => m.oppChampion.trim() || null);
   const matchupRows: LegendMatchupBreakdown[] = Array.from(matchupGroups.entries())
+    .filter(([oppLegend]) => {
+      // Drop empty / unknown opponent legends. The upstream data
+      // sometimes has match.oppChampion = "" (e.g. partial captures)
+      // or names that aren't in LEGENDS at all (deck/storm names like
+      // "Relentless Storm" leaking through). Either way they shouldn't
+      // appear as matchups; rendering them would also blow up
+      // LegendChip's `legend.split(" ")` on null.
+      return typeof oppLegend === "string" && LEGENDS_SET.has(oppLegend);
+    })
     .map(([oppLegend, rows]) => {
       const t = tally(rows);
       return {
-        oppLegend,
+        oppLegend: oppLegend as string,
         games: t.games,
         wins: t.wins,
         losses: t.losses,
@@ -420,10 +429,11 @@ export function buildLegendProfile(
 
   const playerGroups = groupBy(sorted, (m) => m.username?.trim() || null);
   const topPlayers: LegendPlayerRow[] = Array.from(playerGroups.entries())
+    .filter(([player]) => typeof player === "string" && player.length > 0)
     .map(([player, rows]) => {
       const t = tally(rows);
       return {
-        player,
+        player: player as string,
         games: t.games,
         wins: t.wins,
         losses: t.losses,
