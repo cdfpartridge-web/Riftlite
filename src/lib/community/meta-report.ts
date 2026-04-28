@@ -78,21 +78,30 @@ function fmtDelta(delta: number, suffix = "pp"): string {
 }
 
 function fmtWeekRange(startMs: number, endMs: number): string {
+  // endMs is the exclusive Monday-after-the-week timestamp; subtract 1
+  // so we render the inclusive Sunday at the end of the week.
   const start = new Date(startMs);
-  const end = new Date(endMs - 1); // endMs is exclusive
-  const sameMonth = start.getUTCMonth() === end.getUTCMonth();
-  const startFmt = start.toLocaleDateString("en-US", {
+  const end = new Date(endMs - 1);
+  const sameMonth =
+    start.getUTCMonth() === end.getUTCMonth() &&
+    start.getUTCFullYear() === end.getUTCFullYear();
+  const startMonth = start.toLocaleDateString("en-US", {
     month: "short",
-    day: "numeric",
     timeZone: "UTC",
   });
-  const endFmt = end.toLocaleDateString("en-US", {
-    month: sameMonth ? undefined : "short",
-    day: "numeric",
-    year: "numeric",
+  const startDay = start.getUTCDate();
+  const endDay = end.getUTCDate();
+  const endYear = end.getUTCFullYear();
+  if (sameMonth) {
+    // "Apr 20 – 26, 2026"
+    return `${startMonth} ${startDay} – ${endDay}, ${endYear}`;
+  }
+  const endMonth = end.toLocaleDateString("en-US", {
+    month: "short",
     timeZone: "UTC",
   });
-  return `${startFmt} – ${endFmt}`;
+  // "Apr 27 – May 3, 2026"
+  return `${startMonth} ${startDay} – ${endMonth} ${endDay}, ${endYear}`;
 }
 
 function findBy<T extends { legend?: string; deckKey?: string; uid?: string }>(
