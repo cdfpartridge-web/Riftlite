@@ -336,6 +336,13 @@ function battlefieldRows(
     .slice(0, 6);
 }
 
+// Set lookup is more robust across bundlers than `Array.includes` with
+// a `(typeof LEGENDS)[number]` cast — some Next/Turbopack builds were
+// returning false for every legend in production despite the source
+// array clearly containing them. A Set sidesteps any tree-shaking or
+// const-narrowing weirdness.
+const LEGENDS_SET: ReadonlySet<string> = new Set(LEGENDS);
+
 export function buildLegendProfile(
   matches: CommunityMatch[],
   legend: string,
@@ -343,7 +350,7 @@ export function buildLegendProfile(
 ): LegendProfile | null {
   const target = legend.trim();
   if (!target) return null;
-  if (!LEGENDS.includes(target as (typeof LEGENDS)[number])) return null;
+  if (!LEGENDS_SET.has(target)) return null;
 
   const onLegend = matches.filter((m) => m.myChampion.trim() === target);
   if (onLegend.length === 0) {

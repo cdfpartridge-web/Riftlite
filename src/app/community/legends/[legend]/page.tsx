@@ -6,7 +6,6 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { TrendChart } from "@/components/site/trend-chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { LEGENDS } from "@/lib/constants";
 import { getLegendProfile } from "@/lib/community/service";
 import { formatDate, formatPercent } from "@/lib/utils";
 
@@ -64,9 +63,19 @@ export default async function LegendProfilePage({
 }) {
   const { legend: rawLegend } = await params;
   const legend = decodeURIComponent(rawLegend);
-  if (!LEGENDS.includes(legend as (typeof LEGENDS)[number])) notFound();
 
-  const profile = await getLegendProfile(legend);
+  // buildLegendProfile already validates legend ∈ LEGENDS and returns
+  // null if not. Don't double-check here — if a runtime quirk made the
+  // LEGENDS const inaccessible from this server-component context, the
+  // pre-check would notFound() every legend (which is exactly what we
+  // were seeing in production). Single source of truth.
+  let profile;
+  try {
+    profile = await getLegendProfile(legend);
+  } catch (error) {
+    console.error("[legends/[legend]] getLegendProfile threw", { legend, error });
+    notFound();
+  }
   if (!profile) notFound();
 
   return (
