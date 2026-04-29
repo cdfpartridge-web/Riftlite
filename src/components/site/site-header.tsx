@@ -30,7 +30,7 @@ export function SiteHeader({ discordUrl }: SiteHeaderProps = {}) {
             className="h-11 w-11 rounded-2xl object-cover shadow-[0_0_28px_rgba(89,167,255,0.4)] transition-shadow duration-300 group-hover:shadow-[0_0_40px_rgba(89,167,255,0.6)]"
             height={44}
             priority
-            src="/brand/riftlite-logo-ui.png"
+            src="/brand/riftlite-logo-ui.webp"
             width={44}
           />
           <div>

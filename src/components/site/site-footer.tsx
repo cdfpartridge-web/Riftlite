@@ -40,7 +40,7 @@ export function SiteFooter({ settings }: SiteFooterProps) {
                 alt="RiftLite"
                 className="h-11 w-11 rounded-2xl shadow-[0_0_20px_rgba(89,167,255,0.25)]"
                 height={44}
-                src="/brand/riftlite-logo-ui.png"
+                src="/brand/riftlite-logo-ui.webp"
                 width={44}
               />
               <div>

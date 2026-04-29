@@ -90,7 +90,7 @@ export default async function HomePage() {
                   className="h-auto w-full rounded-lg"
                   height={1009}
                   priority
-                  src="/screenshots/overlay.png"
+                  src="/screenshots/overlay.webp"
                   width={1920}
                 />
               </div>
@@ -162,7 +162,7 @@ export default async function HomePage() {
               alt="RiftLite community leaderboard tab"
               className="h-auto w-full rounded-xl"
               height={819}
-              src="/screenshots/community.png"
+              src="/screenshots/community.webp"
               width={1456}
             />
           </div>
@@ -171,7 +171,7 @@ export default async function HomePage() {
               alt="Community match matrix — every legend vs every legend"
               className="h-auto w-full rounded-xl"
               height={1009}
-              src="/screenshots/match-matrix.png"
+              src="/screenshots/match-matrix.webp"
               width={1920}
             />
           </div>
@@ -224,7 +224,7 @@ export default async function HomePage() {
             alt="RiftLite personal stats panel — matchup matrix and summary sidebar"
             className="h-auto w-full rounded-xl"
             height={1009}
-            src="/screenshots/stats-matrix.png"
+            src="/screenshots/stats-matrix.webp"
             width={1920}
           />
         </div>

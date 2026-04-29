@@ -72,7 +72,7 @@ export default async function DownloadPage() {
               alt="RiftLite stream overlay configuration with live matchup preview"
               className="h-auto w-full rounded-xl"
               height={1009}
-              src="/screenshots/overlay.png"
+              src="/screenshots/overlay.webp"
               width={1920}
             />
           </div>
@@ -93,7 +93,7 @@ export default async function DownloadPage() {
               alt="Community leaderboard and meta inside RiftLite"
               className="h-auto w-full"
               height={819}
-              src="/screenshots/community.png"
+              src="/screenshots/community.webp"
               width={1456}
             />
           </div>
@@ -110,7 +110,7 @@ export default async function DownloadPage() {
               alt="Personal stats — matchup matrix and summary"
               className="h-auto w-full"
               height={1009}
-              src="/screenshots/stats-matrix.png"
+              src="/screenshots/stats-matrix.webp"
               width={1920}
             />
           </div>
