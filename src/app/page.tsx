@@ -44,9 +44,9 @@ export default async function HomePage() {
             </h1>
             <p className="max-w-xl text-lg leading-8 text-slate-400">
               RiftLite now tracks every Riftbound match you play on TCGA and RiftAtlas
-              — fully automatic, no buttons to press. Your real win rates by matchup,
-              the community meta, and a live OBS overlay all update themselves while
-              you focus on the game.
+              — fully automatic, no buttons to press. Review games with the new replay
+              feature, study your real win rates by matchup, follow the community meta,
+              and keep a live OBS overlay updated while you focus on the game.
             </p>
           </div>
           <div className="flex flex-wrap gap-4">
