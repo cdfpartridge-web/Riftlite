@@ -104,9 +104,26 @@ export function SiteFooter({ settings }: SiteFooterProps) {
           </div>
         </div>
 
-        <div className="border-t border-white/[0.04] px-6 py-4">
-          <div className="mx-auto max-w-7xl text-center text-xs text-slate-600">
-            © {new Date().getFullYear()} RiftLite · Not affiliated with Riot Games
+        <div className="border-t border-white/[0.04] px-6 py-5">
+          <div className="mx-auto max-w-7xl space-y-2 text-center text-xs leading-5 text-slate-600">
+            <p>© {new Date().getFullYear()} RiftLite</p>
+            <p>
+              RiftLite was created under Riot Games&apos;{" "}
+              <Link
+                className="text-slate-500 underline-offset-4 hover:text-slate-300 hover:underline"
+                href="https://www.riotgames.com/en/legal"
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                &quot;Legal Jibber Jabber&quot;
+              </Link>{" "}
+              policy using assets owned by Riot Games. Riot Games does not endorse or
+              sponsor this project.
+            </p>
+            <p>
+              Riot Games and all associated properties are trademarks or registered
+              trademarks of Riot Games, Inc.
+            </p>
           </div>
         </div>
       </div>
