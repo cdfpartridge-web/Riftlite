@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 
+import { canonicalChoice } from "@/lib/canonical";
+import { BATTLEFIELD_ALIASES, BATTLEFIELDS, LEGEND_ALIASES, LEGENDS } from "@/lib/constants";
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 
 export const dynamic = "force-dynamic";
@@ -63,7 +65,15 @@ function normalizeScorepadMatch(value: unknown): Record<string, unknown> | null 
     return null;
   }
   const match = value as Record<string, unknown>;
-  const games = Array.isArray(match.games) ? match.games.map(normalizeGame).filter(Boolean) : [];
+  const myChampion = readCanonicalChoice(match.myChampion, LEGENDS, LEGEND_ALIASES);
+  const opponentChampion = readCanonicalChoice(match.opponentChampion, LEGENDS, LEGEND_ALIASES);
+  if (myChampion === null || opponentChampion === null) {
+    return null;
+  }
+  const games = normalizeGames(match.games);
+  if (!games) {
+    return null;
+  }
   return {
     localId: cleanId(match.localId) || randomUUID(),
     capturedAt: readString(match.capturedAt) || new Date().toISOString(),
@@ -71,8 +81,8 @@ function normalizeScorepadMatch(value: unknown): Record<string, unknown> | null 
     result: readResult(match.result),
     myName: readString(match.myName),
     opponentName: readString(match.opponentName),
-    myChampion: readString(match.myChampion),
-    opponentChampion: readString(match.opponentChampion),
+    myChampion,
+    opponentChampion,
     deckName: readString(match.deckName),
     eventName: readString(match.eventName),
     roundName: readString(match.roundName),
@@ -86,18 +96,41 @@ function normalizeGame(value: unknown): Record<string, unknown> | null {
     return null;
   }
   const game = value as Record<string, unknown>;
+  const myBattlefield = readCanonicalChoice(game.myBattlefield, BATTLEFIELDS, BATTLEFIELD_ALIASES);
+  const oppBattlefield = readCanonicalChoice(game.oppBattlefield, BATTLEFIELDS, BATTLEFIELD_ALIASES);
+  if (myBattlefield === null || oppBattlefield === null) {
+    return null;
+  }
   return {
     result: readResult(game.result),
     myPoints: readNumber(game.myPoints),
     oppPoints: readNumber(game.oppPoints),
     wentFirst: readString(game.wentFirst) === "1st" || readString(game.wentFirst) === "2nd" ? readString(game.wentFirst) : "",
-    myBattlefield: readString(game.myBattlefield),
-    oppBattlefield: readString(game.oppBattlefield),
+    myBattlefield,
+    oppBattlefield,
   };
+}
+
+function normalizeGames(value: unknown): Record<string, unknown>[] | null {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const games = value.map(normalizeGame);
+  return games.every(Boolean) ? games as Record<string, unknown>[] : null;
 }
 
 function readString(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function readCanonicalChoice(
+  value: unknown,
+  options: readonly string[],
+  aliases: Readonly<Record<string, string>>,
+): string | null {
+  const raw = readString(value);
+  if (!raw) return "";
+  return canonicalChoice(raw, options, aliases) || null;
 }
 
 function readResult(value: unknown): string {

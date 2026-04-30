@@ -5,6 +5,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Minus, Plus, RotateCcw, Save, Send, Smartphone } from "lucide-react";
 
+import { canonicalChoice, type CanonicalAliasMap, type CanonicalChoiceList, hasInvalidChoice } from "@/lib/canonical";
+import { BATTLEFIELD_ALIASES, BATTLEFIELDS, LEGEND_ALIASES, LEGENDS } from "@/lib/constants";
+
 type ScorepadResult = "Win" | "Loss" | "Draw" | "Incomplete";
 type ScorepadFormat = "Bo1" | "Bo3";
 type ScorepadSeat = "1st" | "2nd" | "";
@@ -116,20 +119,30 @@ export function ScorepadClient() {
     const selectedGames = format === "Bo3"
       ? visibleGames.filter((game, index) => index < 2 || hasGameData(game))
       : [visibleGames[0] ?? emptyGame()];
+    const validationError = validateChoices(myChampion, opponentChampion, selectedGames);
+    if (validationError) {
+      setStatus(validationError);
+      return;
+    }
+    const canonicalGames = selectedGames.map((game) => ({
+      ...game,
+      myBattlefield: canonicalChoice(game.myBattlefield, BATTLEFIELDS, BATTLEFIELD_ALIASES),
+      oppBattlefield: canonicalChoice(game.oppBattlefield, BATTLEFIELDS, BATTLEFIELD_ALIASES),
+    }));
     const match: ScorepadMatch = {
       localId: `phone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       capturedAt: new Date().toISOString(),
-      format: selectedGames.length > 1 ? "Bo3" : "Bo1",
+      format: canonicalGames.length > 1 ? "Bo3" : "Bo1",
       result: record.result,
       myName,
       opponentName,
-      myChampion,
-      opponentChampion,
+      myChampion: canonicalChoice(myChampion, LEGENDS, LEGEND_ALIASES),
+      opponentChampion: canonicalChoice(opponentChampion, LEGENDS, LEGEND_ALIASES),
       deckName,
       eventName,
       roundName,
       notes,
-      games: selectedGames,
+      games: canonicalGames,
       syncStatus: "saved",
     };
     updateMatches([match, ...matches]);
@@ -165,6 +178,8 @@ export function ScorepadClient() {
 
   return (
     <main className="min-h-screen px-4 py-5 text-white">
+      <ChoiceDatalist id="scorepad-legends" options={LEGENDS} />
+      <ChoiceDatalist id="scorepad-battlefields" options={BATTLEFIELDS} />
       <section className="mx-auto grid max-w-5xl gap-4">
         <header className="rounded-2xl border border-sky-400/30 bg-[#101936] p-5 shadow-2xl shadow-black/30">
           <div className="flex flex-wrap items-end justify-between gap-4">
@@ -187,8 +202,8 @@ export function ScorepadClient() {
               <Field label="My name" value={myName} onChange={setMyName} />
               <Field label="Opponent" value={opponentName} onChange={setOpponentName} />
               <Field label="Deck" value={deckName} onChange={setDeckName} />
-              <Field label="My legend" value={myChampion} onChange={setMyChampion} />
-              <Field label="Opponent legend" value={opponentChampion} onChange={setOpponentChampion} />
+              <ChoiceField label="My legend" value={myChampion} onChange={setMyChampion} options={LEGENDS} aliases={LEGEND_ALIASES} listId="scorepad-legends" placeholder="Search legends" />
+              <ChoiceField label="Opponent legend" value={opponentChampion} onChange={setOpponentChampion} options={LEGENDS} aliases={LEGEND_ALIASES} listId="scorepad-legends" placeholder="Search legends" />
               <Field label="Event" value={eventName} onChange={setEventName} placeholder="Nexus Night" />
               <Field label="Round" value={roundName} onChange={setRoundName} placeholder="Round 2" />
             </div>
@@ -212,8 +227,8 @@ export function ScorepadClient() {
                     <button className="rounded-lg border border-sky-500/40 bg-slate-900 p-2" onClick={() => changeScore(index, "opp", 1)}><Plus size={16} /></button>
                   </div>
                   <label className="grid gap-1 text-sm font-bold text-slate-300">Seat<select className="rounded-lg border border-sky-500/40 bg-slate-950 p-3" value={game.wentFirst} onChange={(event) => patchGame(index, { wentFirst: event.target.value as ScorepadSeat })}><option value="">Unknown</option><option value="1st">Went 1st</option><option value="2nd">Went 2nd</option></select></label>
-                  <Field label="My battlefield" value={game.myBattlefield} onChange={(value) => patchGame(index, { myBattlefield: value })} />
-                  <Field label="Opponent battlefield" value={game.oppBattlefield} onChange={(value) => patchGame(index, { oppBattlefield: value })} />
+                  <ChoiceField label="My battlefield" value={game.myBattlefield} onChange={(value) => patchGame(index, { myBattlefield: value })} options={BATTLEFIELDS} aliases={BATTLEFIELD_ALIASES} listId="scorepad-battlefields" placeholder="Search battlefields" />
+                  <ChoiceField label="Opponent battlefield" value={game.oppBattlefield} onChange={(value) => patchGame(index, { oppBattlefield: value })} options={BATTLEFIELDS} aliases={BATTLEFIELD_ALIASES} listId="scorepad-battlefields" placeholder="Search battlefields" />
                 </article>
               ))}
             </div>
@@ -264,6 +279,54 @@ function Field({ label, value, onChange, placeholder = "" }: { label: string; va
   );
 }
 
+function ChoiceField({
+  label,
+  value,
+  onChange,
+  options,
+  aliases = {},
+  listId,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: CanonicalChoiceList;
+  aliases?: CanonicalAliasMap;
+  listId: string;
+  placeholder: string;
+}) {
+  function commitChoice() {
+    const canonical = canonicalChoice(value, options, aliases);
+    onChange(canonical);
+  }
+
+  return (
+    <label className="grid gap-1 text-sm font-bold text-slate-300">
+      {label}
+      <input
+        autoComplete="off"
+        className="rounded-lg border border-sky-500/40 bg-slate-950 p-3"
+        list={listId}
+        onBlur={commitChoice}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        value={value}
+      />
+    </label>
+  );
+}
+
+function ChoiceDatalist({ id, options }: { id: string; options: CanonicalChoiceList }) {
+  return (
+    <datalist id={id}>
+      {options.map((option) => (
+        <option key={option} value={option} />
+      ))}
+    </datalist>
+  );
+}
+
 function emptyGame(): ScorepadGame {
   return {
     result: "Incomplete",
@@ -283,6 +346,20 @@ function ensureBo3(games: ScorepadGame[]): ScorepadGame[] {
 
 function hasGameData(game: ScorepadGame): boolean {
   return game.result !== "Incomplete" || game.myPoints > 0 || game.oppPoints > 0 || Boolean(game.myBattlefield || game.oppBattlefield || game.wentFirst);
+}
+
+function validateChoices(myChampion: string, opponentChampion: string, games: ScorepadGame[]): string {
+  if (hasInvalidChoice(myChampion, LEGENDS, LEGEND_ALIASES)) {
+    return "Choose a suggested value for My legend.";
+  }
+  if (hasInvalidChoice(opponentChampion, LEGENDS, LEGEND_ALIASES)) {
+    return "Choose a suggested value for Opponent legend.";
+  }
+  const invalidGameIndex = games.findIndex((game) =>
+    hasInvalidChoice(game.myBattlefield, BATTLEFIELDS, BATTLEFIELD_ALIASES) ||
+    hasInvalidChoice(game.oppBattlefield, BATTLEFIELDS, BATTLEFIELD_ALIASES)
+  );
+  return invalidGameIndex >= 0 ? `Choose suggested battlefield values for Game ${invalidGameIndex + 1}.` : "";
 }
 
 function matchRecord(games: ScorepadGame[]): { result: ScorepadResult; score: string } {
