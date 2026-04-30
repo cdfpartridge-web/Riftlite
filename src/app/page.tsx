@@ -154,12 +154,12 @@ export default async function HomePage() {
           id="feature-community"
           eyebrow="Community data"
           title="The whole meta, inside the app."
-          description="Every game you log (anonymously, if you want) feeds the leaderboard, legend meta, and community matchup matrix — and they feed you right back inside RiftLite. No tab-hopping, no scraping Discord."
+          description="Every game you log (anonymously, if you want) feeds the legend meta and community matchup matrix — and they feed you right back inside RiftLite. No tab-hopping, no scraping Discord."
         />
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-3">
             <Image
-              alt="RiftLite community leaderboard tab"
+              alt="RiftLite community stats tab"
               className="h-auto w-full rounded-xl"
               height={819}
               src="/screenshots/community.webp"
@@ -302,7 +302,7 @@ export default async function HomePage() {
               <Link href={SITE_PATHS.matrix}>See the Match Matrix</Link>
             </Button>
             <Button asChild variant="secondary">
-              <Link href={SITE_PATHS.leaderboard}>Leaderboard</Link>
+              <Link href={SITE_PATHS.meta}>Legend Meta</Link>
             </Button>
           </div>
         </Card>

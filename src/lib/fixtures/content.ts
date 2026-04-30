@@ -25,7 +25,7 @@ export const FIXTURE_HOME_HERO: HomeHero = {
   primaryCtaLabel: "Get the App",
   primaryCtaHref: "/download",
   secondaryCtaLabel: "Explore Community Stats",
-  secondaryCtaHref: "/community/leaderboard",
+  secondaryCtaHref: "/community/meta",
 };
 
 export const FIXTURE_STREAM_MODULE: StreamModule = {
@@ -114,7 +114,7 @@ export const FIXTURE_NEWS_POSTS: NewsPost[] = [
     slug: "community-data-now-on-the-web",
     title: "Community stats now have a web home",
     excerpt:
-      "Leaderboard confidence ranking, legend meta, matrix drilldowns, and match filtering now translate into a modern browser experience.",
+      "Legend meta, matrix drilldowns, and match filtering now translate into a modern browser experience.",
     publishedAt: "2026-04-17T18:30:00Z",
     tags: ["Stats", "Web"],
     body: [

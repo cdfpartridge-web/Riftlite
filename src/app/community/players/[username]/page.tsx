@@ -100,7 +100,7 @@ export default async function PlayerProfilePage({
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <StreakBadge streak={profile.currentStreak} />
           <Button asChild size="sm" variant="secondary">
-            <Link href="/community/leaderboard">← Leaderboard</Link>
+            <Link href="/community/matches">← Recent Matches</Link>
           </Button>
         </div>
       </div>

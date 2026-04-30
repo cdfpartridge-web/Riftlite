@@ -1,6 +1,6 @@
 # RiftLite
 
-> RiftLite is a free Windows desktop companion app for Riftbound. It fully automatically tracks every match you play on TCGA and RiftAtlas, surfaces your matchup stats, and includes a streamer overlay for OBS. The website hosts download links, the community meta (leaderboard, matchup matrix, deck stats), guides, and news.
+> RiftLite is a free Windows desktop companion app for Riftbound. It fully automatically tracks every match you play on TCGA and RiftAtlas, surfaces your matchup stats, and includes a streamer overlay for OBS. The website hosts download links, the community meta, matchup matrix, deck stats, guides, and news.
 
 ## Core pages
 
@@ -12,7 +12,6 @@
 
 ## Community data
 
-- [Leaderboard](https://www.riftlite.com/community/leaderboard): Top players by win rate.
 - [Meta](https://www.riftlite.com/community/meta): Deck archetype play rate and win rate.
 - [Matchup matrix](https://www.riftlite.com/community/matrix): Deck-vs-deck win rates.
 - [Matches](https://www.riftlite.com/community/matches): Recent community matches.
@@ -25,5 +24,5 @@
 - Streamer overlay for OBS (new in 0.47).
 - Personal matchup matrix with going-first splits.
 - Piltover Archive deck import with per-match snapshots.
-- Community leaderboard, meta, and matrix all accessible in-app.
+- Community meta and matrix all accessible in-app.
 - Turn-by-turn replay viewer (coming soon).

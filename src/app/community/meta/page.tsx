@@ -1,6 +1,5 @@
 import { AdSlot } from "@/components/site/ad-slot";
 import { CommunityFilterBar } from "@/components/site/community-filter-bar";
-import { CommunityMetaAlerts } from "@/components/site/community-meta-alerts";
 import { MetaTable } from "@/components/site/meta-table";
 import { SectionHeading } from "@/components/site/section-heading";
 import { parseFilters } from "@/lib/community/filters";
@@ -17,7 +16,6 @@ export default async function MetaPage({
 
   return (
     <div className="space-y-8">
-      <CommunityMetaAlerts />
       <SectionHeading
         eyebrow="Legend Meta"
         title="Which legends are actually winning?"

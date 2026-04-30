@@ -1,6 +1,5 @@
 import {
   buildDeckGroups,
-  buildLeaderboard,
   buildLegendMeta,
   buildMatrix,
   buildOverview,
@@ -9,7 +8,6 @@ import {
 } from "@/lib/community/aggregate";
 import { applyCommunityFilters, paginate } from "@/lib/community/filters";
 import { getCommunityMatchWindow, getCommunityPrivateBoost } from "@/lib/community/data";
-import { buildCommunityMetaAlerts } from "@/lib/community/meta-alerts";
 import {
   buildDeckComparison,
   buildLegendProfile,
@@ -29,15 +27,6 @@ export async function getCommunityOverview() {
     getCommunityPrivateBoost(),
   ]);
   return buildOverview(matches, privateBoost);
-}
-
-export async function getCommunityMetaAlerts() {
-  const matches = await getCommunityMatchWindow();
-  return buildCommunityMetaAlerts(matches);
-}
-
-export async function getLeaderboard(filters: CommunityFilterParams) {
-  return buildLeaderboard(await getFilteredCommunityMatches(filters));
 }
 
 export async function getLegendMeta(filters: CommunityFilterParams) {

@@ -15,7 +15,7 @@ const features = [
   "Streamer overlay for OBS (new in 0.47)",
   "Personal matchup matrix with going-first splits",
   "Piltover Archive deck import with per-match snapshots",
-  "Community leaderboard, meta, and matrix — all in-app",
+  "Community meta and matrix — all in-app",
   "Turn-by-turn replay viewer — coming soon",
 ];
 
@@ -90,7 +90,7 @@ export default async function DownloadPage() {
           </h3>
           <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-slate-950/60">
             <Image
-              alt="Community leaderboard and meta inside RiftLite"
+              alt="Community meta inside RiftLite"
               className="h-auto w-full"
               height={819}
               src="/screenshots/community.webp"

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { GET as getDecks } from "@/app/api/community/decks/route";
 import { GET as getDeckDetail } from "@/app/api/community/decks/[deckKey]/route";
-import { GET as getLeaderboard } from "@/app/api/community/leaderboard/route";
 import { GET as getMatches } from "@/app/api/community/matches/route";
 import { GET as getMatrix } from "@/app/api/community/matrix/route";
 import { GET as getMeta } from "@/app/api/community/meta/route";
@@ -14,14 +13,6 @@ describe("community api routes", () => {
     const response = await getOverview();
     const payload = await response.json();
     expect(payload.totalMatches).toBeGreaterThan(0);
-  });
-
-  it("filters leaderboard payload", async () => {
-    const response = await getLeaderboard(
-      new Request("http://localhost/api/community/leaderboard?legend=Ahri"),
-    );
-    const payload = await response.json();
-    expect(Array.isArray(payload)).toBe(true);
   });
 
   it("returns meta, matrix, matches, and decks payloads", async () => {

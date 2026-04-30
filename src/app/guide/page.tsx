@@ -130,7 +130,7 @@ export default async function GuidePage() {
             <Link href={safeHref(settings.downloadUrl)}>Download RiftLite</Link>
           </Button>
           <Button asChild size="lg" variant="secondary">
-            <Link href={SITE_PATHS.leaderboard}>See the stats</Link>
+            <Link href={SITE_PATHS.meta}>See the stats</Link>
           </Button>
         </div>
       </Card>

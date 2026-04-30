@@ -63,18 +63,6 @@ export type CommunityFilterParams = {
   pageSize: number;
 };
 
-export type LeaderboardRow = {
-  rank: number;
-  player: string;
-  games: number;
-  wins: number;
-  losses: number;
-  draws: number;
-  decisiveGames: number;
-  winRate: number;
-  confidenceScore: number;
-};
-
 export type LegendMetaRow = {
   legend: string;
   games: number;
@@ -124,7 +112,6 @@ export type CommunityOverview = {
   topLegend: LegendMetaRow | null;
   topDeck: DeckGroup | null;
   featuredDecks: DeckGroup[];
-  featuredPlayers: LeaderboardRow[];
 };
 
 export type NewsPost = {

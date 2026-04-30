@@ -41,8 +41,8 @@ export default function AboutPage() {
       <Card className="space-y-4">
         <h3 className="font-display text-lg font-semibold text-white">The full picture</h3>
         <p className="text-base leading-7 text-slate-400">
-          Whether you're chasing the top of the leaderboard or just trying to figure out what beats
-          the deck you keep losing to, RiftLite gives you the data to make smarter decisions.
+          Whether you&apos;re studying the meta or just trying to figure out what beats the deck
+          you keep losing to, RiftLite gives you the data to make smarter decisions.
         </p>
         <p className="text-base leading-7 text-slate-400">
           Filter by legend, dig into matchups, study the decks topping the meta — all updated live

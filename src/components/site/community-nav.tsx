@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/community/leaderboard", label: "Leaderboard" },
   { href: "/community/meta", label: "Legend Meta" },
   { href: "/community/matrix", label: "Match Matrix" },
   { href: "/community/matches", label: "Recent Matches" },

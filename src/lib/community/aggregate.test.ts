@@ -1,16 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDeckGroups, buildLeaderboard, buildLegendMeta, buildMatrix } from "@/lib/community/aggregate";
+import { buildDeckGroups, buildLegendMeta, buildMatrix } from "@/lib/community/aggregate";
 import { applyCommunityFilters, parseFilters } from "@/lib/community/filters";
 import { FIXTURE_MATCHES } from "@/lib/fixtures/community";
 
 describe("community aggregation", () => {
-  it("ranks leaderboard entries by Wilson score", () => {
-    const rows = buildLeaderboard(FIXTURE_MATCHES);
-    expect(rows[0]?.player).toBe("BMU Casts");
-    expect(rows[0]?.confidenceScore).toBeGreaterThan(rows[1]?.confidenceScore ?? 0);
-  });
-
   it("sorts legend meta by games played", () => {
     const rows = buildLegendMeta(FIXTURE_MATCHES);
     expect(rows[0]?.legend).toBe("Ahri");

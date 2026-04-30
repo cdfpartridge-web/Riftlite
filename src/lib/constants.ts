@@ -40,7 +40,6 @@ export const TWITCH_STATUS_CACHE_MS = 60_000;
 
 export const SITE_PATHS = {
   home: "/",
-  leaderboard: "/community/leaderboard",
   meta: "/community/meta",
   matrix: "/community/matrix",
   matches: "/community/matches",

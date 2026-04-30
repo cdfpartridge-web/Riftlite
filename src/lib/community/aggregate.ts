@@ -6,7 +6,6 @@ import type {
   CommunityOverview,
   DeckGroup,
   DeckSnapshot,
-  LeaderboardRow,
   LegendMetaRow,
   MatchGame,
   MatchupCell,
@@ -57,41 +56,6 @@ export function deckGroupKey(match: CommunityMatch) {
   }
 
   return "";
-}
-
-export function buildLeaderboard(matches: CommunityMatch[]): LeaderboardRow[] {
-  const stats = new Map<string, { wins: number; draws: number; total: number }>();
-
-  for (const match of matches) {
-    const name = match.username || `Player#${match.uid.slice(0, 6)}`;
-    const bucket = stats.get(name) ?? { wins: 0, draws: 0, total: 0 };
-    bucket.total += 1;
-    if (match.result === "Win") {
-      bucket.wins += 1;
-    } else if (match.result === "Draw") {
-      bucket.draws += 1;
-    }
-    stats.set(name, bucket);
-  }
-
-  return Array.from(stats.entries())
-    .map(([player, bucket]) => {
-      const losses = bucket.total - bucket.wins - bucket.draws;
-      const decisiveGames = bucket.wins + losses;
-      return {
-        rank: 0,
-        player,
-        games: bucket.total,
-        wins: bucket.wins,
-        losses,
-        draws: bucket.draws,
-        decisiveGames,
-        winRate: winRate(bucket.wins, decisiveGames),
-        confidenceScore: wilsonScore(bucket.wins, decisiveGames),
-      };
-    })
-    .sort((left, right) => right.confidenceScore - left.confidenceScore)
-    .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
 export function buildLegendMeta(matches: CommunityMatch[]): LegendMetaRow[] {
@@ -291,7 +255,6 @@ export function buildOverview(
     privatePlayerCount: 0,
   },
 ): CommunityOverview {
-  const leaderboard = buildLeaderboard(matches);
   const meta = buildLegendMeta(matches);
   const decks = buildDeckGroups(matches);
   const players = new Set(matches.map((match) => match.username));
@@ -299,8 +262,8 @@ export function buildOverview(
   return {
     // Total counts include private-hub volume (counts only — no deck
     // lists, matchups, or usernames from private hubs leak). Derived
-    // views (leaderboard, legend meta, deck groups) stay strictly
-    // public-only so matchup %, deck stats, etc. remain private.
+    // views (legend meta, deck groups) stay strictly public-only so
+    // matchup %, deck stats, etc. remain private.
     totalMatches: matches.length + privateBoost.privateMatchCount,
     totalPlayers: players.size + privateBoost.privatePlayerCount,
     totalDecks: decks.length,
@@ -308,7 +271,6 @@ export function buildOverview(
     topLegend: meta[0] ?? null,
     topDeck: decks[0] ?? null,
     featuredDecks: decks.slice(0, 3),
-    featuredPlayers: leaderboard.slice(0, 3),
   };
 }
 
