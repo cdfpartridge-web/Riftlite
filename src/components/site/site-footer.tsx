@@ -108,6 +108,10 @@ export function SiteFooter({ settings }: SiteFooterProps) {
           <div className="mx-auto max-w-7xl space-y-2 text-center text-xs leading-5 text-slate-600">
             <p>© {new Date().getFullYear()} RiftLite</p>
             <p>
+              All community match data is user-submitted by RiftLite players and is not
+              automatically scraped from Riot services or official Riot data sources.
+            </p>
+            <p>
               RiftLite was created under Riot Games&apos;{" "}
               <Link
                 className="text-slate-500 underline-offset-4 hover:text-slate-300 hover:underline"
