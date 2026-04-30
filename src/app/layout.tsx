@@ -76,7 +76,7 @@ export default async function RootLayout({
       operatingSystem: "Windows",
       url: "https://www.riftlite.com/download",
       description:
-        "Desktop companion app for Riftbound. Fully automatic match tracking on TCGA and RiftAtlas, streamer overlay for OBS, personal matchup matrix, and community meta.",
+        "Desktop companion app for Riftbound. Fully automatic match tracking on TCGA and RiftAtlas, visual replays, streamer overlay for OBS, personal matchup matrix, and community meta.",
       offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     },
   ];

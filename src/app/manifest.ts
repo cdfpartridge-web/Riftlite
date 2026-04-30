@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "RiftLite",
     short_name: "RiftLite",
     description:
-      "Fully automatic Riftbound match tracking on TCGA and RiftAtlas. Study your matchups, browse the community meta, and stream with a live overlay.",
+      "Fully automatic Riftbound match tracking on TCGA and RiftAtlas. Study your matchups, replay key turns, browse the community meta, and stream with a live overlay.",
     start_url: "/",
     display: "standalone",
     background_color: "#0c1021",

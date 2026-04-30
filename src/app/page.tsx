@@ -67,31 +67,31 @@ export default async function HomePage() {
           </div>
         </div>
 
-        {/* Hero visual — the overlay, front and centre */}
+        {/* Hero visual — the replay viewer, front and centre */}
         <div className="animate-fade-up delay-150">
           <Card className="overflow-hidden bg-[linear-gradient(145deg,rgba(89,167,255,0.1),rgba(166,124,255,0.12))] shadow-[0_0_80px_rgba(89,167,255,0.08),0_8px_40px_rgba(4,8,23,0.5),inset_0_1px_0_rgba(255,255,255,0.08)]">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="text-[10px] font-bold uppercase tracking-[0.26em] text-cyan-200">
-                  New · Streamer Overlay
+                  New · Visual Replays
                 </div>
-                <div className="rounded-full border border-rose-400/30 bg-rose-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-300">
-                  Live
+                <div className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-200">
+                  Frame by frame
                 </div>
               </div>
-              <CardTitle className="text-2xl">Matchup stats, live on your stream.</CardTitle>
+              <CardTitle className="text-2xl">Replay every turn after the match.</CardTitle>
               <CardDescription className="text-base">
-                One browser source in OBS — the overlay reads from your local history and updates
-                the instant you pick a matchup.
+                Step through saved frames, flag key moments, trim the timeline, and turn a finished
+                game into something you can actually study.
               </CardDescription>
               <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50 p-4">
                 <Image
-                  alt="RiftLite stream overlay configuration with live preview of matchup stats"
+                  alt="RiftLite visual replay viewer showing a saved match timeline"
                   className="h-auto w-full rounded-lg"
-                  height={1009}
+                  height={1032}
                   priority
-                  src="/screenshots/overlay.webp"
-                  width={1920}
+                  src="/screenshots/replay-viewer.webp"
+                  width={1917}
                 />
               </div>
             </div>
@@ -109,6 +109,46 @@ export default async function HomePage() {
           value={overview.topLegend ? formatPercent(overview.topLegend.winRate) : "—"}
           tone="win"
         />
+      </FadeUp>
+
+      {/* Feature: Visual replays */}
+      <FadeUp className="space-y-10">
+        <SectionHeading
+          id="feature-replays"
+          eyebrow="★ Visual replays"
+          title="Go back through the game, frame by frame."
+          description="RiftLite keeps timed visual replay frames for tracked matches, so you can review turning points, flag the moments that matter, and save a trimmed sequence for later study."
+        />
+        <div className="overflow-hidden rounded-3xl border border-cyan-300/15 bg-slate-950/60 p-3 shadow-[0_0_90px_rgba(89,167,255,0.1)]">
+          <Image
+            alt="RiftLite replay viewer with timeline controls, saved frames, and a visual match replay"
+            className="h-auto w-full rounded-2xl"
+            height={1032}
+            src="/screenshots/replay-viewer.webp"
+            width={1917}
+          />
+        </div>
+        <ul className="grid gap-4 md:grid-cols-3">
+          {[
+            {
+              title: "Timeline playback",
+              body: "Scrub through preserved frames, jump between turns, and replay the match at the speed that helps you learn.",
+            },
+            {
+              title: "Flag key decisions",
+              body: "Mark the turn, attack, response, or point swing you want to revisit without digging through the whole game.",
+            },
+            {
+              title: "Trim what matters",
+              body: "Keep the important frames and cut the rest, so reviews stay focused on the exact sequence you care about.",
+            },
+          ].map((item) => (
+            <li className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5" key={item.title}>
+              <div className="font-display text-base font-semibold text-white">{item.title}</div>
+              <p className="mt-1.5 text-sm leading-6 text-slate-400">{item.body}</p>
+            </li>
+          ))}
+        </ul>
       </FadeUp>
 
       {/* Feature: Fully automatic tracking */}

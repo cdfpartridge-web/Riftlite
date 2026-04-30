@@ -12,11 +12,11 @@ export const revalidate = 600;
 
 const features = [
   "Fully automatic match tracking on TCGA and RiftAtlas",
+  "Turn-by-turn visual replay viewer",
   "Streamer overlay for OBS (new in 0.47)",
   "Personal matchup matrix with going-first splits",
   "Piltover Archive deck import with per-match snapshots",
   "Community meta and matrix — all in-app",
-  "Turn-by-turn replay viewer — coming soon",
 ];
 
 export default async function DownloadPage() {
@@ -28,7 +28,7 @@ export default async function DownloadPage() {
       <SectionHeading
         eyebrow="Download"
         title="Get the RiftLite desktop app."
-        description="Fully automatic match tracking on TCGA and RiftAtlas, a personal matchup matrix, and a live OBS overlay. Free, Windows, no account required."
+        description="Fully automatic match tracking on TCGA and RiftAtlas, visual replays, a personal matchup matrix, and a live OBS overlay. Free, Windows, no account required."
       />
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
@@ -66,14 +66,14 @@ export default async function DownloadPage() {
           <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
           <div className="relative space-y-3">
             <div className="text-[10px] font-bold uppercase tracking-[0.26em] text-cyan-200">
-              New · Streamer Overlay
+              New · Visual Replays
             </div>
             <Image
-              alt="RiftLite stream overlay configuration with live matchup preview"
+              alt="RiftLite replay viewer with timeline controls and saved visual frames"
               className="h-auto w-full rounded-xl"
-              height={1009}
-              src="/screenshots/overlay.webp"
-              width={1920}
+              height={1032}
+              src="/screenshots/replay-viewer.webp"
+              width={1917}
             />
           </div>
         </div>
