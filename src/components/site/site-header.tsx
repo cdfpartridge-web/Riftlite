@@ -41,7 +41,7 @@ export function SiteHeader({ discordUrl }: SiteHeaderProps = {}) {
           </div>
         </Link>
 
-        <nav className="hidden items-center gap-7 lg:flex">
+        <nav aria-label="Primary navigation" className="hidden items-center gap-7 lg:flex">
           {primaryLinks.map((link) => (
             <Link
               className="nav-link text-sm font-medium text-slate-400 transition-colors duration-200 hover:text-white"
@@ -66,11 +66,27 @@ export function SiteHeader({ discordUrl }: SiteHeaderProps = {}) {
               <span className="hidden sm:inline">Discord</span>
             </Link>
           ) : null}
-          <Button asChild size="sm">
-            <Link href={SITE_PATHS.download}>Get The App</Link>
+          <Button asChild className="whitespace-nowrap" size="sm">
+            <Link href={SITE_PATHS.download}>
+              <span className="sm:hidden">Get App</span>
+              <span className="hidden sm:inline">Get The App</span>
+            </Link>
           </Button>
         </div>
       </div>
+      <nav aria-label="Mobile primary navigation" className="border-t border-white/[0.06] lg:hidden">
+        <div className="mx-auto grid max-w-7xl grid-cols-3 gap-2 px-4 py-2.5 sm:flex sm:flex-wrap sm:px-6">
+          {primaryLinks.map((link) => (
+            <Link
+              className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-center text-xs font-semibold text-slate-300 transition-colors duration-200 hover:border-sky-300/40 hover:bg-sky-300/10 hover:text-white"
+              href={link.href}
+              key={link.href}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </div>
+      </nav>
     </header>
   );
 }
