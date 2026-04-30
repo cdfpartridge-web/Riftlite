@@ -11,6 +11,7 @@ const primaryLinks = [
   { href: SITE_PATHS.meta, label: "Meta" },
   { href: SITE_PATHS.matrix, label: "Matrix" },
   { href: SITE_PATHS.decks, label: "Decks" },
+  { href: SITE_PATHS.scorepad, label: "Scorepad" },
   { href: SITE_PATHS.news, label: "News" },
 ];
 

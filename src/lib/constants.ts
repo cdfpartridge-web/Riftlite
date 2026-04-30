@@ -46,6 +46,7 @@ export const SITE_PATHS = {
   decks: "/community/decks",
   news: "/news",
   guide: "/guide",
+  scorepad: "/scorepad",
   download: "/download",
   about: "/about",
   privacy: "/privacy",
