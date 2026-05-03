@@ -122,10 +122,7 @@ export function TrendChart({
               stroke={accent}
               strokeWidth="1.5"
             />
-            <title>
-              Week of {p.bucket.label} · {p.bucket.games} games · {p.value}
-              {unit}
-            </title>
+            <title>{`Week of ${p.bucket.label} - ${p.bucket.games} games - ${p.value}${unit}`}</title>
           </g>
         ))}
 
