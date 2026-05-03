@@ -3,6 +3,14 @@ import { MatchesBrowser } from "@/components/site/matches-browser";
 import { SectionHeading } from "@/components/site/section-heading";
 import { parseFilters } from "@/lib/community/filters";
 import { getPaginatedMatches } from "@/lib/community/service";
+import { createPageMetadata } from "@/lib/seo";
+
+export const metadata = createPageMetadata({
+  title: "Recent Riftbound Matches",
+  description:
+    "Browse recent community Riftbound matches with legends, results, points, battlefields, and game-by-game details.",
+  path: "/community/matches",
+});
 
 export default async function MatchesPage({
   searchParams,
@@ -16,6 +24,7 @@ export default async function MatchesPage({
     <div className="space-y-8">
       <SectionHeading
         eyebrow="Recent Matches"
+        headingLevel={1}
         title="See how the latest games actually played out"
         description="Click any match for a full game-by-game breakdown — battlefields, points, and the moment things turned."
       />

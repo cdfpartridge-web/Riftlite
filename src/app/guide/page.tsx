@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SITE_PATHS } from "@/lib/constants";
 import { getSiteSettings } from "@/lib/sanity/content";
+import { createPageMetadata } from "@/lib/seo";
 import { safeHref } from "@/lib/utils";
 
-export const metadata = {
+export const metadata = createPageMetadata({
   title: "How to Use RiftLite",
   description:
     "Video walkthrough and quick steps for installing RiftLite, tracking your first match, and sharing stats with the community.",
-};
+  path: "/guide",
+});
 
 export const revalidate = 600;
 
@@ -68,6 +70,7 @@ export default async function GuidePage() {
     <div className="mx-auto max-w-5xl space-y-12 px-6 py-14">
       <SectionHeading
         eyebrow="Getting Started"
+        headingLevel={1}
         title="How to use RiftLite."
         description="Watch the walkthrough, follow the steps, and start tracking your games in a couple of minutes."
       />

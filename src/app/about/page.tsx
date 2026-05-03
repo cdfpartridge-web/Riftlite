@@ -1,7 +1,15 @@
 import { SectionHeading } from "@/components/site/section-heading";
 import { Card } from "@/components/ui/card";
+import { createPageMetadata } from "@/lib/seo";
 
 export const revalidate = 600;
+
+export const metadata = createPageMetadata({
+  title: "About RiftLite",
+  description:
+    "Learn how RiftLite turns real Riftbound matches into automatic personal stats, visual replays, deck insights, and community meta data.",
+  path: "/about",
+});
 
 const pillars = [
   {
@@ -23,6 +31,7 @@ export default function AboutPage() {
     <div className="mx-auto max-w-5xl space-y-10 px-6 py-14">
       <SectionHeading
         eyebrow="About"
+        headingLevel={1}
         title="The home for Riftbound stats, decks, and meta insights."
         description="RiftLite turns the games you play into community-wide insights — so every player can study real matchups instead of guessing."
       />

@@ -1,11 +1,20 @@
 import { SectionHeading } from "@/components/site/section-heading";
 import { Card } from "@/components/ui/card";
+import { createPageMetadata } from "@/lib/seo";
+
+export const metadata = createPageMetadata({
+  title: "Cookie Policy",
+  description:
+    "Cookie information for RiftLite, including third-party services such as ads, analytics, and embeds when enabled.",
+  path: "/cookies",
+});
 
 export default function CookiesPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-6 py-12">
       <SectionHeading
         eyebrow="Cookies"
+        headingLevel={1}
         title="Cookie usage depends on the services you enable."
         description="This page is ready for launch and should be updated with the final provider list once analytics, ads, and embeds are confirmed."
       />

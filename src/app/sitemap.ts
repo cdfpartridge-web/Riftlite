@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 
 import { buildDeckGroups } from "@/lib/community/aggregate";
 import { getCommunityMatchWindow } from "@/lib/community/data";
+import { LEGENDS } from "@/lib/constants";
 import { getNewsPosts } from "@/lib/sanity/content";
 
 // Cap the number of deck URLs we emit so crawlers don't create an ISR
@@ -45,6 +46,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: new Date(post.publishedAt),
       changeFrequency: "monthly" as const,
       priority: 0.6,
+    })),
+    ...LEGENDS.map((legend) => ({
+      url: `https://www.riftlite.com/community/legends/${encodeURIComponent(legend)}`,
+      lastModified: now,
+      changeFrequency: "weekly" as const,
+      priority: 0.55,
     })),
     ...decks.map((deck) => ({
       url: `https://www.riftlite.com/community/decks/${encodeURIComponent(deck.deckKey)}`,

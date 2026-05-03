@@ -7,6 +7,7 @@ import { TrendChart } from "@/components/site/trend-chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getPlayerProfile } from "@/lib/community/service";
+import { createPageMetadata } from "@/lib/seo";
 import { formatDate, formatPercent } from "@/lib/utils";
 
 export const revalidate = 600;
@@ -70,10 +71,12 @@ export async function generateMetadata({
 }) {
   const { username } = await params;
   const name = decodeURIComponent(username);
-  return {
-    title: `${name} · Player profile`,
-    description: `Riftbound community profile for ${name} — win rate, favourite legends, matchup breakdown, and deck history.`,
-  };
+  return createPageMetadata({
+    title: `${name} Player Profile`,
+    description: `Riftbound community profile for ${name}: win rate, favourite legends, matchup breakdown, and deck history.`,
+    path: `/community/players/${encodeURIComponent(name)}`,
+    noIndex: true,
+  });
 }
 
 export default async function PlayerProfilePage({
@@ -94,6 +97,7 @@ export default async function PlayerProfilePage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Player Profile"
+          headingLevel={1}
           title={profile.player}
           description={`Tracking ${profile.games} community matches — ${isoDate(profile.firstSeenMs)} to ${isoDate(profile.lastSeenMs)}.`}
         />

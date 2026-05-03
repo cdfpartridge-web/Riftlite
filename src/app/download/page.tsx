@@ -6,9 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SITE_PATHS } from "@/lib/constants";
 import { getSiteSettings } from "@/lib/sanity/content";
+import { createPageMetadata } from "@/lib/seo";
 import { safeHref } from "@/lib/utils";
 
 export const revalidate = 600;
+
+export const metadata = createPageMetadata({
+  title: "Download RiftLite for Windows",
+  description:
+    "Download the free RiftLite desktop app for automatic Riftbound match tracking, visual replays, personal stats, community meta data, and OBS overlays.",
+  path: "/download",
+  image: "/screenshots/replay-viewer.webp",
+});
 
 const features = [
   "Fully automatic match tracking on TCGA and RiftAtlas",
@@ -27,6 +36,7 @@ export default async function DownloadPage() {
     <div className="mx-auto max-w-5xl space-y-14 px-6 py-14">
       <SectionHeading
         eyebrow="Download"
+        headingLevel={1}
         title="Get the RiftLite desktop app."
         description="Fully automatic match tracking on TCGA and RiftAtlas, visual replays, a personal matchup matrix, and a live OBS overlay. Free, Windows, no account required."
       />

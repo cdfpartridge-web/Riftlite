@@ -6,6 +6,14 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { Button } from "@/components/ui/button";
 import { parseFilters } from "@/lib/community/filters";
 import { getPaginatedDecks } from "@/lib/community/service";
+import { createPageMetadata } from "@/lib/seo";
+
+export const metadata = createPageMetadata({
+  title: "Riftbound Community Decks",
+  description:
+    "Browse Riftbound community decks grouped by composition, with win rates, play counts, matchups, and deck snapshots.",
+  path: "/community/decks",
+});
 
 export default async function DecksPage({
   searchParams,
@@ -20,6 +28,7 @@ export default async function DecksPage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Decks"
+          headingLevel={1}
           title="Browse what the community is playing"
           description="Decks grouped intelligently by composition, so you can spot the popular builds and the off-meta gems winning right now."
         />

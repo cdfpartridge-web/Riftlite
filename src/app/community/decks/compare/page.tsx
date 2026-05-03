@@ -6,16 +6,18 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getDeckComparison, listAllDeckGroups } from "@/lib/community/service";
+import { createPageMetadata } from "@/lib/seo";
 import type { DeckGroup } from "@/lib/types";
 import { formatPercent } from "@/lib/utils";
 
 export const revalidate = 600;
 
-export const metadata = {
-  title: "Deck comparison · RiftLite",
+export const metadata = createPageMetadata({
+  title: "Riftbound Deck Comparison",
   description:
-    "Put two Riftbound decks head to head — win rates, shared matchups, and card-for-card differences.",
-};
+    "Compare two Riftbound community decks head to head with win rates, shared matchups, and card-for-card differences.",
+  path: "/community/decks/compare",
+});
 
 function DeckSummaryCard({ deck, accent }: { deck: DeckGroup; accent: string }) {
   return (
@@ -80,6 +82,7 @@ export default async function DeckComparePage({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <SectionHeading
             eyebrow="Deck comparison"
+            headingLevel={1}
             title="Put two decks head to head"
             description="See side-by-side win rates, shared opponents, and a card-for-card diff for any two community decks."
           />
@@ -99,6 +102,7 @@ export default async function DeckComparePage({
       <div className="space-y-8">
         <SectionHeading
           eyebrow="Deck comparison"
+          headingLevel={1}
           title="We couldn't find those two decks"
           description="Pick a fresh pair below — the keys in the URL may have gone stale as the meta rotates."
         />
@@ -114,6 +118,7 @@ export default async function DeckComparePage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Deck comparison"
+          headingLevel={1}
           title={`${deckA.title} vs ${deckB.title}`}
           description={`${deckA.legend} vs ${deckB.legend} · ${deckA.games + deckB.games} games tracked between the two.`}
         />

@@ -16,9 +16,18 @@ import {
   getNewsPosts,
   getSiteSettings,
 } from "@/lib/sanity/content";
+import { createPageMetadata } from "@/lib/seo";
 import { formatPercent, safeHref } from "@/lib/utils";
 
 export const revalidate = 300;
+
+export const metadata = createPageMetadata({
+  title: "RiftLite - Automatic Riftbound Match Tracking",
+  description:
+    "Track Riftbound matches on TCGA and RiftAtlas automatically, review visual replays, study matchup stats, and browse the community meta with RiftLite.",
+  path: "/",
+  image: "/screenshots/replay-viewer.webp",
+});
 
 export default async function HomePage() {
   const [overview, newsPosts, adSlots, settings] = await Promise.all([

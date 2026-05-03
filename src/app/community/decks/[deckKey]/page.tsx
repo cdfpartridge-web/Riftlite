@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -7,8 +8,13 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
 import { getDeckDetail } from "@/lib/community/service";
+import { createPageMetadata } from "@/lib/seo";
 import type { DeckSnapshot } from "@/lib/types";
 import { formatPercent, safeHref } from "@/lib/utils";
+
+type Props = {
+  params: Promise<{ deckKey: string }>;
+};
 
 function toPiltoverArchiveText(snapshot: DeckSnapshot): string {
   const sections: string[] = [];
@@ -84,11 +90,31 @@ function DeckSection({
   );
 }
 
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { deckKey } = await params;
+  const decodedKey = decodeURIComponent(deckKey);
+  const detail = await getDeckDetail(decodedKey);
+
+  if (!detail.deck) {
+    return createPageMetadata({
+      title: "Deck Not Found",
+      description: "This Riftbound community deck could not be found.",
+      path: `/community/decks/${encodeURIComponent(decodedKey)}`,
+      noIndex: true,
+    });
+  }
+
+  const { deck } = detail;
+  return createPageMetadata({
+    title: `${deck.title} Deck Snapshot`,
+    description: `${deck.legend} Riftbound deck snapshot with ${deck.games} tracked games and a ${formatPercent(deck.winRate)} win rate.`,
+    path: `/community/decks/${encodeURIComponent(deck.deckKey)}`,
+  });
+}
+
 export default async function DeckDetailPage({
   params,
-}: {
-  params: Promise<{ deckKey: string }>;
-}) {
+}: Props) {
   const { deckKey } = await params;
   const detail = await getDeckDetail(decodeURIComponent(deckKey));
 
@@ -105,6 +131,7 @@ export default async function DeckDetailPage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Deck Detail"
+          headingLevel={1}
           title={deck.title}
           description={`${deck.legend} · ${deck.games} games · ${formatPercent(deck.winRate)} win rate`}
         />

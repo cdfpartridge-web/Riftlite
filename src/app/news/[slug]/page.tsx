@@ -11,6 +11,7 @@ import { ShareButton } from "@/components/site/share-button";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { getAdSlots, getNewsPostBySlug, getSiteSettings } from "@/lib/sanity/content";
+import { absoluteUrl, createPageMetadata, SITE_URL } from "@/lib/seo";
 import { formatDate } from "@/lib/utils";
 
 export const revalidate = 60;
@@ -24,24 +25,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const ogImage = `/api/og/news/${slug}`;
 
-  return {
+  return createPageMetadata({
     title: post.title,
     description: post.excerpt,
-    openGraph: {
-      title: post.title,
-      description: post.excerpt,
-      type: "article",
-      publishedTime: post.publishedAt,
-      tags: post.tags,
-      images: [{ url: ogImage, width: 1200, height: 630 }],
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: post.title,
-      description: post.excerpt,
-      images: [ogImage],
-    },
-  };
+    path: `/news/${slug}`,
+    image: ogImage,
+    type: "article",
+    publishedTime: post.publishedAt,
+    tags: post.tags,
+  });
 }
 
 export default async function NewsPostPage({ params }: Props) {
@@ -66,11 +58,32 @@ export default async function NewsPostPage({ params }: Props) {
   const coverImageUrl = post.coverImage
     ? `${post.coverImage}?w=1200&auto=format&bg=0c1021`
     : null;
+  const articleJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: post.title,
+    description: post.excerpt,
+    datePublished: post.publishedAt,
+    dateModified: post.publishedAt,
+    mainEntityOfPage: url,
+    image: [coverImageUrl ?? absoluteUrl(`/api/og/news/${slug}`)],
+    author: {
+      "@type": "Organization",
+      name: "RiftLite",
+      url: SITE_URL,
+    },
+    publisher: { "@id": `${SITE_URL}/#organization` },
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-6 py-12">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
       <SectionHeading
         eyebrow={formatDate(post.publishedAt)}
+        headingLevel={1}
         title={post.title}
         description={post.excerpt}
       />

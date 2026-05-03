@@ -7,6 +7,7 @@ import { TrendChart } from "@/components/site/trend-chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getLegendProfile } from "@/lib/community/service";
+import { createPageMetadata } from "@/lib/seo";
 import { formatDate, formatPercent } from "@/lib/utils";
 
 export const revalidate = 600;
@@ -50,10 +51,11 @@ export async function generateMetadata({
 }) {
   const { legend } = await params;
   const name = decodeURIComponent(legend);
-  return {
-    title: `${name} · Riftbound win rate & decks`,
-    description: `Community stats for ${name} — win rate, top decks, best and worst matchups, and most-paired battlefields.`,
-  };
+  return createPageMetadata({
+    title: `${name} Riftbound Stats`,
+    description: `Community stats for ${name}: win rate, top decks, best and worst matchups, recent matches, and most-paired battlefields.`,
+    path: `/community/legends/${encodeURIComponent(name)}`,
+  });
 }
 
 export default async function LegendProfilePage({
@@ -83,6 +85,7 @@ export default async function LegendProfilePage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Legend deep-dive"
+          headingLevel={1}
           title={profile.legend}
           description={`${profile.games} community games tracked · ${formatPercent(profile.winRate)} win rate · ${formatPercent(profile.playRate)} of all matches.`}
         />

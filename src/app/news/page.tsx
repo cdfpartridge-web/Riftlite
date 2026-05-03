@@ -6,9 +6,17 @@ import { SectionHeading } from "@/components/site/section-heading";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getAdSlots, getNewsPosts } from "@/lib/sanity/content";
+import { createPageMetadata } from "@/lib/seo";
 import { formatDate } from "@/lib/utils";
 
 export const revalidate = 60;
+
+export const metadata = createPageMetadata({
+  title: "RiftLite News",
+  description:
+    "Read RiftLite updates, Riftbound meta shifts, feature releases, patch notes, and community announcements.",
+  path: "/news",
+});
 
 export default async function NewsPage() {
   const [posts, adSlots] = await Promise.all([getNewsPosts(), getAdSlots()]);
@@ -18,6 +26,7 @@ export default async function NewsPage() {
     <div className="mx-auto max-w-7xl space-y-10 px-6 py-12">
       <SectionHeading
         eyebrow="News"
+        headingLevel={1}
         title="Patch notes, meta shifts, and announcements"
         description="Everything new in Riftbound and RiftLite — written for players, kept current."
       />
