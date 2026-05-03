@@ -10,7 +10,7 @@ import { getLegendProfile } from "@/lib/community/service";
 import { createPageMetadata } from "@/lib/seo";
 import { formatDate, formatPercent } from "@/lib/utils";
 
-export const revalidate = 600;
+export const dynamic = "force-dynamic";
 
 function StatBlock({
   label,
