@@ -1,11 +1,12 @@
 import Link from "next/link";
 
 import { DeckComparePicker } from "@/components/site/deck-compare-picker";
-import { LegendChip, legendHref } from "@/components/site/legend-chip";
+import { LegendChip } from "@/components/site/legend-chip";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getDeckComparison, listAllDeckGroups } from "@/lib/community/service";
+import { legendHref } from "@/lib/legend-links";
 import { createPageMetadata } from "@/lib/seo";
 import type { DeckGroup } from "@/lib/types";
 import { formatPercent } from "@/lib/utils";

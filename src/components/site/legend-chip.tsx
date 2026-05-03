@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 
+import { legendHref } from "@/lib/legend-links";
 import { getLegendImageUrl, getLegendInitials } from "@/lib/legends";
 
 type LegendChipProps = {
@@ -60,6 +61,4 @@ export function LegendChip({ legend, size = 28, href, label }: LegendChipProps) 
   );
 }
 
-export function legendHref(legend: string) {
-  return `/community/legends/${encodeURIComponent(legend)}`;
-}
+export { legendHref };

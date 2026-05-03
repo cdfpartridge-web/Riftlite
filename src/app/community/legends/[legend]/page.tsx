@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { LegendChip, legendHref } from "@/components/site/legend-chip";
+import { LegendChip } from "@/components/site/legend-chip";
 import { SectionHeading } from "@/components/site/section-heading";
 import { TrendChart } from "@/components/site/trend-chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getLegendProfile } from "@/lib/community/service";
+import { legendHref } from "@/lib/legend-links";
 import { createPageMetadata } from "@/lib/seo";
 import { formatDate, formatPercent } from "@/lib/utils";
 
