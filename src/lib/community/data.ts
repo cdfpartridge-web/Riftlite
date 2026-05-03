@@ -278,8 +278,9 @@ async function fetchMatchesFromCollection(): Promise<CommunityMatch[] | null> {
 /**
  * Count every public match without downloading the match documents.
  * Firestore answers this from indexes, so the scheduled refresh can
- * initialise/repair the lifetime counter cheaply while the hot page
- * paths keep reading the precomputed aggregate doc.
+ * initialise/repair the lifetime counter cheaply. It is also used as
+ * a temporary cached fallback if production has deployed the code but
+ * the aggregate doc has not yet been refreshed with the new field.
  */
 async function fetchPublicLifetimeMatchCount(): Promise<number | null> {
   const db = getFirestoreAdmin();
@@ -410,12 +411,18 @@ async function fetchAggregateCountsFromAggregate(): Promise<CommunityAggregateCo
       return { privateMatchCount: 0, privatePlayerCount: 0 };
     }
     const data = snap.data() ?? {};
+    let publicLifetimeMatchCount = toNonNegativeInteger(
+      data.publicLifetimeMatchCount,
+    );
+    if (publicLifetimeMatchCount === undefined) {
+      publicLifetimeMatchCount =
+        (await fetchPublicLifetimeMatchCount()) ?? undefined;
+    }
+
     return {
       privateMatchCount: toNonNegativeInteger(data.privateMatchCount) ?? 0,
       privatePlayerCount: toNonNegativeInteger(data.privatePlayerCount) ?? 0,
-      publicLifetimeMatchCount: toNonNegativeInteger(
-        data.publicLifetimeMatchCount,
-      ),
+      publicLifetimeMatchCount,
     };
   } catch (error) {
     console.error("[community/data] Aggregate counts fetch failed", error);
