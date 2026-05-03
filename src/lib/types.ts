@@ -106,6 +106,9 @@ export type DeckGroup = {
 
 export type CommunityOverview = {
   totalMatches: number;
+  publicLifetimeMatches: number;
+  statsWindowMatches: number;
+  privateMatches: number;
   totalPlayers: number;
   totalDecks: number;
   trackedLegends: number;

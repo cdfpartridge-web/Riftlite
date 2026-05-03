@@ -250,7 +250,11 @@ export function buildDeckGroups(matches: CommunityMatch[]): DeckGroup[] {
 
 export function buildOverview(
   matches: CommunityMatch[],
-  privateBoost: { privateMatchCount: number; privatePlayerCount: number } = {
+  aggregateCounts: {
+    privateMatchCount: number;
+    privatePlayerCount: number;
+    publicLifetimeMatchCount?: number;
+  } = {
     privateMatchCount: 0,
     privatePlayerCount: 0,
   },
@@ -258,14 +262,21 @@ export function buildOverview(
   const meta = buildLegendMeta(matches);
   const decks = buildDeckGroups(matches);
   const players = new Set(matches.map((match) => match.username));
+  const publicLifetimeMatches = Math.max(
+    aggregateCounts.publicLifetimeMatchCount ?? matches.length,
+    matches.length,
+  );
 
   return {
     // Total counts include private-hub volume (counts only — no deck
     // lists, matchups, or usernames from private hubs leak). Derived
     // views (legend meta, deck groups) stay strictly public-only so
     // matchup %, deck stats, etc. remain private.
-    totalMatches: matches.length + privateBoost.privateMatchCount,
-    totalPlayers: players.size + privateBoost.privatePlayerCount,
+    totalMatches: publicLifetimeMatches + aggregateCounts.privateMatchCount,
+    publicLifetimeMatches,
+    statsWindowMatches: matches.length,
+    privateMatches: aggregateCounts.privateMatchCount,
+    totalPlayers: players.size + aggregateCounts.privatePlayerCount,
     totalDecks: decks.length,
     trackedLegends: meta.length,
     topLegend: meta[0] ?? null,

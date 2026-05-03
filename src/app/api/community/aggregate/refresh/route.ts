@@ -9,9 +9,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * Read 500 matches from Firestore, normalize them, and write the result
- * to the `aggregates/community-v1` doc. Triggered by GitHub Actions on
- * a ~30-minute schedule (see .github/workflows/refresh-aggregates.yml).
+ * Read the public match window from Firestore, normalize it, count the
+ * lifetime public matches via Firestore aggregation, and write the
+ * result to the `aggregates/community-v1` doc. Triggered by GitHub
+ * Actions every 4 hours (see .github/workflows/refresh-aggregates.yml).
  *
  * Secret-gated via COMMUNITY_AGGREGATE_SECRET. Accepts either:
  *   Authorization: Bearer <secret>

@@ -7,7 +7,10 @@ import {
   getDeckGroupByKey,
 } from "@/lib/community/aggregate";
 import { applyCommunityFilters, paginate } from "@/lib/community/filters";
-import { getCommunityMatchWindow, getCommunityPrivateBoost } from "@/lib/community/data";
+import {
+  getCommunityAggregateCounts,
+  getCommunityMatchWindow,
+} from "@/lib/community/data";
 import {
   buildDeckComparison,
   buildLegendProfile,
@@ -22,11 +25,11 @@ export async function getFilteredCommunityMatches(filters: CommunityFilterParams
 }
 
 export async function getCommunityOverview() {
-  const [matches, privateBoost] = await Promise.all([
+  const [matches, aggregateCounts] = await Promise.all([
     getCommunityMatchWindow(),
-    getCommunityPrivateBoost(),
+    getCommunityAggregateCounts(),
   ]);
-  return buildOverview(matches, privateBoost);
+  return buildOverview(matches, aggregateCounts);
 }
 
 export async function getLegendMeta(filters: CommunityFilterParams) {

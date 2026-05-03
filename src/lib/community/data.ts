@@ -39,7 +39,7 @@ const COMMUNITY_CACHE_TTL_SECONDS = 600;
 
 // Precomputed aggregate doc. A scheduled cron writes the full normalized
 // match window here so page renders only pay ONE Firestore read per cache
-// miss instead of COMMUNITY_WINDOW_SIZE (500). See:
+// miss instead of scanning the full match window. See:
 //   src/app/api/community/aggregate/refresh/route.ts
 //   .github/workflows/refresh-aggregates.yml
 const AGGREGATE_COLLECTION = "aggregates";
@@ -51,6 +51,25 @@ const AGGREGATE_DOC_ID = "community-v1";
 // the read path returns fixtures rather than live-scanning the matches
 // collection — see fetchCommunityMatchesSafe for why.
 const AGGREGATE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+export type CommunityAggregateCounts = {
+  privateMatchCount: number;
+  privatePlayerCount: number;
+  publicLifetimeMatchCount?: number;
+};
+
+function toNonNegativeInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" && typeof value !== "string") {
+    return undefined;
+  }
+
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    return undefined;
+  }
+
+  return Math.floor(n);
+}
 
 // Hard daily ceiling on the live-collection fallback. The cron runs
 // every 4h; if it breaks, the unstable_cache miss path would otherwise
@@ -257,6 +276,27 @@ async function fetchMatchesFromCollection(): Promise<CommunityMatch[] | null> {
 }
 
 /**
+ * Count every public match without downloading the match documents.
+ * Firestore answers this from indexes, so the scheduled refresh can
+ * initialise/repair the lifetime counter cheaply while the hot page
+ * paths keep reading the precomputed aggregate doc.
+ */
+async function fetchPublicLifetimeMatchCount(): Promise<number | null> {
+  const db = getFirestoreAdmin();
+  if (!db) {
+    return null;
+  }
+
+  try {
+    const snapshot = await db.collection("matches").count().get();
+    return toNonNegativeInteger(snapshot.data().count) ?? 0;
+  } catch (error) {
+    console.error("[community/data] Public match count failed", error);
+    return null;
+  }
+}
+
+/**
  * Read the precomputed aggregate doc. Costs exactly 1 Firestore read.
  * Returns null if the doc doesn't exist, can't be parsed, or is older
  * than AGGREGATE_MAX_AGE_MS (so a dead cron doesn't silently serve
@@ -284,7 +324,7 @@ async function fetchMatchesFromAggregate(): Promise<CommunityMatch[] | null> {
 
   if (updatedAt > 0 && Date.now() - updatedAt > AGGREGATE_MAX_AGE_MS) {
     console.warn(
-      "[community/data] Aggregate doc is stale (>4h old), falling back to live read",
+      "[community/data] Aggregate doc is stale (>24h old), falling back to live read",
     );
     return null;
   }
@@ -308,22 +348,37 @@ async function fetchMatchesFromAggregate(): Promise<CommunityMatch[] | null> {
  * Write the full normalized match window to the aggregate doc. Called
  * only by the cron refresh route, never on a user request path.
  *
- * Also stamps privateMatchCount / privatePlayerCount on the same doc
- * so user-facing pages can read both public matches + private boost
- * in a single Firestore read.
+ * Also stamps lifetime public/private counter fields on the same doc
+ * so user-facing pages can read headline totals in a single Firestore
+ * read.
  */
 async function writeMatchesToAggregate(
   matches: CommunityMatch[],
   privateBoost: { privateMatchCount: number; privatePlayerCount: number },
-): Promise<void> {
+  publicLifetimeMatchCount: number | null,
+): Promise<{ publicLifetimeMatchCount: number }> {
   const db = getFirestoreAdmin();
   if (!db) {
     throw new Error("Firestore admin is not configured");
   }
 
-  await db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID).set({
+  const ref = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID);
+  let existingPublicLifetimeMatchCount: number | undefined;
+  if (publicLifetimeMatchCount === null) {
+    const existing = await ref.get();
+    existingPublicLifetimeMatchCount = toNonNegativeInteger(
+      existing.data()?.publicLifetimeMatchCount,
+    );
+  }
+  const resolvedPublicLifetimeMatchCount = Math.max(
+    publicLifetimeMatchCount ?? existingPublicLifetimeMatchCount ?? matches.length,
+    matches.length,
+  );
+
+  await ref.set({
     updatedAt: Date.now(),
     matchCount: matches.length,
+    publicLifetimeMatchCount: resolvedPublicLifetimeMatchCount,
     // gzip+base64 to fit comfortably under Firestore's 1 MB doc cap.
     // Drop the legacy uncompressed field so it stops eating doc budget;
     // readers fall back to it only if matchesGz is missing.
@@ -332,17 +387,16 @@ async function writeMatchesToAggregate(
     privateMatchCount: privateBoost.privateMatchCount,
     privatePlayerCount: privateBoost.privatePlayerCount,
   });
+
+  return { publicLifetimeMatchCount: resolvedPublicLifetimeMatchCount };
 }
 
 /**
- * Read the private-hub boost numbers from the aggregate doc. Cheap:
- * 1 Firestore read, no match bodies. Returns zeros if the doc is
- * missing or the fields aren't populated yet.
+ * Read aggregate-only counters from the aggregate doc. Cheap: 1
+ * Firestore read, no match bodies. Returns zeros if the doc is
+ * missing or counter fields aren't populated yet.
  */
-async function fetchPrivateBoostFromAggregate(): Promise<{
-  privateMatchCount: number;
-  privatePlayerCount: number;
-}> {
+async function fetchAggregateCountsFromAggregate(): Promise<CommunityAggregateCounts> {
   const db = getFirestoreAdmin();
   if (!db) {
     return { privateMatchCount: 0, privatePlayerCount: 0 };
@@ -357,27 +411,38 @@ async function fetchPrivateBoostFromAggregate(): Promise<{
     }
     const data = snap.data() ?? {};
     return {
-      privateMatchCount: Number(data.privateMatchCount ?? 0) || 0,
-      privatePlayerCount: Number(data.privatePlayerCount ?? 0) || 0,
+      privateMatchCount: toNonNegativeInteger(data.privateMatchCount) ?? 0,
+      privatePlayerCount: toNonNegativeInteger(data.privatePlayerCount) ?? 0,
+      publicLifetimeMatchCount: toNonNegativeInteger(
+        data.publicLifetimeMatchCount,
+      ),
     };
   } catch (error) {
-    console.error("[community/data] Private boost fetch failed", error);
+    console.error("[community/data] Aggregate counts fetch failed", error);
     return { privateMatchCount: 0, privatePlayerCount: 0 };
   }
 }
 
-const cachedFetchPrivateBoost = unstable_cache(
-  fetchPrivateBoostFromAggregate,
-  ["community-private-boost-v1"],
+const cachedFetchAggregateCounts = unstable_cache(
+  fetchAggregateCountsFromAggregate,
+  ["community-aggregate-counts-v1"],
   { revalidate: COMMUNITY_CACHE_TTL_SECONDS, tags: ["community-matches"] },
 );
 
-export async function getCommunityPrivateBoost() {
+export async function getCommunityAggregateCounts() {
   try {
-    return await cachedFetchPrivateBoost();
+    return await cachedFetchAggregateCounts();
   } catch {
-    return fetchPrivateBoostFromAggregate();
+    return fetchAggregateCountsFromAggregate();
   }
+}
+
+export async function getCommunityPrivateBoost() {
+  const counts = await getCommunityAggregateCounts();
+  return {
+    privateMatchCount: counts.privateMatchCount,
+    privatePlayerCount: counts.privatePlayerCount,
+  };
 }
 
 async function fetchCommunityMatchesSafe() {
@@ -446,7 +511,12 @@ export async function getCommunityMatchWindow() {
  */
 export async function appendMatchToAggregate(
   match: CommunityMatch,
-): Promise<{ matchCount: number; updatedAt: number; alreadyPresent: boolean }> {
+): Promise<{
+  matchCount: number;
+  publicLifetimeMatchCount: number;
+  updatedAt: number;
+  alreadyPresent: boolean;
+}> {
   const db = getFirestoreAdmin();
   if (!db) {
     throw new Error("Firestore admin is not configured");
@@ -469,6 +539,8 @@ export async function appendMatchToAggregate(
     // is the only thing that should recompute them.
     let privateMatchCount = 0;
     let privatePlayerCount = 0;
+    let publicLifetimeMatchCount: number | undefined;
+    let aggregateMatchCount: number | undefined;
     if (snap.exists) {
       const data = snap.data() ?? {};
       const gz = typeof data.matchesGz === "string" ? data.matchesGz : "";
@@ -480,8 +552,12 @@ export async function appendMatchToAggregate(
         const parsed = safeJsonParse(raw);
         if (Array.isArray(parsed)) existing = parsed as CommunityMatch[];
       }
-      privateMatchCount = Number(data.privateMatchCount ?? 0) || 0;
-      privatePlayerCount = Number(data.privatePlayerCount ?? 0) || 0;
+      privateMatchCount = toNonNegativeInteger(data.privateMatchCount) ?? 0;
+      privatePlayerCount = toNonNegativeInteger(data.privatePlayerCount) ?? 0;
+      publicLifetimeMatchCount = toNonNegativeInteger(
+        data.publicLifetimeMatchCount,
+      );
+      aggregateMatchCount = toNonNegativeInteger(data.matchCount);
     }
 
     // If the doc didn't exist yet, the append alone creates a minimal
@@ -500,17 +576,30 @@ export async function appendMatchToAggregate(
     // between full refreshes.
     const trimmed = merged.slice(0, COMMUNITY_WINDOW_SIZE);
     const updatedAt = Date.now();
+    const basePublicLifetimeMatchCount = Math.max(
+      publicLifetimeMatchCount ?? aggregateMatchCount ?? existing.length,
+      existing.length,
+    );
+    const nextPublicLifetimeMatchCount = alreadyPresent
+      ? basePublicLifetimeMatchCount
+      : basePublicLifetimeMatchCount + 1;
 
     tx.set(ref, {
       updatedAt,
       matchCount: trimmed.length,
+      publicLifetimeMatchCount: nextPublicLifetimeMatchCount,
       matchesGz: encodeMatches(trimmed),
       matchesJson: null,
       privateMatchCount,
       privatePlayerCount,
     });
 
-    return { matchCount: trimmed.length, updatedAt, alreadyPresent };
+    return {
+      matchCount: trimmed.length,
+      publicLifetimeMatchCount: nextPublicLifetimeMatchCount,
+      updatedAt,
+      alreadyPresent,
+    };
   });
 }
 
@@ -522,6 +611,7 @@ export async function appendMatchToAggregate(
  */
 export async function refreshCommunityAggregate(): Promise<{
   matchCount: number;
+  publicLifetimeMatchCount: number;
   privateMatchCount: number;
   privatePlayerCount: number;
   updatedAt: number;
@@ -544,10 +634,16 @@ export async function refreshCommunityAggregate(): Promise<{
     console.error("[community/data] Private hub stats failed", error);
   }
 
-  await writeMatchesToAggregate(live, privateBoost);
+  const publicLifetimeMatchCount = await fetchPublicLifetimeMatchCount();
+  const writeResult = await writeMatchesToAggregate(
+    live,
+    privateBoost,
+    publicLifetimeMatchCount,
+  );
 
   return {
     matchCount: live.length,
+    publicLifetimeMatchCount: writeResult.publicLifetimeMatchCount,
     privateMatchCount: privateBoost.privateMatchCount,
     privatePlayerCount: privateBoost.privatePlayerCount,
     updatedAt: Date.now(),

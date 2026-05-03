@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDeckGroups, buildLegendMeta, buildMatrix } from "@/lib/community/aggregate";
+import {
+  buildDeckGroups,
+  buildLegendMeta,
+  buildMatrix,
+  buildOverview,
+} from "@/lib/community/aggregate";
 import { applyCommunityFilters, parseFilters } from "@/lib/community/filters";
 import { FIXTURE_MATCHES } from "@/lib/fixtures/community";
 
@@ -21,6 +26,30 @@ describe("community aggregation", () => {
     const decks = buildDeckGroups(FIXTURE_MATCHES);
     const ahriDeck = decks.find((deck) => deck.sourceKey === "ahri-tempo-001");
     expect(ahriDeck?.games).toBe(3);
+  });
+
+  it("uses the lifetime match counter for headline totals", () => {
+    const overview = buildOverview(FIXTURE_MATCHES, {
+      privateMatchCount: 5,
+      privatePlayerCount: 2,
+      publicLifetimeMatchCount: 1234,
+    });
+
+    expect(overview.totalMatches).toBe(1239);
+    expect(overview.publicLifetimeMatches).toBe(1234);
+    expect(overview.statsWindowMatches).toBe(FIXTURE_MATCHES.length);
+    expect(overview.privateMatches).toBe(5);
+  });
+
+  it("never lets a stale lifetime counter undercut the stats window", () => {
+    const overview = buildOverview(FIXTURE_MATCHES, {
+      privateMatchCount: 0,
+      privatePlayerCount: 0,
+      publicLifetimeMatchCount: 1,
+    });
+
+    expect(overview.publicLifetimeMatches).toBe(FIXTURE_MATCHES.length);
+    expect(overview.totalMatches).toBe(FIXTURE_MATCHES.length);
   });
 
   it("matches desktop filter semantics", () => {

@@ -72,7 +72,7 @@ export default async function HomePage() {
               Windows · installs in under a minute
             </span>
             <span>No account required</span>
-            <span>{overview.totalMatches.toLocaleString()} community matches tracked</span>
+            <span>{overview.totalMatches.toLocaleString()} lifetime matches tracked</span>
           </div>
         </div>
 
@@ -110,8 +110,8 @@ export default async function HomePage() {
 
       {/* Stat cards — social proof */}
       <FadeUp className="grid gap-4 md:grid-cols-4">
-        <StatCard label="Matches tracked" value={String(overview.totalMatches)} />
-        <StatCard label="Players" value={String(overview.totalPlayers)} />
+        <StatCard label="Matches tracked" value={overview.totalMatches.toLocaleString()} />
+        <StatCard label="Recent players" value={overview.totalPlayers.toLocaleString()} />
         <StatCard label="Top Legend" value={overview.topLegend?.legend ?? "—"} />
         <StatCard
           label="Top Legend WR"
