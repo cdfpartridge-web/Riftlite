@@ -254,6 +254,8 @@ export function buildOverview(
     privateMatchCount: number;
     privatePlayerCount: number;
     publicLifetimeMatchCount?: number;
+    publicLifetimePlayerCount?: number;
+    publicPlayerIndexReady?: boolean;
   } = {
     privateMatchCount: 0,
     privatePlayerCount: 0,
@@ -261,11 +263,18 @@ export function buildOverview(
 ): CommunityOverview {
   const meta = buildLegendMeta(matches);
   const decks = buildDeckGroups(matches);
-  const players = new Set(matches.map((match) => match.username));
+  const players = new Set(matches.map((match) => match.uid || match.username));
   const publicLifetimeMatches = Math.max(
     aggregateCounts.publicLifetimeMatchCount ?? matches.length,
     matches.length,
   );
+  const statsWindowPlayers = players.size;
+  const publicLifetimePlayers =
+    aggregateCounts.publicPlayerIndexReady &&
+    aggregateCounts.publicLifetimePlayerCount !== undefined
+      ? Math.max(aggregateCounts.publicLifetimePlayerCount, statsWindowPlayers)
+      : undefined;
+  const publicPlayers = publicLifetimePlayers ?? statsWindowPlayers;
 
   return {
     // Total counts include private-hub volume (counts only — no deck
@@ -276,7 +285,11 @@ export function buildOverview(
     publicLifetimeMatches,
     statsWindowMatches: matches.length,
     privateMatches: aggregateCounts.privateMatchCount,
-    totalPlayers: players.size + aggregateCounts.privatePlayerCount,
+    totalPlayers: publicPlayers + aggregateCounts.privatePlayerCount,
+    publicLifetimePlayers,
+    statsWindowPlayers,
+    privatePlayers: aggregateCounts.privatePlayerCount,
+    playerCountMode: publicLifetimePlayers === undefined ? "recent" : "lifetime",
     totalDecks: decks.length,
     trackedLegends: meta.length,
     topLegend: meta[0] ?? null,

@@ -44,6 +44,7 @@ const COMMUNITY_CACHE_TTL_SECONDS = 600;
 //   .github/workflows/refresh-aggregates.yml
 const AGGREGATE_COLLECTION = "aggregates";
 const AGGREGATE_DOC_ID = "community-v1";
+const PUBLIC_PLAYERS_COLLECTION = "publicPlayers";
 
 // If the aggregate doc hasn't been updated in this long, treat it as
 // unreliable. Tuned to absorb several missed cron runs (cron is every
@@ -56,6 +57,8 @@ export type CommunityAggregateCounts = {
   privateMatchCount: number;
   privatePlayerCount: number;
   publicLifetimeMatchCount?: number;
+  publicLifetimePlayerCount?: number;
+  publicPlayerIndexReady?: boolean;
 };
 
 function toNonNegativeInteger(value: unknown): number | undefined {
@@ -69,6 +72,19 @@ function toNonNegativeInteger(value: unknown): number | undefined {
   }
 
   return Math.floor(n);
+}
+
+function publicPlayerDocId(uid: string): string {
+  return encodeURIComponent(uid.trim());
+}
+
+function countWindowPlayers(matches: CommunityMatch[]): number {
+  const players = new Set(
+    matches
+      .map((match) => match.uid || match.username)
+      .filter((player) => player.trim().length > 0),
+  );
+  return players.size;
 }
 
 // Hard daily ceiling on the live-collection fallback. The cron runs
@@ -297,6 +313,103 @@ async function fetchPublicLifetimeMatchCount(): Promise<number | null> {
   }
 }
 
+async function fetchPublicLifetimePlayerCount(): Promise<number | null> {
+  const db = getFirestoreAdmin();
+  if (!db) {
+    return null;
+  }
+
+  try {
+    const snapshot = await db.collection(PUBLIC_PLAYERS_COLLECTION).count().get();
+    return toNonNegativeInteger(snapshot.data().count) ?? 0;
+  } catch (error) {
+    console.error("[community/data] Public player count failed", error);
+    return null;
+  }
+}
+
+/**
+ * One-time repair path for the player index. It scans the public match
+ * collection once, writes one tiny doc per unique uid, then future
+ * appends keep the index current with one extra read per match.
+ */
+async function rebuildPublicPlayerIndexFromMatches(): Promise<{
+  publicLifetimePlayerCount: number;
+  publicPlayerIndexReady: boolean;
+} | null> {
+  const db = getFirestoreAdmin();
+  if (!db) {
+    return null;
+  }
+
+  try {
+    const snapshot = await db
+      .collection("matches")
+      .select("uid", "username", "created_at")
+      .get();
+    const players = new Map<
+      string,
+      { username: string; firstSeenAt: number; lastSeenAt: number }
+    >();
+
+    for (const doc of snapshot.docs) {
+      const uid = String(doc.get("uid") ?? "").trim();
+      if (!uid) {
+        continue;
+      }
+
+      const username =
+        String(doc.get("username") ?? "").trim() || `Player#${uid.slice(0, 6)}`;
+      const createdAt = toNonNegativeInteger(doc.get("created_at")) ?? 0;
+      const existing = players.get(uid);
+      players.set(uid, {
+        username: username || existing?.username || `Player#${uid.slice(0, 6)}`,
+        firstSeenAt: existing
+          ? Math.min(existing.firstSeenAt || createdAt, createdAt)
+          : createdAt,
+        lastSeenAt: existing ? Math.max(existing.lastSeenAt, createdAt) : createdAt,
+      });
+    }
+
+    const now = Date.now();
+    let batch = db.batch();
+    let ops = 0;
+
+    for (const [uid, player] of players) {
+      batch.set(
+        db.collection(PUBLIC_PLAYERS_COLLECTION).doc(publicPlayerDocId(uid)),
+        {
+          uid,
+          username: player.username,
+          firstSeenAt: player.firstSeenAt,
+          lastSeenAt: player.lastSeenAt,
+          updatedAt: now,
+        },
+        { merge: true },
+      );
+      ops += 1;
+
+      if (ops >= 450) {
+        await batch.commit();
+        batch = db.batch();
+        ops = 0;
+      }
+    }
+
+    if (ops > 0) {
+      await batch.commit();
+    }
+
+    return {
+      publicLifetimePlayerCount: players.size,
+      publicPlayerIndexReady: true,
+    };
+  } catch (error) {
+    console.error("[community/data] Public player index rebuild failed", error);
+    return null;
+  }
+}
+
 /**
  * Read the precomputed aggregate doc. Costs exactly 1 Firestore read.
  * Returns null if the doc doesn't exist, can't be parsed, or is older
@@ -357,7 +470,15 @@ async function writeMatchesToAggregate(
   matches: CommunityMatch[],
   privateBoost: { privateMatchCount: number; privatePlayerCount: number },
   publicLifetimeMatchCount: number | null,
-): Promise<{ publicLifetimeMatchCount: number }> {
+  publicPlayerStats: {
+    publicLifetimePlayerCount: number;
+    publicPlayerIndexReady: boolean;
+  } | null,
+): Promise<{
+  publicLifetimeMatchCount: number;
+  publicLifetimePlayerCount?: number;
+  publicPlayerIndexReady: boolean;
+}> {
   const db = getFirestoreAdmin();
   if (!db) {
     throw new Error("Firestore admin is not configured");
@@ -365,21 +486,40 @@ async function writeMatchesToAggregate(
 
   const ref = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID);
   let existingPublicLifetimeMatchCount: number | undefined;
-  if (publicLifetimeMatchCount === null) {
+  let existingPublicLifetimePlayerCount: number | undefined;
+  let existingPublicPlayerIndexReady = false;
+  if (publicLifetimeMatchCount === null || publicPlayerStats === null) {
     const existing = await ref.get();
-    existingPublicLifetimeMatchCount = toNonNegativeInteger(
-      existing.data()?.publicLifetimeMatchCount,
+    const data = existing.data() ?? {};
+    existingPublicLifetimeMatchCount = toNonNegativeInteger(data.publicLifetimeMatchCount);
+    existingPublicLifetimePlayerCount = toNonNegativeInteger(
+      data.publicLifetimePlayerCount,
     );
+    existingPublicPlayerIndexReady = data.publicPlayerIndexReady === true;
   }
   const resolvedPublicLifetimeMatchCount = Math.max(
     publicLifetimeMatchCount ?? existingPublicLifetimeMatchCount ?? matches.length,
     matches.length,
   );
+  const publicPlayerIndexReady =
+    publicPlayerStats?.publicPlayerIndexReady ?? existingPublicPlayerIndexReady;
+  const publicLifetimePlayerCount = publicPlayerIndexReady
+    ? Math.max(
+        publicPlayerStats?.publicLifetimePlayerCount ??
+          existingPublicLifetimePlayerCount ??
+          countWindowPlayers(matches),
+        countWindowPlayers(matches),
+      )
+    : existingPublicLifetimePlayerCount;
 
   await ref.set({
     updatedAt: Date.now(),
     matchCount: matches.length,
     publicLifetimeMatchCount: resolvedPublicLifetimeMatchCount,
+    ...(publicLifetimePlayerCount === undefined
+      ? {}
+      : { publicLifetimePlayerCount }),
+    publicPlayerIndexReady,
     // gzip+base64 to fit comfortably under Firestore's 1 MB doc cap.
     // Drop the legacy uncompressed field so it stops eating doc budget;
     // readers fall back to it only if matchesGz is missing.
@@ -389,7 +529,11 @@ async function writeMatchesToAggregate(
     privatePlayerCount: privateBoost.privatePlayerCount,
   });
 
-  return { publicLifetimeMatchCount: resolvedPublicLifetimeMatchCount };
+  return {
+    publicLifetimeMatchCount: resolvedPublicLifetimeMatchCount,
+    publicLifetimePlayerCount,
+    publicPlayerIndexReady,
+  };
 }
 
 /**
@@ -418,11 +562,22 @@ async function fetchAggregateCountsFromAggregate(): Promise<CommunityAggregateCo
       publicLifetimeMatchCount =
         (await fetchPublicLifetimeMatchCount()) ?? undefined;
     }
+    const publicPlayerIndexReady = data.publicPlayerIndexReady === true;
+    let publicLifetimePlayerCount = toNonNegativeInteger(
+      data.publicLifetimePlayerCount,
+    );
+    if (publicPlayerIndexReady && publicLifetimePlayerCount === undefined) {
+      publicLifetimePlayerCount =
+        (await fetchPublicLifetimePlayerCount()) ?? undefined;
+    }
 
     return {
       privateMatchCount: toNonNegativeInteger(data.privateMatchCount) ?? 0,
       privatePlayerCount: toNonNegativeInteger(data.privatePlayerCount) ?? 0,
       publicLifetimeMatchCount,
+      publicLifetimePlayerCount,
+      publicPlayerIndexReady:
+        publicPlayerIndexReady && publicLifetimePlayerCount !== undefined,
     };
   } catch (error) {
     console.error("[community/data] Aggregate counts fetch failed", error);
@@ -521,6 +676,8 @@ export async function appendMatchToAggregate(
 ): Promise<{
   matchCount: number;
   publicLifetimeMatchCount: number;
+  publicLifetimePlayerCount?: number;
+  publicPlayerIndexReady: boolean;
   updatedAt: number;
   alreadyPresent: boolean;
 }> {
@@ -536,8 +693,8 @@ export async function appendMatchToAggregate(
   // would both read the current state, each merge in their own match,
   // then race to overwrite — and whichever write lands second silently
   // drops the other match. Firestore retries the transaction up to 5x
-  // automatically on contention, so the happy path stays 1 read + 1
-  // write and only gets more expensive under actual concurrency.
+  // automatically on contention, so the happy path stays one aggregate
+  // read/write plus one tiny public-player lookup for a new match.
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
 
@@ -547,6 +704,8 @@ export async function appendMatchToAggregate(
     let privateMatchCount = 0;
     let privatePlayerCount = 0;
     let publicLifetimeMatchCount: number | undefined;
+    let publicLifetimePlayerCount: number | undefined;
+    let publicPlayerIndexReady = false;
     let aggregateMatchCount: number | undefined;
     if (snap.exists) {
       const data = snap.data() ?? {};
@@ -564,6 +723,12 @@ export async function appendMatchToAggregate(
       publicLifetimeMatchCount = toNonNegativeInteger(
         data.publicLifetimeMatchCount,
       );
+      publicLifetimePlayerCount = toNonNegativeInteger(
+        data.publicLifetimePlayerCount,
+      );
+      publicPlayerIndexReady =
+        data.publicPlayerIndexReady === true &&
+        publicLifetimePlayerCount !== undefined;
       aggregateMatchCount = toNonNegativeInteger(data.matchCount);
     }
 
@@ -573,6 +738,12 @@ export async function appendMatchToAggregate(
     // normal flow assumes the aggregate already exists.
 
     const alreadyPresent = existing.some((m) => m.id === match.id);
+    const playerDocId =
+      !alreadyPresent && match.uid ? publicPlayerDocId(match.uid) : "";
+    const playerRef = playerDocId
+      ? db.collection(PUBLIC_PLAYERS_COLLECTION).doc(playerDocId)
+      : null;
+    const playerSnap = playerRef ? await tx.get(playerRef) : null;
     const merged = alreadyPresent
       ? existing
       : [match, ...existing].sort(
@@ -590,20 +761,46 @@ export async function appendMatchToAggregate(
     const nextPublicLifetimeMatchCount = alreadyPresent
       ? basePublicLifetimeMatchCount
       : basePublicLifetimeMatchCount + 1;
+    const shouldIncrementPlayerCount =
+      publicPlayerIndexReady && playerRef !== null && !playerSnap?.exists;
+    const nextPublicLifetimePlayerCount = publicPlayerIndexReady
+      ? (publicLifetimePlayerCount ?? countWindowPlayers(existing)) +
+        (shouldIncrementPlayerCount ? 1 : 0)
+      : publicLifetimePlayerCount;
 
     tx.set(ref, {
       updatedAt,
       matchCount: trimmed.length,
       publicLifetimeMatchCount: nextPublicLifetimeMatchCount,
+      ...(nextPublicLifetimePlayerCount === undefined
+        ? {}
+        : { publicLifetimePlayerCount: nextPublicLifetimePlayerCount }),
+      publicPlayerIndexReady,
       matchesGz: encodeMatches(trimmed),
       matchesJson: null,
       privateMatchCount,
       privatePlayerCount,
     });
 
+    if (playerRef && !playerSnap?.exists) {
+      tx.set(
+        playerRef,
+        {
+          uid: match.uid,
+          username: match.username,
+          firstSeenAt: match.createdAt,
+          lastSeenAt: match.createdAt,
+          updatedAt,
+        },
+        { merge: true },
+      );
+    }
+
     return {
       matchCount: trimmed.length,
       publicLifetimeMatchCount: nextPublicLifetimeMatchCount,
+      publicLifetimePlayerCount: nextPublicLifetimePlayerCount,
+      publicPlayerIndexReady,
       updatedAt,
       alreadyPresent,
     };
@@ -619,6 +816,8 @@ export async function appendMatchToAggregate(
 export async function refreshCommunityAggregate(): Promise<{
   matchCount: number;
   publicLifetimeMatchCount: number;
+  publicLifetimePlayerCount?: number;
+  publicPlayerIndexReady: boolean;
   privateMatchCount: number;
   privatePlayerCount: number;
   updatedAt: number;
@@ -642,15 +841,36 @@ export async function refreshCommunityAggregate(): Promise<{
   }
 
   const publicLifetimeMatchCount = await fetchPublicLifetimeMatchCount();
+  const db = getFirestoreAdmin();
+  const aggregateData =
+    (await db?.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID).get())
+      ?.data() ?? {};
+  const existingPublicLifetimePlayerCount = toNonNegativeInteger(
+    aggregateData.publicLifetimePlayerCount,
+  );
+  const existingPublicPlayerIndexReady =
+    aggregateData.publicPlayerIndexReady === true &&
+    existingPublicLifetimePlayerCount !== undefined;
+  const publicPlayerStats = existingPublicPlayerIndexReady
+    ? {
+        publicLifetimePlayerCount:
+          (await fetchPublicLifetimePlayerCount()) ??
+          existingPublicLifetimePlayerCount,
+        publicPlayerIndexReady: true,
+      }
+    : await rebuildPublicPlayerIndexFromMatches();
   const writeResult = await writeMatchesToAggregate(
     live,
     privateBoost,
     publicLifetimeMatchCount,
+    publicPlayerStats,
   );
 
   return {
     matchCount: live.length,
     publicLifetimeMatchCount: writeResult.publicLifetimeMatchCount,
+    publicLifetimePlayerCount: writeResult.publicLifetimePlayerCount,
+    publicPlayerIndexReady: writeResult.publicPlayerIndexReady,
     privateMatchCount: privateBoost.privateMatchCount,
     privatePlayerCount: privateBoost.privatePlayerCount,
     updatedAt: Date.now(),

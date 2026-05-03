@@ -38,6 +38,8 @@ export default async function HomePage() {
   ]);
 
   const downloadHref = safeHref(settings.downloadUrl);
+  const playerStatLabel =
+    overview.playerCountMode === "lifetime" ? "Players tracked" : "Recent players";
 
   return (
     <div className="mx-auto max-w-7xl space-y-24 px-6 py-14">
@@ -111,7 +113,7 @@ export default async function HomePage() {
       {/* Stat cards — social proof */}
       <FadeUp className="grid gap-4 md:grid-cols-4">
         <StatCard label="Matches tracked" value={overview.totalMatches.toLocaleString()} />
-        <StatCard label="Recent players" value={overview.totalPlayers.toLocaleString()} />
+        <StatCard label={playerStatLabel} value={overview.totalPlayers.toLocaleString()} />
         <StatCard label="Top Legend" value={overview.topLegend?.legend ?? "—"} />
         <StatCard
           label="Top Legend WR"

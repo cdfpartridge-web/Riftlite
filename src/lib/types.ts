@@ -110,6 +110,10 @@ export type CommunityOverview = {
   statsWindowMatches: number;
   privateMatches: number;
   totalPlayers: number;
+  publicLifetimePlayers?: number;
+  statsWindowPlayers: number;
+  privatePlayers: number;
+  playerCountMode: "lifetime" | "recent";
   totalDecks: number;
   trackedLegends: number;
   topLegend: LegendMetaRow | null;
