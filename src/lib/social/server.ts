@@ -6,6 +6,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { FieldValue } from "firebase-admin/firestore";
 import { type NextRequest, NextResponse } from "next/server";
 
+import { normalizeMatch } from "@/lib/community/data";
 import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
 import type { CommunityMatch } from "@/lib/types";
 
@@ -70,6 +71,7 @@ const DEFAULT_PROFILE_VISIBILITY = {
 export const MARKETING_CONSENT_VERSION = "riftlite-marketing-v1";
 export const MARKETING_CONSENT_SOURCE = "desktop-account-profile";
 const USER_MATCH_WINDOW = 500;
+const USER_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const LINK_SESSION_TTL_MS = 15 * 60 * 1000;
 
 export function socialJson(body: Record<string, unknown>, status = 200) {
@@ -264,7 +266,11 @@ export async function saveAccountProfile(uid: string, patch: Partial<AccountProf
     saved = next;
   });
 
-  return saved ?? await ensureUserProfile(uid);
+  const profile = saved ?? await ensureUserProfile(uid);
+  if (profile.publicProfile && profile.handleLower) {
+    await rebuildUserPublicAggregate(profile).catch(() => undefined);
+  }
+  return profile;
 }
 
 async function defaultProfile(uid: string): Promise<AccountProfile> {
@@ -339,6 +345,65 @@ export async function appendUserPublicMatch(match: CommunityMatch) {
   }, { merge: true });
 }
 
+export async function rebuildUserPublicAggregate(profileOrUid: AccountProfile | string): Promise<UserAggregate | null> {
+  const db = getFirestoreAdmin();
+  if (!db) return null;
+  const profile = typeof profileOrUid === "string"
+    ? normalizeAccountProfile(profileOrUid, (await db.collection("users").doc(profileOrUid).get()).data() ?? {})
+    : profileOrUid;
+  if (!profile.uid || !profile.publicProfile || !profile.handleLower) return null;
+
+  const byId = new Map<string, CommunityMatch>();
+  const addSnapshot = (snapshot: Awaited<ReturnType<ReturnType<ReturnType<typeof db.collection>["where"]>["get"]>>) => {
+    for (const doc of snapshot.docs) {
+      byId.set(doc.id, normalizeMatch(doc.id, doc.data() as Record<string, unknown>));
+    }
+    return snapshot.size;
+  };
+
+  let uidMatches = 0;
+  try {
+    uidMatches = addSnapshot(await db
+      .collection("matches")
+      .where("uid", "==", profile.uid)
+      .orderBy("created_at", "desc")
+      .limit(USER_MATCH_WINDOW)
+      .get());
+  } catch {
+    uidMatches = addSnapshot(await db
+      .collection("matches")
+      .where("uid", "==", profile.uid)
+      .limit(USER_MATCH_WINDOW)
+      .get());
+  }
+
+  if (uidMatches === 0) {
+    try {
+      addSnapshot(await db
+        .collection("matches")
+        .where("owner_uid", "==", profile.uid)
+        .limit(USER_MATCH_WINDOW)
+        .get());
+    } catch {
+      // Older public rows do not have owner_uid; uid is the compatibility path.
+    }
+  }
+
+  const matches = Array.from(byId.values())
+    .filter((match) => match.uid === profile.uid)
+    .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))
+    .slice(0, USER_MATCH_WINDOW);
+  const aggregate = buildUserAggregate(profile, matches);
+  await db.collection("userAggregates").doc(profile.uid).set({
+    ...aggregate,
+    matchesEncoded: encodeMatches(matches),
+    recentMatches: matches.slice(0, 20),
+    backfillAttemptAt: Date.now(),
+    updatedAt: Date.now(),
+  }, { merge: true });
+  return aggregate;
+}
+
 export function buildUserAggregate(profile: AccountProfile, matches: CommunityMatch[]): UserAggregate {
   let wins = 0;
   let losses = 0;
@@ -376,9 +441,19 @@ export async function getPublicProfileByHandle(handle: string) {
   const profileSnap = await db.collection("publicProfiles").doc(clean).get();
   if (!profileSnap.exists) return null;
   const profile = profileSnap.data() as PublicProfile;
-  const aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
-  const aggregateData = aggregateSnap.data() ?? {};
-  const matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+  let aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
+  let aggregateData = aggregateSnap.data() ?? {};
+  let matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+  const lastBackfillAttemptAt = Number(aggregateData.backfillAttemptAt ?? 0);
+  const canBackfill = Date.now() - lastBackfillAttemptAt > USER_BACKFILL_COOLDOWN_MS;
+  if (!matches.length && profile.uid && canBackfill) {
+    const rebuilt = await rebuildUserPublicAggregate(String(profile.uid));
+    if (rebuilt) {
+      aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
+      aggregateData = aggregateSnap.data() ?? {};
+      matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+    }
+  }
   return {
     profile,
     aggregate: {
