@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 
-import { LegendChip, legendHref } from "@/components/site/legend-chip";
+import { LegendChip } from "@/components/site/legend-chip";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { legendHref } from "@/lib/legend-links";
 import { getPublicProfileByHandle } from "@/lib/social/server";
 import { formatDate, formatPercent } from "@/lib/utils";
 
