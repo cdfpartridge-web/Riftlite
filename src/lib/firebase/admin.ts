@@ -91,3 +91,14 @@ export async function verifyFirebaseIdToken(idToken: string) {
     return null;
   }
 }
+
+export async function createFirebaseCustomToken(uid: string) {
+  const app = getAdminApp();
+  if (!app) return null;
+
+  try {
+    return await getAuth(app).createCustomToken(uid);
+  } catch {
+    return null;
+  }
+}

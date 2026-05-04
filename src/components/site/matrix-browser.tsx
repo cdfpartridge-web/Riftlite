@@ -540,7 +540,14 @@ function MatchDetailPanel({
 }
 
 export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
-  const drag = useDragScroll();
+  const {
+    ref: dragRef,
+    onMouseDown,
+    onMouseMove,
+    onMouseUp,
+    onMouseLeave,
+    onClickCapture,
+  } = useDragScroll();
   const firstCell = matrix.cells.find((c) => c.totalGames > 0);
   const [selectedKey, setSelectedKey] = useState(
     firstCell ? `${firstCell.myLegend}:::${firstCell.oppLegend}` : "",
@@ -569,13 +576,13 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
         </div>
         <div
           className="overflow-auto"
-          ref={drag.ref}
+          ref={dragRef}
           style={{ maxHeight: "72vh", cursor: "grab" }}
-          onMouseDown={drag.onMouseDown}
-          onMouseMove={drag.onMouseMove}
-          onMouseUp={drag.onMouseUp}
-          onMouseLeave={drag.onMouseLeave}
-          onClickCapture={drag.onClickCapture}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseLeave}
+          onClickCapture={onClickCapture}
         >
           <table className="border-separate" style={{ borderSpacing: "4px" }}>
             <thead>

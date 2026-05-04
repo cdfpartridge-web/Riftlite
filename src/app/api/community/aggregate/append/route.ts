@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { appendMatchToAggregate, normalizeMatch } from "@/lib/community/data";
 import { verifyFirebaseIdToken } from "@/lib/firebase/admin";
+import { appendUserPublicMatch } from "@/lib/social/server";
 
 // Force dynamic — this is a mutation, never cache the response.
 export const dynamic = "force-dynamic";
@@ -94,6 +95,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await appendMatchToAggregate(normalized);
+    await appendUserPublicMatch(normalized).catch(() => undefined);
 
     // Make the new match visible on the next render instead of waiting
     // out the 10-minute unstable_cache TTL.
