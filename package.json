@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "sanity": "sanity",
-    "report:spotlight": "node scripts/spotlight-report.mjs"
+    "report:spotlight": "node scripts/spotlight-report.mjs",
+    "report:marketing": "node scripts/marketing-report.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

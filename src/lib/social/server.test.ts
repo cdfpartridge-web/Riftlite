@@ -53,6 +53,7 @@ describe("social profile helpers", () => {
 
   it("builds searchable public profile docs only from opted-in account data", () => {
     const profile = normalizeAccountProfile("uid-1", {
+      email: "bmu@example.com",
       handle: "BMUCasts",
       displayName: "BMU Casts",
       publicProfile: true,
@@ -61,12 +62,20 @@ describe("social profile helpers", () => {
       showMatches: false,
       showDecks: false,
       showHubBadges: true,
+      marketingConsent: true,
+      marketingConsentAt: 100,
+      marketingConsentVersion: "test-consent",
+      marketingConsentSource: "test",
       createdAt: 10,
       updatedAt: 20,
     });
     const publicProfile = publicProfileFromAccount(profile);
 
     expect(publicProfile.uid).toBe("uid-1");
+    expect("email" in publicProfile).toBe(false);
+    expect("marketingConsent" in publicProfile).toBe(false);
+    expect(profile.email).toBe("bmu@example.com");
+    expect(profile.marketingConsent).toBe(true);
     expect(publicProfile.handleLower).toBe("bmucasts");
     expect(publicProfile.searchable).toBe(true);
     expect(publicProfile.showMatches).toBe(false);

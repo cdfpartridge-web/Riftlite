@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if ("error" in auth) return auth.error;
 
-  const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "");
+  const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "", auth.decoded.email ?? "");
   const [publicProfileSnap, aggregateSnap, memberSnaps] = await Promise.all([
     profile.handleLower ? auth.db.collection("publicProfiles").doc(profile.handleLower).get() : Promise.resolve(null),
     auth.db.collection("userAggregates").doc(auth.decoded.uid).get(),

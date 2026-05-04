@@ -16,7 +16,7 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if ("error" in auth) return auth.error;
-  const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "");
+  const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "", auth.decoded.email ?? "");
   return socialJson({ ok: true, profile });
 }
 
@@ -34,6 +34,10 @@ export async function PATCH(req: NextRequest) {
       showMatches: body.showMatches === undefined ? undefined : readBool(body.showMatches, true),
       showDecks: body.showDecks === undefined ? undefined : readBool(body.showDecks, true),
       showHubBadges: body.showHubBadges === undefined ? undefined : readBool(body.showHubBadges),
+      marketingConsent: body.marketingConsent === undefined ? undefined : readBool(body.marketingConsent),
+    }, {
+      email: auth.decoded.email ?? "",
+      consentSource: "desktop-account-profile",
     });
     return socialJson({ ok: true, profile });
   } catch (error) {

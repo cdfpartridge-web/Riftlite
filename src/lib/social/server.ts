@@ -11,6 +11,7 @@ import type { CommunityMatch } from "@/lib/types";
 
 export type AccountProfile = {
   uid: string;
+  email: string;
   handle: string;
   handleLower: string;
   displayName: string;
@@ -20,6 +21,11 @@ export type AccountProfile = {
   showMatches: boolean;
   showDecks: boolean;
   showHubBadges: boolean;
+  marketingConsent: boolean;
+  marketingConsentAt: number;
+  marketingConsentUpdatedAt: number;
+  marketingConsentVersion: string;
+  marketingConsentSource: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -61,6 +67,8 @@ const DEFAULT_PROFILE_VISIBILITY = {
   showHubBadges: false,
 };
 
+export const MARKETING_CONSENT_VERSION = "riftlite-marketing-v1";
+export const MARKETING_CONSENT_SOURCE = "desktop-account-profile";
 const USER_MATCH_WINDOW = 500;
 const LINK_SESSION_TTL_MS = 15 * 60 * 1000;
 
@@ -136,7 +144,7 @@ export function buildSearchPrefixes(...values: string[]): string[] {
   return Array.from(prefixes).slice(0, 80);
 }
 
-export async function ensureUserProfile(uid: string, displayName = ""): Promise<AccountProfile> {
+export async function ensureUserProfile(uid: string, displayName = "", email = ""): Promise<AccountProfile> {
   const db = getFirestoreAdmin();
   if (!db) {
     throw new Error("Firebase admin is not configured");
@@ -145,14 +153,25 @@ export async function ensureUserProfile(uid: string, displayName = ""): Promise<
   const snap = await ref.get();
   const now = Date.now();
   if (snap.exists) {
-    return normalizeAccountProfile(uid, snap.data() ?? {});
+    const profile = normalizeAccountProfile(uid, snap.data() ?? {});
+    if (email && email !== profile.email) {
+      await ref.set({ email, emailUpdatedAt: now, updatedAt: now }, { merge: true });
+      return { ...profile, email, updatedAt: now };
+    }
+    return profile;
   }
   const profile: AccountProfile = {
     uid,
+    email,
     handle: "",
     handleLower: "",
     displayName: cleanDisplayName(displayName),
     ...DEFAULT_PROFILE_VISIBILITY,
+    marketingConsent: false,
+    marketingConsentAt: 0,
+    marketingConsentUpdatedAt: 0,
+    marketingConsentVersion: "",
+    marketingConsentSource: "",
     createdAt: now,
     updatedAt: now,
   };
@@ -165,6 +184,7 @@ export function normalizeAccountProfile(uid: string, data: Record<string, unknow
   const now = Date.now();
   return {
     uid,
+    email: String(data.email ?? "").trim(),
     handle,
     handleLower: handleLower(handle),
     displayName: cleanDisplayName(data.displayName, data.handle ? String(data.handle) : "RiftLite Player"),
@@ -174,12 +194,17 @@ export function normalizeAccountProfile(uid: string, data: Record<string, unknow
     showMatches: readBool(data.showMatches, true),
     showDecks: readBool(data.showDecks, true),
     showHubBadges: readBool(data.showHubBadges, false),
+    marketingConsent: readBool(data.marketingConsent, false),
+    marketingConsentAt: Number(data.marketingConsentAt ?? 0),
+    marketingConsentUpdatedAt: Number(data.marketingConsentUpdatedAt ?? 0),
+    marketingConsentVersion: String(data.marketingConsentVersion ?? ""),
+    marketingConsentSource: String(data.marketingConsentSource ?? ""),
     createdAt: Number(data.createdAt ?? now),
     updatedAt: Number(data.updatedAt ?? now),
   };
 }
 
-export async function saveAccountProfile(uid: string, patch: Partial<AccountProfile>): Promise<AccountProfile> {
+export async function saveAccountProfile(uid: string, patch: Partial<AccountProfile>, context: { email?: string; consentSource?: string } = {}): Promise<AccountProfile> {
   const db = getFirestoreAdmin();
   if (!db) {
     throw new Error("Firebase admin is not configured");
@@ -193,6 +218,8 @@ export async function saveAccountProfile(uid: string, patch: Partial<AccountProf
     const current = currentSnap.exists ? normalizeAccountProfile(uid, currentSnap.data() ?? {}) : await defaultProfile(uid);
     const nextHandle = patch.handle !== undefined ? cleanHandle(patch.handle) : current.handle;
     const nextHandleLower = handleLower(nextHandle);
+    const nextMarketingConsent = patch.marketingConsent ?? current.marketingConsent;
+    const marketingChanged = patch.marketingConsent !== undefined && patch.marketingConsent !== current.marketingConsent;
     if (nextHandle && !validHandle(nextHandle)) {
       throw new Error("Handle must be 3-24 letters, numbers, underscores, or hyphens.");
     }
@@ -211,6 +238,7 @@ export async function saveAccountProfile(uid: string, patch: Partial<AccountProf
 
     const next: AccountProfile = {
       ...current,
+      email: context.email ?? current.email,
       handle: nextHandle,
       handleLower: nextHandleLower,
       displayName: patch.displayName !== undefined ? cleanDisplayName(patch.displayName, nextHandle || current.displayName) : current.displayName,
@@ -220,6 +248,11 @@ export async function saveAccountProfile(uid: string, patch: Partial<AccountProf
       showMatches: patch.showMatches ?? current.showMatches,
       showDecks: patch.showDecks ?? current.showDecks,
       showHubBadges: patch.showHubBadges ?? current.showHubBadges,
+      marketingConsent: nextMarketingConsent,
+      marketingConsentAt: marketingChanged ? (nextMarketingConsent ? now : 0) : current.marketingConsentAt,
+      marketingConsentUpdatedAt: marketingChanged ? now : current.marketingConsentUpdatedAt,
+      marketingConsentVersion: marketingChanged ? MARKETING_CONSENT_VERSION : current.marketingConsentVersion,
+      marketingConsentSource: marketingChanged ? (context.consentSource || MARKETING_CONSENT_SOURCE) : current.marketingConsentSource,
       updatedAt: now,
     };
     tx.set(userRef, next, { merge: true });
@@ -238,10 +271,16 @@ async function defaultProfile(uid: string): Promise<AccountProfile> {
   const now = Date.now();
   return {
     uid,
+    email: "",
     handle: "",
     handleLower: "",
     displayName: "RiftLite Player",
     ...DEFAULT_PROFILE_VISIBILITY,
+    marketingConsent: false,
+    marketingConsentAt: 0,
+    marketingConsentUpdatedAt: 0,
+    marketingConsentVersion: "",
+    marketingConsentSource: "",
     createdAt: now,
     updatedAt: now,
   };

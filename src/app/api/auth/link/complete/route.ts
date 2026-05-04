@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   if (String(data.code ?? "").toUpperCase() !== code) return socialJson({ error: "Link code did not match" }, 403);
   if (Number(data.expiresAt ?? 0) < Date.now()) return socialJson({ error: "Link session expired" }, 410);
 
-  await ensureUserProfile(decoded.uid, decoded.name ?? decoded.email ?? "");
+  await ensureUserProfile(decoded.uid, decoded.name ?? decoded.email ?? "", decoded.email ?? "");
   const customToken = await createFirebaseCustomToken(decoded.uid);
   if (!customToken) return socialJson({ error: "Could not create desktop sign-in token" }, 500);
 
