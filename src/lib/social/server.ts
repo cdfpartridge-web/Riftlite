@@ -3,12 +3,11 @@ import "server-only";
 import { randomBytes, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, type Query } from "firebase-admin/firestore";
 import { type NextRequest, NextResponse } from "next/server";
 
-import { normalizeMatch } from "@/lib/community/data";
 import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
-import type { CommunityMatch } from "@/lib/types";
+import type { CommunityMatch, DeckSnapshot, MatchGame } from "@/lib/types";
 
 export type AccountProfile = {
   uid: string;
@@ -321,6 +320,85 @@ export function decodeMatches(encoded: string): CommunityMatch[] {
   }
 }
 
+function safeJsonParse(value: string) {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeProfileGames(value: unknown, match: Record<string, unknown>): MatchGame[] {
+  const parsed =
+    typeof value === "string" && value
+      ? safeJsonParse(value)
+      : Array.isArray(value)
+        ? value
+        : [];
+
+  if (Array.isArray(parsed) && parsed.length > 0) {
+    return parsed.map((game) => {
+      const row = game as Record<string, unknown>;
+      return {
+        myBf: String(row.my_bf ?? row.myBf ?? "").trim(),
+        oppBf: String(row.opp_bf ?? row.oppBf ?? "").trim(),
+        wentFirst: String(row.went_first ?? row.wentFirst ?? "").trim(),
+        result: String(row.result ?? "").trim(),
+        myPoints: Number(row.my_points ?? row.myPoints ?? 0),
+        oppPoints: Number(row.opp_points ?? row.oppPoints ?? 0),
+      };
+    });
+  }
+
+  if (match.my_battlefield || match.opp_battlefield || match.went_first) {
+    return [
+      {
+        myBf: String(match.my_battlefield ?? "").trim(),
+        oppBf: String(match.opp_battlefield ?? "").trim(),
+        wentFirst: String(match.went_first ?? "").trim(),
+        result: String(match.result ?? "").trim(),
+        myPoints: 0,
+        oppPoints: 0,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function normalizeProfileSnapshot(value: unknown): DeckSnapshot | null {
+  if (!value) return null;
+  const parsed = typeof value === "string" ? safeJsonParse(value) : value;
+  return parsed && typeof parsed === "object" ? parsed as DeckSnapshot : null;
+}
+
+function normalizeProfileMatch(id: string, raw: Record<string, unknown>): CommunityMatch {
+  const uid = String(raw.uid ?? raw.owner_uid ?? "").trim();
+  const username = String(raw.username ?? raw.owner_handle ?? raw.ownerHandle ?? "").trim() || `Player#${uid.slice(0, 6)}`;
+  return {
+    id,
+    uid,
+    username,
+    date: String(raw.date ?? "").trim(),
+    result: String(raw.result ?? "").trim() as CommunityMatch["result"],
+    myChampion: String(raw.my_champion ?? raw.myChampion ?? "").trim(),
+    oppChampion: String(raw.opp_champion ?? raw.oppChampion ?? "").trim(),
+    oppName: String(raw.opp_name ?? raw.oppName ?? "").trim(),
+    fmt: String(raw.fmt ?? raw.format ?? "Bo1").trim() || "Bo1",
+    score: String(raw.score ?? "").trim(),
+    wentFirst: String(raw.went_first ?? raw.wentFirst ?? "").trim(),
+    myBattlefield: String(raw.my_battlefield ?? raw.myBattlefield ?? "").trim(),
+    oppBattlefield: String(raw.opp_battlefield ?? raw.oppBattlefield ?? "").trim(),
+    flags: String(raw.flags ?? "").trim(),
+    games: normalizeProfileGames(raw.games_json ?? raw.games, raw),
+    deckName: String(raw.my_deck_name ?? raw.deckName ?? raw.myDeckName ?? "").trim(),
+    deckSourceUrl: String(raw.my_deck_source_url ?? raw.deckSourceUrl ?? "").trim(),
+    deckSourceKey: String(raw.my_deck_source_key ?? raw.deckSourceKey ?? "").trim(),
+    deckSnapshot: normalizeProfileSnapshot(raw.my_deck_snapshot_json ?? raw.deckSnapshot),
+    createdAt: Number(raw.created_at ?? raw.createdAt ?? Date.now()),
+  };
+}
+
 export async function appendUserPublicMatch(match: CommunityMatch) {
   if (!match.uid) return;
   const db = getFirestoreAdmin();
@@ -354,39 +432,42 @@ export async function rebuildUserPublicAggregate(profileOrUid: AccountProfile | 
   if (!profile.uid || !profile.publicProfile || !profile.handleLower) return null;
 
   const byId = new Map<string, CommunityMatch>();
-  const addSnapshot = (snapshot: Awaited<ReturnType<ReturnType<ReturnType<typeof db.collection>["where"]>["get"]>>) => {
+  const addSnapshot = (snapshot: FirebaseFirestore.QuerySnapshot) => {
     for (const doc of snapshot.docs) {
-      byId.set(doc.id, normalizeMatch(doc.id, doc.data() as Record<string, unknown>));
+      try {
+        byId.set(doc.id, normalizeProfileMatch(doc.id, doc.data() as Record<string, unknown>));
+      } catch (error) {
+        console.warn("[social] Skipped malformed public profile match", doc.id, error);
+      }
     }
     return snapshot.size;
   };
+  const addQuery = async (label: string, query: Query): Promise<number> => {
+    try {
+      return addSnapshot(await query.get());
+    } catch (error) {
+      console.warn(`[social] Public profile match query failed: ${label}`, error);
+      return 0;
+    }
+  };
 
-  let uidMatches = 0;
-  try {
-    uidMatches = addSnapshot(await db
+  let uidMatches = await addQuery("uid + created_at", db
+    .collection("matches")
+    .where("uid", "==", profile.uid)
+    .orderBy("created_at", "desc")
+    .limit(USER_MATCH_WINDOW));
+  if (uidMatches === 0) {
+    uidMatches = await addQuery("uid", db
       .collection("matches")
       .where("uid", "==", profile.uid)
-      .orderBy("created_at", "desc")
-      .limit(USER_MATCH_WINDOW)
-      .get());
-  } catch {
-    uidMatches = addSnapshot(await db
-      .collection("matches")
-      .where("uid", "==", profile.uid)
-      .limit(USER_MATCH_WINDOW)
-      .get());
+      .limit(USER_MATCH_WINDOW));
   }
 
   if (uidMatches === 0) {
-    try {
-      addSnapshot(await db
-        .collection("matches")
-        .where("owner_uid", "==", profile.uid)
-        .limit(USER_MATCH_WINDOW)
-        .get());
-    } catch {
-      // Older public rows do not have owner_uid; uid is the compatibility path.
-    }
+    await addQuery("owner_uid", db
+      .collection("matches")
+      .where("owner_uid", "==", profile.uid)
+      .limit(USER_MATCH_WINDOW));
   }
 
   const matches = Array.from(byId.values())
@@ -447,8 +528,19 @@ export async function getPublicProfileByHandle(handle: string) {
   const lastBackfillAttemptAt = Number(aggregateData.backfillAttemptAt ?? 0);
   const canBackfill = Date.now() - lastBackfillAttemptAt > USER_BACKFILL_COOLDOWN_MS;
   if (!matches.length && profile.uid && canBackfill) {
-    const rebuilt = await rebuildUserPublicAggregate(String(profile.uid));
-    if (rebuilt) {
+    try {
+      const rebuilt = await rebuildUserPublicAggregate(String(profile.uid));
+      if (rebuilt) {
+        aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
+        aggregateData = aggregateSnap.data() ?? {};
+        matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+      }
+    } catch (error) {
+      console.warn("[social] Public profile backfill failed during read", profile.uid, error);
+      await db.collection("userAggregates").doc(String(profile.uid)).set({
+        backfillAttemptAt: Date.now(),
+        updatedAt: Date.now(),
+      }, { merge: true }).catch(() => undefined);
       aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
       aggregateData = aggregateSnap.data() ?? {};
       matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
