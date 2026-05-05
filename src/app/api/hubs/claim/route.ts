@@ -16,7 +16,11 @@ export async function POST(req: NextRequest) {
 
   const hubRef = auth.db.collection("hubs").doc(hubId);
   const memberRef = hubRef.collection("members").doc(auth.decoded.uid);
-  const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "");
+  const profile = await ensureUserProfile(
+    auth.decoded.uid,
+    cleanDisplayName(body.displayName, auth.decoded.name ?? auth.decoded.email ?? ""),
+    auth.decoded.email ?? "",
+  );
 
   try {
     await auth.db.runTransaction(async (tx) => {
@@ -40,7 +44,7 @@ export async function POST(req: NextRequest) {
         uid: auth.decoded.uid,
         role: "owner",
         handle: profile.handle,
-        displayName: cleanDisplayName(profile.displayName),
+        displayName: cleanDisplayName(profile.displayName, profile.handle || "Owner"),
         joinedAt: Date.now(),
         updatedAt: Date.now(),
       }, { merge: true });

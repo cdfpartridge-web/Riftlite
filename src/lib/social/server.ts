@@ -69,6 +69,7 @@ const DEFAULT_PROFILE_VISIBILITY = {
 
 export const MARKETING_CONSENT_VERSION = "riftlite-marketing-v1";
 export const MARKETING_CONSENT_SOURCE = "desktop-account-profile";
+const DEFAULT_DISPLAY_NAME = "RiftLite Player";
 const USER_MATCH_WINDOW = 500;
 const PROFILE_PAGE_MATCH_WINDOW = 250;
 const USER_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
@@ -108,9 +109,12 @@ export function validHandle(value: string): boolean {
   return /^[a-zA-Z0-9_][a-zA-Z0-9_-]{2,23}$/.test(value);
 }
 
-export function cleanDisplayName(value: unknown, fallback = "RiftLite Player"): string {
+export function cleanDisplayName(value: unknown, fallback = DEFAULT_DISPLAY_NAME): string {
   const cleaned = String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
-  return cleaned || fallback;
+  if (!cleaned || (cleaned.toLowerCase() === DEFAULT_DISPLAY_NAME.toLowerCase() && fallback !== DEFAULT_DISPLAY_NAME)) {
+    return fallback;
+  }
+  return cleaned;
 }
 
 export function readBool(value: unknown, fallback = false): boolean {
@@ -189,7 +193,7 @@ export function normalizeAccountProfile(uid: string, data: Record<string, unknow
     email: String(data.email ?? "").trim(),
     handle,
     handleLower: handleLower(handle),
-    displayName: cleanDisplayName(data.displayName, data.handle ? String(data.handle) : "RiftLite Player"),
+    displayName: cleanDisplayName(data.displayName, data.handle ? String(data.handle) : DEFAULT_DISPLAY_NAME),
     searchable: readBool(data.searchable, false),
     publicProfile: readBool(data.publicProfile, false),
     showStats: readBool(data.showStats, true),
@@ -280,7 +284,7 @@ async function defaultProfile(uid: string): Promise<AccountProfile> {
     email: "",
     handle: "",
     handleLower: "",
-    displayName: "RiftLite Player",
+    displayName: DEFAULT_DISPLAY_NAME,
     ...DEFAULT_PROFILE_VISIBILITY,
     marketingConsent: false,
     marketingConsentAt: 0,
@@ -522,7 +526,11 @@ export async function getPublicProfileByHandle(handle: string) {
   if (!clean) return null;
   const profileSnap = await db.collection("publicProfiles").doc(clean).get();
   if (!profileSnap.exists) return null;
-  const profile = profileSnap.data() as PublicProfile;
+  const rawProfile = profileSnap.data() as PublicProfile;
+  const profile: PublicProfile = {
+    ...rawProfile,
+    displayName: cleanDisplayName(rawProfile.displayName, rawProfile.handle || clean),
+  };
   let aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
   let aggregateData = aggregateSnap.data() ?? {};
   let matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
