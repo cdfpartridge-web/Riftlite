@@ -20,7 +20,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ hubI
       .orderBy("createdAt", "desc")
       .limit(limit)
       .get();
-    return socialJson({ messages: snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) });
+    return socialJson({
+      messages: snap.docs.map((doc) => {
+        const data = doc.data();
+        const handle = String(data.handle ?? "").trim();
+        return {
+          id: doc.id,
+          ...data,
+          displayName: cleanDisplayName(data.displayName, handle || "Member"),
+        };
+      }),
+    });
   } catch (error) {
     return socialJson({ error: error instanceof Error ? error.message : "Could not load messages" }, 403);
   }
@@ -41,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
       id,
       uid: auth.decoded.uid,
       handle: profile.handle,
-      displayName: cleanDisplayName(profile.displayName),
+      displayName: cleanDisplayName(profile.displayName, profile.handle || "Member"),
       text,
       mentions: Array.from(new Set(text.match(/@[a-z0-9_-]{3,24}/gi)?.map((item) => item.slice(1).toLowerCase()) ?? [])).slice(0, 12),
       pinned: false,
