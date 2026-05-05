@@ -70,6 +70,7 @@ const DEFAULT_PROFILE_VISIBILITY = {
 export const MARKETING_CONSENT_VERSION = "riftlite-marketing-v1";
 export const MARKETING_CONSENT_SOURCE = "desktop-account-profile";
 const USER_MATCH_WINDOW = 500;
+const PROFILE_PAGE_MATCH_WINDOW = 250;
 const USER_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const LINK_SESSION_TTL_MS = 15 * 60 * 1000;
 
@@ -525,6 +526,9 @@ export async function getPublicProfileByHandle(handle: string) {
   let aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
   let aggregateData = aggregateSnap.data() ?? {};
   let matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+  if (!matches.length && Array.isArray(aggregateData.recentMatches)) {
+    matches = aggregateData.recentMatches as CommunityMatch[];
+  }
   const lastBackfillAttemptAt = Number(aggregateData.backfillAttemptAt ?? 0);
   const canBackfill = Date.now() - lastBackfillAttemptAt > USER_BACKFILL_COOLDOWN_MS;
   if (!matches.length && profile.uid && canBackfill) {
@@ -534,6 +538,9 @@ export async function getPublicProfileByHandle(handle: string) {
         aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
         aggregateData = aggregateSnap.data() ?? {};
         matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+        if (!matches.length && Array.isArray(aggregateData.recentMatches)) {
+          matches = aggregateData.recentMatches as CommunityMatch[];
+        }
       }
     } catch (error) {
       console.warn("[social] Public profile backfill failed during read", profile.uid, error);
@@ -544,6 +551,9 @@ export async function getPublicProfileByHandle(handle: string) {
       aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
       aggregateData = aggregateSnap.data() ?? {};
       matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+      if (!matches.length && Array.isArray(aggregateData.recentMatches)) {
+        matches = aggregateData.recentMatches as CommunityMatch[];
+      }
     }
   }
   return {
@@ -559,7 +569,9 @@ export async function getPublicProfileByHandle(handle: string) {
       draws: Number(aggregateData.draws ?? 0),
       winRate: Number(aggregateData.winRate ?? 0),
       topLegend: String(aggregateData.topLegend ?? ""),
-      recentMatches: profile.showMatches ? matches.slice(0, 50) : [],
+      // Keep this profile page aggregate-only: the richer explorer can use a
+      // larger cached match window without adding extra Firestore reads.
+      recentMatches: profile.showMatches ? matches.slice(0, PROFILE_PAGE_MATCH_WINDOW) : [],
     } satisfies UserAggregate,
   };
 }
