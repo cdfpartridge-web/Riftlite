@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 
-import { cleanDisplayName, ensureUserProfile, requireUser, socialJson } from "@/lib/social/server";
+import { ensureUserProfile, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,39 +11,33 @@ export async function POST(req: NextRequest) {
   const body = await readBody(req);
   const inviteId = String(body.inviteId ?? "").trim();
   if (!inviteId) return socialJson({ error: "Missing inviteId" }, 400);
+
   const inviteRef = auth.db.collection("hubInvites").doc(inviteId);
   const snap = await inviteRef.get();
   const invite = snap.data();
   if (!snap.exists || !invite) return socialJson({ error: "Invite not found" }, 404);
-  if (String(invite.status ?? "") !== "open") return socialJson({ error: "Invite is no longer open" }, 409);
-  if (Number(invite.expiresAt ?? 0) < Date.now()) return socialJson({ error: "Invite expired" }, 410);
 
   const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "");
   const targetUid = String(invite.targetUid ?? "");
-  if (targetUid && targetUid !== auth.decoded.uid) {
-    return socialJson({ error: "Invite was sent to another profile" }, 403);
-  }
   const targetHandle = String(invite.targetHandle ?? "").toLowerCase();
-  if (targetHandle && targetHandle !== profile.handleLower) {
+  if ((targetUid && targetUid !== auth.decoded.uid) || (targetHandle && targetHandle !== profile.handleLower)) {
     return socialJson({ error: "Invite was sent to another profile" }, 403);
   }
-  const hubId = String(invite.hubId ?? "");
-  const hubSnap = await auth.db.collection("hubs").doc(hubId).get();
-  const hubName = String(hubSnap.data()?.name ?? invite.hubName ?? hubId);
-  await auth.db.collection("hubs").doc(hubId).collection("members").doc(auth.decoded.uid).set({
-    uid: auth.decoded.uid,
-    role: "member",
-    handle: profile.handle,
-    displayName: cleanDisplayName(profile.displayName),
-    joinedAt: Date.now(),
-    updatedAt: Date.now(),
-  }, { merge: true });
-  await inviteRef.set({ status: "accepted", acceptedBy: auth.decoded.uid, acceptedAt: Date.now() }, { merge: true });
+  if (String(invite.status ?? "") !== "open") {
+    await auth.db.collection("users").doc(auth.decoded.uid).collection("inbox").doc(inviteId).set({
+      status: String(invite.status ?? "closed"),
+      updatedAt: Date.now(),
+    }, { merge: true });
+    return socialJson({ ok: true });
+  }
+
+  const now = Date.now();
+  await inviteRef.set({ status: "declined", declinedBy: auth.decoded.uid, declinedAt: now }, { merge: true });
   await auth.db.collection("users").doc(auth.decoded.uid).collection("inbox").doc(inviteId).set({
-    status: "accepted",
-    updatedAt: Date.now(),
+    status: "declined",
+    updatedAt: now,
   }, { merge: true });
-  return socialJson({ ok: true, hubId, hub: { id: hubId, name: hubName, role: "member" } });
+  return socialJson({ ok: true });
 }
 
 async function readBody(req: NextRequest): Promise<Record<string, unknown>> {
