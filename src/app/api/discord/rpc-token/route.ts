@@ -2,10 +2,16 @@ import { type NextRequest } from "next/server";
 
 import { requireLinkedProfile, socialJson } from "@/lib/social-hub";
 
-const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token/rpc";
+const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID?.trim()
   || process.env.DISCORD_APPLICATION_ID?.trim()
   || "1507035519916179496";
+
+export async function GET() {
+  return socialJson({
+    configured: Boolean(DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET?.trim())
+  });
+}
 
 export async function POST(req: NextRequest) {
   const auth = await requireLinkedProfile(req);
@@ -19,19 +25,25 @@ export async function POST(req: NextRequest) {
   }
 
   const code = String(body.code ?? "").trim();
+  const refreshToken = String(body.refreshToken ?? "").trim();
   const clientSecret = process.env.DISCORD_CLIENT_SECRET?.trim() ?? "";
-  if (!code) {
-    return socialJson({ error: "Missing Discord authorization code." }, 400);
+  if (!code && !refreshToken) {
+    return socialJson({ error: "Missing Discord authorization code or refresh token." }, 400);
   }
   if (!DISCORD_CLIENT_ID || !clientSecret) {
     return socialJson({ error: "Discord direct voice join is not configured yet." }, 503);
   }
 
-  const form = new URLSearchParams({
+  const form = code ? new URLSearchParams({
     client_id: DISCORD_CLIENT_ID,
     client_secret: clientSecret,
     grant_type: "authorization_code",
     code
+  }) : new URLSearchParams({
+    client_id: DISCORD_CLIENT_ID,
+    client_secret: clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken
   });
 
   const response = await fetch(DISCORD_TOKEN_URL, {
@@ -47,6 +59,7 @@ export async function POST(req: NextRequest) {
   }
 
   const accessToken = String(payload.access_token ?? "");
+  const nextRefreshToken = String(payload.refresh_token ?? "");
   const expiresIn = Number(payload.expires_in ?? 0);
   if (!accessToken) {
     return socialJson({ error: "Discord did not return an access token." }, 502);
@@ -54,6 +67,7 @@ export async function POST(req: NextRequest) {
 
   return socialJson({
     accessToken,
+    refreshToken: nextRefreshToken,
     expiresAt: Date.now() + Math.max(60, expiresIn || 3600) * 1000
   });
 }
