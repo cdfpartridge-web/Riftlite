@@ -73,9 +73,6 @@ export default async function TeamProfilePage({ params }: { params: Promise<{ sl
               <Button asChild>
                 <Link href="/teams">All teams</Link>
               </Button>
-              <Button asChild variant="secondary">
-                <Link href="/lfg">Find Match</Link>
-              </Button>
             </div>
           </div>
         </div>

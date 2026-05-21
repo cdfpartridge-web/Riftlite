@@ -32,9 +32,6 @@ export default async function TeamsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Button asChild>
-              <Link href="/lfg">Find Match</Link>
-            </Button>
             <Button asChild variant="secondary">
               <Link href="/download">Create in Desktop</Link>
             </Button>

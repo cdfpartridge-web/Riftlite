@@ -13,7 +13,6 @@ const primaryLinks = [
   { href: SITE_PATHS.decks, label: "Decks" },
   { href: SITE_PATHS.scorepad, label: "Scorepad" },
   { href: SITE_PATHS.news, label: "News" },
-  { href: SITE_PATHS.lfg, label: "LFG" },
   { href: SITE_PATHS.teams, label: "Teams" },
 ];
 

@@ -40,8 +40,15 @@ export async function GET(req: NextRequest) {
     const teamSnaps = teamRefs.length ? await auth.db.getAll(...teamRefs) : [];
     const teams = teamSnaps
       .filter((doc) => doc.exists)
-      .map((doc) => fullTeamFromDoc(doc.id, doc.data() ?? {}))
-      .filter((team) => !q || team.searchPrefixes.includes(q) || team.name.toLowerCase().includes(q) || team.slug.toLowerCase().includes(q))
+      .map((doc) => {
+        const data = doc.data() ?? {};
+        return {
+          team: fullTeamFromDoc(doc.id, data),
+          searchPrefixes: Array.isArray(data.searchPrefixes) ? data.searchPrefixes.map(String) : []
+        };
+      })
+      .filter(({ team, searchPrefixes }) => !q || searchPrefixes.includes(q) || team.name.toLowerCase().includes(q) || team.slug.toLowerCase().includes(q))
+      .map(({ team }) => team)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, limit);
     return socialJson({ ok: true, teams });
