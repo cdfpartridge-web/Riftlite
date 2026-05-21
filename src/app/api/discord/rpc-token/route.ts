@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 
 import { requireLinkedProfile, socialJson } from "@/lib/social-hub";
 
-const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
+const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token/rpc";
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID?.trim()
   || process.env.DISCORD_APPLICATION_ID?.trim()
   || "1507035519916179496";
