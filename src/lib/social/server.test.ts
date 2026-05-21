@@ -10,6 +10,7 @@ import {
   handleLower,
   normalizeAccountProfile,
   publicProfileFromAccount,
+  repairCachedProfileMatch,
   validHandle,
 } from "@/lib/social/server";
 import type { CommunityMatch } from "@/lib/types";
@@ -106,6 +107,43 @@ describe("social profile helpers", () => {
     expect(aggregate.winRate).toBe(50);
     expect(aggregate.topLegend).toBe("Vex");
     expect(aggregate.recentMatches).toHaveLength(3);
+  });
+
+  it("treats the generic RiftLite Player name as missing and repairs from handle", () => {
+    const profile = normalizeAccountProfile("uid-abcdef", {
+      handle: "BMU",
+      displayName: "RiftLite Player",
+    });
+
+    expect(cleanDisplayName("RiftLite Player", "BMU", "uid-abcdef")).toBe("BMU");
+    expect(profile.displayName).toBe("BMU");
+  });
+
+  it("repairs cached profile game rows from match-level score context", () => {
+    const repaired = repairCachedProfileMatch({
+      ...match("stale", "Loss", "Pyke", 4),
+      score: "0-1",
+      wentFirst: "1st",
+      myBattlefield: "Ripper's Bay",
+      oppBattlefield: "Seat of Power",
+      games: [
+        {
+          myBf: "",
+          oppBf: "",
+          wentFirst: "",
+          result: "Loss",
+          myPoints: 0,
+          oppPoints: 0,
+        },
+      ],
+    });
+
+    expect(repaired.games[0]).toMatchObject({
+      myBf: "Ripper's Bay",
+      oppBf: "Seat of Power",
+      wentFirst: "1st",
+      result: "Loss",
+    });
   });
 
   it("limits profile search prefixes so profile search stays cheap", () => {

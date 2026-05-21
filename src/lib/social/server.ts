@@ -3,7 +3,7 @@ import "server-only";
 import { randomBytes, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
-import { FieldValue, type Query } from "firebase-admin/firestore";
+import { FieldValue, type DocumentReference, type Query } from "firebase-admin/firestore";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
@@ -69,7 +69,23 @@ const DEFAULT_PROFILE_VISIBILITY = {
 
 export const MARKETING_CONSENT_VERSION = "riftlite-marketing-v1";
 export const MARKETING_CONSENT_SOURCE = "desktop-account-profile";
-const DEFAULT_DISPLAY_NAME = "RiftLite Player";
+export const DEFAULT_DISPLAY_NAME = "RiftLite Player";
+const GENERIC_DISPLAY_NAMES = new Set([
+  DEFAULT_DISPLAY_NAME.toLowerCase(),
+  "riftlite user",
+  "a riftlite player",
+  "player",
+  "member",
+  "owner",
+]);
+const GENERIC_DECK_NAMES = new Set([
+  "riftbound",
+  "tcga deck",
+  "deck pending",
+  "no deck",
+  "no deck logged",
+  "unknown",
+]);
 const USER_MATCH_WINDOW = 500;
 const PROFILE_PAGE_MATCH_WINDOW = 250;
 const USER_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
@@ -109,12 +125,59 @@ export function validHandle(value: string): boolean {
   return /^[a-zA-Z0-9_][a-zA-Z0-9_-]{2,23}$/.test(value);
 }
 
-export function cleanDisplayName(value: unknown, fallback = DEFAULT_DISPLAY_NAME): string {
-  const cleaned = String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
-  if (!cleaned || (cleaned.toLowerCase() === DEFAULT_DISPLAY_NAME.toLowerCase() && fallback !== DEFAULT_DISPLAY_NAME)) {
-    return fallback;
+function compactDisplayName(value: unknown): string {
+  return String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+}
+
+export function isGenericDisplayName(value: unknown): boolean {
+  const cleaned = compactDisplayName(value).toLowerCase();
+  return !cleaned || GENERIC_DISPLAY_NAMES.has(cleaned) || /^player(?:[ #_-]|$)/i.test(cleaned);
+}
+
+function fallbackPlayerName(uid: string): string {
+  const suffix = uid.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6);
+  return suffix ? `Player ${suffix}` : DEFAULT_DISPLAY_NAME;
+}
+
+export function cleanDisplayName(value: unknown, fallback = DEFAULT_DISPLAY_NAME, uid = ""): string {
+  const fallbackName = compactDisplayName(fallback);
+  const cleaned = compactDisplayName(value);
+  if (!isGenericDisplayName(cleaned)) {
+    return cleaned;
   }
-  return cleaned;
+  if (fallbackName && !isGenericDisplayName(fallbackName)) {
+    return fallbackName;
+  }
+  return fallbackPlayerName(uid);
+}
+
+export function bestProfileDisplayName(uid: string, ...candidates: unknown[]): string {
+  for (const candidate of candidates) {
+    const cleaned = compactDisplayName(candidate);
+    if (!isGenericDisplayName(cleaned)) {
+      return cleaned;
+    }
+  }
+  return fallbackPlayerName(uid);
+}
+
+function cleanDeckName(value: unknown): string {
+  const cleaned = String(value ?? "").trim().replace(/\s+/g, " ");
+  const normalized = cleaned.toLowerCase().replace(/^tcga:/, "");
+  return cleaned && !GENERIC_DECK_NAMES.has(normalized) ? cleaned : "";
+}
+
+function cleanDeckSource(value: unknown): string {
+  const cleaned = String(value ?? "").trim();
+  if (!cleaned) return "";
+  const tcgaDeckKey = cleaned.match(/^tcga:\/\/deck\/(.+)$/i)?.[1] ?? cleaned;
+  const normalized = tcgaDeckKey.toLowerCase().replace(/^tcga:/, "").replace(/\s+/g, " ");
+  return GENERIC_DECK_NAMES.has(normalized) ? "" : cleaned;
+}
+
+function profileNeedsDisplayNameRepair(rawDisplayName: unknown, nextDisplayName: string): boolean {
+  const current = compactDisplayName(rawDisplayName);
+  return isGenericDisplayName(current) && !isGenericDisplayName(nextDisplayName) && current !== nextDisplayName;
 }
 
 export function readBool(value: unknown, fallback = false): boolean {
@@ -159,10 +222,23 @@ export async function ensureUserProfile(uid: string, displayName = "", email = "
   const snap = await ref.get();
   const now = Date.now();
   if (snap.exists) {
-    const profile = normalizeAccountProfile(uid, snap.data() ?? {});
+    const raw = snap.data() ?? {};
+    const profile = normalizeAccountProfile(uid, raw);
+    const nextDisplayName = bestProfileDisplayName(uid, displayName, profile.handle, profile.displayName);
+    const patch: Record<string, unknown> = {};
     if (email && email !== profile.email) {
-      await ref.set({ email, emailUpdatedAt: now, updatedAt: now }, { merge: true });
-      return { ...profile, email, updatedAt: now };
+      patch.email = email;
+      patch.emailUpdatedAt = now;
+    }
+    if (profileNeedsDisplayNameRepair(raw.displayName, nextDisplayName)) {
+      patch.displayName = nextDisplayName;
+    }
+    if (Object.keys(patch).length) {
+      patch.updatedAt = now;
+      await ref.set(patch, { merge: true });
+      const repaired = { ...profile, ...patch, updatedAt: now } as AccountProfile;
+      await repairProfileReferences(repaired).catch(() => undefined);
+      return repaired;
     }
     return profile;
   }
@@ -171,7 +247,7 @@ export async function ensureUserProfile(uid: string, displayName = "", email = "
     email,
     handle: "",
     handleLower: "",
-    displayName: cleanDisplayName(displayName),
+    displayName: bestProfileDisplayName(uid, displayName),
     ...DEFAULT_PROFILE_VISIBILITY,
     marketingConsent: false,
     marketingConsentAt: 0,
@@ -193,7 +269,7 @@ export function normalizeAccountProfile(uid: string, data: Record<string, unknow
     email: String(data.email ?? "").trim(),
     handle,
     handleLower: handleLower(handle),
-    displayName: cleanDisplayName(data.displayName, data.handle ? String(data.handle) : DEFAULT_DISPLAY_NAME),
+    displayName: bestProfileDisplayName(uid, data.displayName, handle),
     searchable: readBool(data.searchable, false),
     publicProfile: readBool(data.publicProfile, false),
     showStats: readBool(data.showStats, true),
@@ -247,7 +323,9 @@ export async function saveAccountProfile(uid: string, patch: Partial<AccountProf
       email: context.email ?? current.email,
       handle: nextHandle,
       handleLower: nextHandleLower,
-      displayName: patch.displayName !== undefined ? cleanDisplayName(patch.displayName, nextHandle || current.displayName) : current.displayName,
+      displayName: patch.displayName !== undefined
+        ? bestProfileDisplayName(uid, patch.displayName, nextHandle, current.displayName)
+        : bestProfileDisplayName(uid, current.displayName, nextHandle, current.handle),
       searchable: patch.searchable ?? current.searchable,
       publicProfile: patch.publicProfile ?? current.publicProfile,
       showStats: patch.showStats ?? current.showStats,
@@ -271,6 +349,7 @@ export async function saveAccountProfile(uid: string, patch: Partial<AccountProf
   });
 
   const profile = saved ?? await ensureUserProfile(uid);
+  await repairProfileReferences(profile).catch(() => undefined);
   if (profile.publicProfile && profile.handleLower) {
     await rebuildUserPublicAggregate(profile).catch(() => undefined);
   }
@@ -284,7 +363,7 @@ async function defaultProfile(uid: string): Promise<AccountProfile> {
     email: "",
     handle: "",
     handleLower: "",
-    displayName: DEFAULT_DISPLAY_NAME,
+    displayName: fallbackPlayerName(uid),
     ...DEFAULT_PROFILE_VISIBILITY,
     marketingConsent: false,
     marketingConsentAt: 0,
@@ -333,6 +412,26 @@ function safeJsonParse(value: string) {
   }
 }
 
+function firstProfileString(source: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function firstProfileNumber(source: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === null || value === undefined || value === "") continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
 function normalizeProfileGames(value: unknown, match: Record<string, unknown>): MatchGame[] {
   const parsed =
     typeof value === "string" && value
@@ -344,23 +443,29 @@ function normalizeProfileGames(value: unknown, match: Record<string, unknown>): 
   if (Array.isArray(parsed) && parsed.length > 0) {
     return parsed.map((game) => {
       const row = game as Record<string, unknown>;
+      const myBf = firstProfileString(row, "my_bf", "myBf", "myBattlefield", "my_battlefield");
+      const oppBf = firstProfileString(row, "opp_bf", "oppBf", "opponentBattlefield", "opp_battlefield");
+      const shouldUseMatchBattlefields = parsed.length === 1 || (!myBf && !oppBf);
       return {
-        myBf: String(row.my_bf ?? row.myBf ?? "").trim(),
-        oppBf: String(row.opp_bf ?? row.oppBf ?? "").trim(),
-        wentFirst: String(row.went_first ?? row.wentFirst ?? "").trim(),
-        result: String(row.result ?? "").trim(),
-        myPoints: Number(row.my_points ?? row.myPoints ?? 0),
-        oppPoints: Number(row.opp_points ?? row.oppPoints ?? 0),
+        myBf: myBf || (shouldUseMatchBattlefields ? firstProfileString(match, "my_battlefield", "myBattlefield") : ""),
+        oppBf: oppBf || (shouldUseMatchBattlefields ? firstProfileString(match, "opp_battlefield", "oppBattlefield", "opponentBattlefield") : ""),
+        wentFirst: firstProfileString(row, "went_first", "wentFirst") || firstProfileString(match, "went_first", "wentFirst"),
+        result: firstProfileString(row, "result"),
+        myPoints: firstProfileNumber(row, "my_points", "myPoints", "myScore", "my_score"),
+        oppPoints: firstProfileNumber(row, "opp_points", "oppPoints", "oppScore", "opponentScore", "opp_score"),
       };
     });
   }
 
-  if (match.my_battlefield || match.opp_battlefield || match.went_first) {
+  const fallbackMyBf = firstProfileString(match, "my_battlefield", "myBattlefield");
+  const fallbackOppBf = firstProfileString(match, "opp_battlefield", "oppBattlefield", "opponentBattlefield");
+  const fallbackSeat = firstProfileString(match, "went_first", "wentFirst");
+  if (fallbackMyBf || fallbackOppBf || fallbackSeat) {
     return [
       {
-        myBf: String(match.my_battlefield ?? "").trim(),
-        oppBf: String(match.opp_battlefield ?? "").trim(),
-        wentFirst: String(match.went_first ?? "").trim(),
+        myBf: fallbackMyBf,
+        oppBf: fallbackOppBf,
+        wentFirst: fallbackSeat,
         result: String(match.result ?? "").trim(),
         myPoints: 0,
         oppPoints: 0,
@@ -379,7 +484,7 @@ function normalizeProfileSnapshot(value: unknown): DeckSnapshot | null {
 
 function normalizeProfileMatch(id: string, raw: Record<string, unknown>): CommunityMatch {
   const uid = String(raw.uid ?? raw.owner_uid ?? "").trim();
-  const username = String(raw.username ?? raw.owner_handle ?? raw.ownerHandle ?? "").trim() || `Player#${uid.slice(0, 6)}`;
+  const username = bestProfileDisplayName(uid, raw.username, raw.owner_display_name, raw.ownerDisplayName, raw.displayName, raw.owner_handle, raw.ownerHandle);
   return {
     id,
     uid,
@@ -396,12 +501,20 @@ function normalizeProfileMatch(id: string, raw: Record<string, unknown>): Commun
     oppBattlefield: String(raw.opp_battlefield ?? raw.oppBattlefield ?? "").trim(),
     flags: String(raw.flags ?? "").trim(),
     games: normalizeProfileGames(raw.games_json ?? raw.games, raw),
-    deckName: String(raw.my_deck_name ?? raw.deckName ?? raw.myDeckName ?? "").trim(),
-    deckSourceUrl: String(raw.my_deck_source_url ?? raw.deckSourceUrl ?? "").trim(),
-    deckSourceKey: String(raw.my_deck_source_key ?? raw.deckSourceKey ?? "").trim(),
+    deckName: cleanDeckName(raw.my_deck_name ?? raw.deckName ?? raw.myDeckName),
+    deckSourceUrl: cleanDeckSource(raw.my_deck_source_url ?? raw.deckSourceUrl),
+    deckSourceKey: cleanDeckSource(raw.my_deck_source_key ?? raw.deckSourceKey),
     deckSnapshot: normalizeProfileSnapshot(raw.my_deck_snapshot_json ?? raw.deckSnapshot),
     createdAt: Number(raw.created_at ?? raw.createdAt ?? Date.now()),
   };
+}
+
+export function repairCachedProfileMatch(match: CommunityMatch): CommunityMatch {
+  return normalizeProfileMatch(match.id, match as unknown as Record<string, unknown>);
+}
+
+function repairCachedProfileMatches(matches: CommunityMatch[]): CommunityMatch[] {
+  return matches.map((match) => repairCachedProfileMatch(match));
 }
 
 export async function appendUserPublicMatch(match: CommunityMatch) {
@@ -533,9 +646,9 @@ export async function getPublicProfileByHandle(handle: string) {
   };
   let aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
   let aggregateData = aggregateSnap.data() ?? {};
-  let matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+  let matches = repairCachedProfileMatches(decodeMatches(String(aggregateData.matchesEncoded ?? "")));
   if (!matches.length && Array.isArray(aggregateData.recentMatches)) {
-    matches = aggregateData.recentMatches as CommunityMatch[];
+    matches = repairCachedProfileMatches(aggregateData.recentMatches as CommunityMatch[]);
   }
   const lastBackfillAttemptAt = Number(aggregateData.backfillAttemptAt ?? 0);
   const canBackfill = Date.now() - lastBackfillAttemptAt > USER_BACKFILL_COOLDOWN_MS;
@@ -545,9 +658,9 @@ export async function getPublicProfileByHandle(handle: string) {
       if (rebuilt) {
         aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
         aggregateData = aggregateSnap.data() ?? {};
-        matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+        matches = repairCachedProfileMatches(decodeMatches(String(aggregateData.matchesEncoded ?? "")));
         if (!matches.length && Array.isArray(aggregateData.recentMatches)) {
-          matches = aggregateData.recentMatches as CommunityMatch[];
+          matches = repairCachedProfileMatches(aggregateData.recentMatches as CommunityMatch[]);
         }
       }
     } catch (error) {
@@ -558,9 +671,9 @@ export async function getPublicProfileByHandle(handle: string) {
       }, { merge: true }).catch(() => undefined);
       aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
       aggregateData = aggregateSnap.data() ?? {};
-      matches = decodeMatches(String(aggregateData.matchesEncoded ?? ""));
+      matches = repairCachedProfileMatches(decodeMatches(String(aggregateData.matchesEncoded ?? "")));
       if (!matches.length && Array.isArray(aggregateData.recentMatches)) {
-        matches = aggregateData.recentMatches as CommunityMatch[];
+        matches = repairCachedProfileMatches(aggregateData.recentMatches as CommunityMatch[]);
       }
     }
   }
@@ -582,6 +695,64 @@ export async function getPublicProfileByHandle(handle: string) {
       recentMatches: profile.showMatches ? matches.slice(0, PROFILE_PAGE_MATCH_WINDOW) : [],
     } satisfies UserAggregate,
   };
+}
+
+export async function repairProfileReferences(profile: AccountProfile): Promise<void> {
+  const db = getFirestoreAdmin();
+  if (!db || !profile.uid) return;
+  const displayName = bestProfileDisplayName(profile.uid, profile.displayName, profile.handle);
+  const handle = profile.handle || "";
+  const now = Date.now();
+  const batch = db.batch();
+  let writes = 0;
+
+  const queueSet = (ref: DocumentReference, data: Record<string, unknown>) => {
+    if (writes >= 450) return;
+    batch.set(ref, data, { merge: true });
+    writes += 1;
+  };
+
+  if (profile.handleLower) {
+    if (profile.publicProfile) {
+      queueSet(db.collection("publicProfiles").doc(profile.handleLower), {
+        displayName,
+        handle,
+        searchPrefixes: buildSearchPrefixes(handle, displayName),
+        updatedAt: now,
+      });
+    }
+    queueSet(db.collection("handles").doc(profile.handleLower), {
+      uid: profile.uid,
+      handle,
+      updatedAt: now,
+    });
+  }
+
+  queueSet(db.collection("userAggregates").doc(profile.uid), {
+    displayName,
+    handle,
+    updatedAt: now,
+  });
+
+  const updateCollectionGroup = async (collectionId: string, field: string, value: string, data: Record<string, unknown>) => {
+    const snap = await db.collectionGroup(collectionId).where(field, "==", value).limit(150).get().catch(() => null);
+    for (const doc of snap?.docs ?? []) {
+      queueSet(doc.ref, data);
+    }
+  };
+
+  await updateCollectionGroup("members", "uid", profile.uid, { displayName, handle, updatedAt: now });
+  await updateCollectionGroup("messages", "uid", profile.uid, { displayName, handle, updatedAt: now });
+  await updateCollectionGroup("inbox", "senderUid", profile.uid, { senderDisplayName: displayName, senderHandle: handle, updatedAt: now });
+
+  const inviteSnap = await db.collection("hubInvites").where("senderUid", "==", profile.uid).limit(150).get().catch(() => null);
+  for (const doc of inviteSnap?.docs ?? []) {
+    queueSet(doc.ref, { senderDisplayName: displayName, senderHandle: handle, updatedAt: now });
+  }
+
+  if (writes) {
+    await batch.commit();
+  }
 }
 
 export async function assertHubRole(hubId: string, uid: string, roles: string[]) {

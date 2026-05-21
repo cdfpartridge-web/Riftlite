@@ -65,6 +65,18 @@ function defaultScore(result: string): string {
   return "";
 }
 
+function gameScoreText(match: CommunityMatch, game: MatchGame | undefined, totalGames: number) {
+  if (!game) return "";
+  const myPts = Number(game.myPoints ?? 0) || 0;
+  const oppPts = Number(game.oppPoints ?? 0) || 0;
+  if (myPts > 0 || oppPts > 0) return { label: "Points", text: `${myPts} - ${oppPts}` };
+  if (totalGames === 1) {
+    const record = match.score?.trim() || defaultScore(match.result);
+    if (record) return { label: "Record", text: record };
+  }
+  return { label: "Score", text: "Not captured" };
+}
+
 function LegendPortrait({ legend, size = 30 }: { legend: string; size?: number }) {
   return (
     <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
@@ -190,13 +202,12 @@ function computeSplits(matches: CommunityMatch[]) {
   return { fmt, seat, myPts, oppPts };
 }
 
-function GameDetailCard({ index, game }: { index: number; game: MatchGame | undefined }) {
+function GameDetailCard({ index, game, match, totalGames }: { index: number; game: MatchGame | undefined; match: CommunityMatch; totalGames: number }) {
   const myBf = game?.myBf?.trim() || "";
   const oppBf = game?.oppBf?.trim() || "";
   const went = game?.wentFirst?.trim() || "";
-  const myPts = Number(game?.myPoints ?? 0) || 0;
-  const oppPts = Number(game?.oppPoints ?? 0) || 0;
   const gameResult = game?.result?.trim() || "";
+  const score = gameScoreText(match, game, totalGames);
 
   const resultLabel =
     gameResult === "Win"
@@ -233,7 +244,7 @@ function GameDetailCard({ index, game }: { index: number; game: MatchGame | unde
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[11px]">
             <span className="font-semibold text-amber-200/90">
-              Points: {myPts} – {oppPts}
+              {score ? `${score.label}: ${score.text}` : "Score —"}
             </span>
             <span
               className={
@@ -513,7 +524,9 @@ function MatchDetailPanel({
               <GameDetailCard
                 game={selected.games?.[idx]}
                 index={idx}
+                match={selected}
                 key={`${selected.id}-g${idx}`}
+                totalGames={selected.games?.length || gameSlots}
               />
             ))}
           </div>

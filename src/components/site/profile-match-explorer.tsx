@@ -119,6 +119,20 @@ function recordFromGames(match: CommunityMatch) {
   return draws ? `${wins}-${losses}-${draws}` : `${wins}-${losses}`;
 }
 
+function gameScoreText(match: CommunityMatch, game: MatchGame, totalGames: number) {
+  const myPoints = Number(game.myPoints || 0);
+  const oppPoints = Number(game.oppPoints || 0);
+  const hasCapturedPoints = myPoints > 0 || oppPoints > 0;
+  if (hasCapturedPoints) return `${myPoints}-${oppPoints}`;
+
+  const matchRecord = recordFromGames(match);
+  if (totalGames === 1 && matchRecord && matchRecord !== "Unknown") {
+    return matchRecord;
+  }
+
+  return "Score not captured";
+}
+
 function gameRows(match: CommunityMatch): MatchGame[] {
   if (match.games?.length) {
     return match.games.map((game, index) => {
@@ -413,7 +427,7 @@ function MatchDetail({
               >
                 <div className="font-bold text-white">Game {index + 1}</div>
                 <div className={resultTone(game.result)}>{game.result || "Unknown"}</div>
-                <div className="text-slate-300">{Number(game.myPoints || 0)}-{Number(game.oppPoints || 0)}</div>
+                <div className="text-slate-300">{gameScoreText(match, game, games.length)}</div>
                 <div className="text-slate-400">{game.wentFirst || "Seat unknown"}</div>
                 <div className="min-w-0 text-slate-400">
                   <span className="text-slate-500">BF:</span>{" "}

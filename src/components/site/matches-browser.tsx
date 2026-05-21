@@ -24,6 +24,21 @@ function ResultBadge({ result }: { result: string }) {
   );
 }
 
+function defaultScore(result: string): string {
+  if (result === "Win") return "1-0";
+  if (result === "Loss") return "0-1";
+  if (result === "Draw") return "0-0";
+  return "";
+}
+
+function gameScoreText(match: CommunityMatch, game: CommunityMatch["games"][number], totalGames: number) {
+  const myPoints = Number(game.myPoints || 0);
+  const oppPoints = Number(game.oppPoints || 0);
+  if (myPoints > 0 || oppPoints > 0) return `${myPoints}-${oppPoints} pts`;
+  if (totalGames === 1) return `${match.score?.trim() || defaultScore(match.result) || "Score not captured"} record`;
+  return "Score not captured";
+}
+
 export function MatchesBrowser({ matches }: MatchesBrowserProps) {
   const [selectedId, setSelectedId] = useState(matches[0]?.id ?? "");
   const selected = matches.find((m) => m.id === selectedId) ?? matches[0];
@@ -109,7 +124,7 @@ export function MatchesBrowser({ matches }: MatchesBrowserProps) {
                       {game.wentFirst || "Seat unknown"}
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
-                      BF: {game.myBf || "—"} vs {game.oppBf || "—"} · {game.myPoints}–{game.oppPoints} pts
+                      BF: {game.myBf || "—"} vs {game.oppBf || "—"} · {gameScoreText(selected, game, selected.games.length)}
                     </div>
                   </div>
                 ))}

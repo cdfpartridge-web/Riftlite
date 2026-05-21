@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 
-import { assertHubRole, cleanDisplayName, requireUser, socialJson } from "@/lib/social/server";
+import { assertHubRole, bestProfileDisplayName, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,10 +16,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ hubI
       members: snap.docs.map((doc) => {
         const data = doc.data();
         const handle = String(data.handle ?? "").trim();
+        const uid = String(data.uid ?? doc.id);
         return {
           id: doc.id,
           ...data,
-          displayName: cleanDisplayName(data.displayName, handle || "Member"),
+          displayName: bestProfileDisplayName(uid, data.displayName, handle),
         };
       }),
     });

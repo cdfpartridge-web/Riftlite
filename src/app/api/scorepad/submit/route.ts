@@ -77,6 +77,9 @@ function normalizeScorepadMatch(value: unknown): Record<string, unknown> | null 
   return {
     localId: cleanId(match.localId) || randomUUID(),
     capturedAt: readString(match.capturedAt) || new Date().toISOString(),
+    clientSavedAt: readString(match.clientSavedAt),
+    appVersion: readString(match.appVersion).slice(0, 80),
+    deviceLabel: readString(match.deviceLabel).slice(0, 80),
     format: readString(match.format) === "Bo3" ? "Bo3" : "Bo1",
     result: readResult(match.result),
     myName: readString(match.myName),
@@ -105,7 +108,7 @@ function normalizeGame(value: unknown): Record<string, unknown> | null {
     result: readResult(game.result),
     myPoints: readNumber(game.myPoints),
     oppPoints: readNumber(game.oppPoints),
-    wentFirst: readString(game.wentFirst) === "1st" || readString(game.wentFirst) === "2nd" ? readString(game.wentFirst) : "",
+    wentFirst: readSeat(game.wentFirst),
     myBattlefield,
     oppBattlefield,
   };
@@ -136,6 +139,11 @@ function readCanonicalChoice(
 function readResult(value: unknown): string {
   const raw = readString(value);
   return raw === "Win" || raw === "Loss" || raw === "Draw" || raw === "Incomplete" ? raw : "Incomplete";
+}
+
+function readSeat(value: unknown): string {
+  const raw = readString(value);
+  return raw === "1st" || raw === "2nd" || raw === "undecided" ? raw : "";
 }
 
 function readNumber(value: unknown): number {

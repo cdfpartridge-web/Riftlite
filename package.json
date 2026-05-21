@@ -14,7 +14,10 @@
     "test:e2e": "playwright test",
     "sanity": "sanity",
     "report:spotlight": "node scripts/spotlight-report.mjs",
-    "report:marketing": "node scripts/marketing-report.mjs"
+    "report:pageviews": "node scripts/page-view-report.mjs",
+    "report:app-usage": "node scripts/app-usage-report.mjs",
+    "report:marketing": "node scripts/marketing-report.mjs",
+    "repair:profile-names": "node scripts/repair-profile-display-names.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

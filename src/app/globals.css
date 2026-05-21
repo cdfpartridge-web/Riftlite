@@ -214,3 +214,39 @@ a {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
 }
+
+/* ---- Scorepad PWA shell ---- */
+body:has(.scorepad-app-shell) .surface-grid > header,
+body:has(.scorepad-app-shell) .surface-grid > footer {
+  display: none;
+}
+
+body:has(.scorepad-app-shell) .surface-grid > main {
+  min-height: 100vh;
+}
+
+.scorepad-app-shell {
+  min-height: 100dvh;
+  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.social-input {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.85rem 1rem;
+  font-size: 0.9rem;
+  color: white;
+  outline: none;
+}
+
+.social-input:focus {
+  border-color: rgba(132, 231, 255, 0.7);
+  box-shadow: 0 0 0 3px rgba(89, 167, 255, 0.16);
+}
+
+.social-input::placeholder {
+  color: rgba(203, 213, 225, 0.58);
+}

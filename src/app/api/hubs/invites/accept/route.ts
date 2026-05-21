@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 
-import { cleanDisplayName, ensureUserProfile, requireUser, socialJson } from "@/lib/social/server";
+import { bestProfileDisplayName, ensureUserProfile, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
   if (Number(invite.expiresAt ?? 0) < Date.now()) return socialJson({ error: "Invite expired" }, 410);
 
   const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "");
+  const displayName = bestProfileDisplayName(auth.decoded.uid, profile.displayName, profile.handle);
+  await repairProfileReferences({ ...profile, displayName }).catch(() => undefined);
   const targetUid = String(invite.targetUid ?? "");
   if (targetUid && targetUid !== auth.decoded.uid) {
     return socialJson({ error: "Invite was sent to another profile" }, 403);
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
     uid: auth.decoded.uid,
     role: "member",
     handle: profile.handle,
-    displayName: cleanDisplayName(profile.displayName),
+    displayName,
     joinedAt: Date.now(),
     updatedAt: Date.now(),
   }, { merge: true });

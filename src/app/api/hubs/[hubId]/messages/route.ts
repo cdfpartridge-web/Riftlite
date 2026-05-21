@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 
-import { assertHubRole, cleanDisplayName, ensureUserProfile, requireUser, socialJson } from "@/lib/social/server";
+import { assertHubRole, bestProfileDisplayName, ensureUserProfile, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,10 +24,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ hubI
       messages: snap.docs.map((doc) => {
         const data = doc.data();
         const handle = String(data.handle ?? "").trim();
+        const uid = String(data.uid ?? doc.id);
         return {
           id: doc.id,
           ...data,
-          displayName: cleanDisplayName(data.displayName, handle || "Member"),
+          displayName: bestProfileDisplayName(uid, data.displayName, handle),
         };
       }),
     });
@@ -46,12 +47,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
   try {
     await assertHubRole(hubId, auth.decoded.uid, ["owner", "admin", "member"]);
     const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "");
+    const displayName = bestProfileDisplayName(auth.decoded.uid, profile.displayName, profile.handle);
+    await repairProfileReferences({ ...profile, displayName }).catch(() => undefined);
     const id = randomUUID();
     const message = {
       id,
       uid: auth.decoded.uid,
       handle: profile.handle,
-      displayName: cleanDisplayName(profile.displayName, profile.handle || "Member"),
+      displayName,
       text,
       mentions: Array.from(new Set(text.match(/@[a-z0-9_-]{3,24}/gi)?.map((item) => item.slice(1).toLowerCase()) ?? [])).slice(0, 12),
       pinned: false,

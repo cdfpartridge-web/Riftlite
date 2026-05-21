@@ -2,17 +2,21 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "RiftLite",
-    short_name: "RiftLite",
+    name: "RiftLite Scorepad",
+    short_name: "Scorepad",
     description:
-      "Fully automatic Riftbound match tracking on TCGA and RiftAtlas. Study your matchups, replay key turns, browse the community meta, and stream with a live overlay.",
-    start_url: "/",
+      "Touch-first Riftbound scoring for table games, with offline saves and private RiftLite Desktop sync.",
+    start_url: "/scorepad",
+    scope: "/",
     display: "standalone",
+    orientation: "portrait",
     background_color: "#0c1021",
-    theme_color: "#0c1021",
+    theme_color: "#101936",
+    categories: ["games", "sports", "utilities"],
     icons: [
-      { src: "/icon.png", sizes: "any", type: "image/png" },
-      { src: "/apple-icon.png", sizes: "180x180", type: "image/png" },
+      { src: "/brand/riftlite-logo-ui.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/brand/riftlite-logo-ui.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/brand/riftlite-logo-transparent.png", sizes: "180x180", type: "image/png" },
     ],
   };
 }

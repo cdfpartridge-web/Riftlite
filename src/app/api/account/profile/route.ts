@@ -1,7 +1,6 @@
 import { type NextRequest } from "next/server";
 
 import {
-  cleanDisplayName,
   cleanHandle,
   ensureUserProfile,
   readBool,
@@ -27,7 +26,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const profile = await saveAccountProfile(auth.decoded.uid, {
       handle: body.handle === undefined ? undefined : cleanHandle(body.handle),
-      displayName: body.displayName === undefined ? undefined : cleanDisplayName(body.displayName),
+      displayName: body.displayName === undefined ? undefined : String(body.displayName ?? ""),
       searchable: body.searchable === undefined ? undefined : readBool(body.searchable),
       publicProfile: body.publicProfile === undefined ? undefined : readBool(body.publicProfile),
       showStats: body.showStats === undefined ? undefined : readBool(body.showStats, true),

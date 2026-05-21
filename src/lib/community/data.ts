@@ -52,6 +52,22 @@ const PUBLIC_PLAYERS_COLLECTION = "publicPlayers";
 // the read path returns fixtures rather than live-scanning the matches
 // collection — see fetchCommunityMatchesSafe for why.
 const AGGREGATE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const GENERIC_DISPLAY_NAMES = new Set([
+  "riftlite player",
+  "riftlite user",
+  "a riftlite player",
+  "player",
+  "member",
+  "owner",
+]);
+const GENERIC_DECK_NAMES = new Set([
+  "riftbound",
+  "tcga deck",
+  "deck pending",
+  "no deck",
+  "no deck logged",
+  "unknown",
+]);
 
 export type CommunityAggregateCounts = {
   privateMatchCount: number;
@@ -111,6 +127,56 @@ function safeJsonParse(value: string) {
   }
 }
 
+function firstString(source: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function bestDisplayName(source: Record<string, unknown>, uid: string): string {
+  for (const key of ["username", "owner_display_name", "ownerDisplayName", "displayName", "owner_handle", "ownerHandle"]) {
+    const value = firstString(source, key);
+    if (value && !isGenericDisplayName(value)) return value;
+  }
+  return uid ? `Player#${uid.slice(0, 6)}` : "Unknown player";
+}
+
+function isGenericDisplayName(value: string): boolean {
+  const cleaned = value.trim().toLowerCase().replace(/\s+/g, " ");
+  return !cleaned || GENERIC_DISPLAY_NAMES.has(cleaned) || /^player(?:[ #_-]|$)/i.test(cleaned);
+}
+
+function isGenericDeckValue(value: string): boolean {
+  const cleaned = value.trim().toLowerCase().replace(/^tcga:/, "").replace(/\s+/g, " ");
+  return !cleaned || GENERIC_DECK_NAMES.has(cleaned);
+}
+
+function cleanDeckName(value: string): string {
+  const cleaned = value.trim().replace(/\s+/g, " ");
+  return cleaned && !isGenericDeckValue(cleaned) ? cleaned : "";
+}
+
+function cleanDeckSource(value: string): string {
+  const cleaned = value.trim();
+  if (!cleaned) return "";
+  const tcgaDeckKey = cleaned.match(/^tcga:\/\/deck\/(.+)$/i)?.[1] ?? cleaned;
+  return isGenericDeckValue(tcgaDeckKey) ? "" : cleaned;
+}
+
+function firstNumber(source: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === null || value === undefined || value === "") continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
 function normalizeGames(value: unknown, match: Record<string, unknown>): MatchGame[] {
   const source =
     typeof value === "string" && value
@@ -120,22 +186,31 @@ function normalizeGames(value: unknown, match: Record<string, unknown>): MatchGa
         : [];
 
   if (Array.isArray(source) && source.length > 0) {
-    return source.map((game) => ({
-      myBf: String((game as Record<string, unknown>).my_bf ?? "").trim(),
-      oppBf: String((game as Record<string, unknown>).opp_bf ?? "").trim(),
-      wentFirst: String((game as Record<string, unknown>).went_first ?? "").trim(),
-      result: String((game as Record<string, unknown>).result ?? "").trim(),
-      myPoints: Number((game as Record<string, unknown>).my_points ?? 0),
-      oppPoints: Number((game as Record<string, unknown>).opp_points ?? 0),
-    }));
+    return source.map((rawGame) => {
+      const game = rawGame as Record<string, unknown>;
+      const myBf = firstString(game, "my_bf", "myBf", "myBattlefield", "my_battlefield");
+      const oppBf = firstString(game, "opp_bf", "oppBf", "opponentBattlefield", "opp_battlefield");
+      const shouldUseMatchBattlefields = source.length === 1 || (!myBf && !oppBf);
+      return {
+        myBf: myBf || (shouldUseMatchBattlefields ? firstString(match, "my_battlefield", "myBattlefield") : ""),
+        oppBf: oppBf || (shouldUseMatchBattlefields ? firstString(match, "opp_battlefield", "oppBattlefield", "opponentBattlefield") : ""),
+        wentFirst: firstString(game, "went_first", "wentFirst") || firstString(match, "went_first", "wentFirst"),
+        result: firstString(game, "result"),
+        myPoints: firstNumber(game, "my_points", "myPoints", "myScore", "my_score"),
+        oppPoints: firstNumber(game, "opp_points", "oppPoints", "oppScore", "opponentScore", "opp_score"),
+      };
+    });
   }
 
-  if (match.my_battlefield || match.opp_battlefield || match.went_first) {
+  const fallbackMyBf = firstString(match, "my_battlefield", "myBattlefield");
+  const fallbackOppBf = firstString(match, "opp_battlefield", "oppBattlefield", "opponentBattlefield");
+  const fallbackSeat = firstString(match, "went_first", "wentFirst");
+  if (fallbackMyBf || fallbackOppBf || fallbackSeat) {
     return [
       {
-        myBf: String(match.my_battlefield ?? "").trim(),
-        oppBf: String(match.opp_battlefield ?? "").trim(),
-        wentFirst: String(match.went_first ?? "").trim(),
+        myBf: fallbackMyBf,
+        oppBf: fallbackOppBf,
+        wentFirst: fallbackSeat,
         result: String(match.result ?? "").trim(),
         myPoints: 0,
         oppPoints: 0,
@@ -194,29 +269,37 @@ function normalizeSnapshot(value: unknown): DeckSnapshot | null {
 
 export function normalizeMatch(id: string, raw: Record<string, unknown>): CommunityMatch {
   const uid = String(raw.uid ?? "").trim();
-  const username = String(raw.username ?? "").trim() || `Player#${uid.slice(0, 6)}`;
+  const username = bestDisplayName(raw, uid);
   return {
     id,
     uid,
     username,
-    date: String(raw.date ?? "").trim(),
-    result: String(raw.result ?? "").trim(),
-    myChampion: String(raw.my_champion ?? "").trim(),
-    oppChampion: String(raw.opp_champion ?? "").trim(),
-    oppName: String(raw.opp_name ?? "").trim(),
-    fmt: String(raw.fmt ?? "Bo1").trim() || "Bo1",
-    score: String(raw.score ?? "").trim(),
-    wentFirst: String(raw.went_first ?? "").trim(),
-    myBattlefield: String(raw.my_battlefield ?? "").trim(),
-    oppBattlefield: String(raw.opp_battlefield ?? "").trim(),
-    flags: String(raw.flags ?? "").trim(),
-    games: normalizeGames(raw.games_json, raw),
-    deckName: String(raw.my_deck_name ?? "").trim(),
-    deckSourceUrl: String(raw.my_deck_source_url ?? "").trim(),
-    deckSourceKey: String(raw.my_deck_source_key ?? "").trim(),
-    deckSnapshot: normalizeSnapshot(raw.my_deck_snapshot_json),
-    createdAt: Number(raw.created_at ?? Date.now()),
+    date: firstString(raw, "date"),
+    result: firstString(raw, "result"),
+    myChampion: firstString(raw, "my_champion", "myChampion"),
+    oppChampion: firstString(raw, "opp_champion", "oppChampion"),
+    oppName: firstString(raw, "opp_name", "oppName"),
+    fmt: firstString(raw, "fmt", "format") || "Bo1",
+    score: firstString(raw, "score"),
+    wentFirst: firstString(raw, "went_first", "wentFirst"),
+    myBattlefield: firstString(raw, "my_battlefield", "myBattlefield"),
+    oppBattlefield: firstString(raw, "opp_battlefield", "oppBattlefield", "opponentBattlefield"),
+    flags: firstString(raw, "flags"),
+    games: normalizeGames(raw.games_json ?? raw.games, raw),
+    deckName: cleanDeckName(firstString(raw, "my_deck_name", "deckName", "myDeckName")),
+    deckSourceUrl: cleanDeckSource(firstString(raw, "my_deck_source_url", "deckSourceUrl")),
+    deckSourceKey: cleanDeckSource(firstString(raw, "my_deck_source_key", "deckSourceKey")),
+    deckSnapshot: normalizeSnapshot(raw.my_deck_snapshot_json ?? raw.deckSnapshot),
+    createdAt: Number(raw.created_at ?? raw.createdAt ?? Date.now()),
   };
+}
+
+function repairCachedCommunityMatch(match: CommunityMatch): CommunityMatch {
+  return normalizeMatch(match.id, match as unknown as Record<string, unknown>);
+}
+
+function repairCachedCommunityMatches(matches: CommunityMatch[]): CommunityMatch[] {
+  return matches.map((match) => repairCachedCommunityMatch(match));
 }
 
 /**
@@ -447,12 +530,12 @@ async function fetchMatchesFromAggregate(): Promise<CommunityMatch[] | null> {
   // a single read after deploy, before the next cron rewrite.
   if (matchesGz) {
     const decoded = decodeMatches(matchesGz);
-    if (decoded) return decoded;
+    if (decoded) return repairCachedCommunityMatches(decoded);
   }
 
   if (matchesJson) {
     const parsed = safeJsonParse(matchesJson);
-    if (Array.isArray(parsed)) return parsed as CommunityMatch[];
+    if (Array.isArray(parsed)) return repairCachedCommunityMatches(parsed as CommunityMatch[]);
   }
 
   return null;
@@ -713,10 +796,10 @@ export async function appendMatchToAggregate(
       const raw = typeof data.matchesJson === "string" ? data.matchesJson : "";
       if (gz) {
         const decoded = decodeMatches(gz);
-        if (decoded) existing = decoded;
+        if (decoded) existing = repairCachedCommunityMatches(decoded);
       } else if (raw) {
         const parsed = safeJsonParse(raw);
-        if (Array.isArray(parsed)) existing = parsed as CommunityMatch[];
+        if (Array.isArray(parsed)) existing = repairCachedCommunityMatches(parsed as CommunityMatch[]);
       }
       privateMatchCount = toNonNegativeInteger(data.privateMatchCount) ?? 0;
       privatePlayerCount = toNonNegativeInteger(data.privatePlayerCount) ?? 0;
@@ -744,9 +827,9 @@ export async function appendMatchToAggregate(
       ? db.collection(PUBLIC_PLAYERS_COLLECTION).doc(playerDocId)
       : null;
     const playerSnap = playerRef ? await tx.get(playerRef) : null;
-    const merged = alreadyPresent
-      ? existing
-      : [match, ...existing].sort(
+    const merged = (alreadyPresent
+      ? [match, ...existing.filter((item) => item.id !== match.id)]
+      : [match, ...existing]).sort(
           (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0),
         );
 

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { type NextRequest } from "next/server";
 
-import { cleanDisplayName, ensureUserProfile, hubIdFromName, requireUser, socialJson } from "@/lib/social/server";
+import { bestProfileDisplayName, cleanDisplayName, ensureUserProfile, hubIdFromName, requireUser, saveAccountProfile, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,11 +16,16 @@ export async function POST(req: NextRequest) {
 
   const hubRef = auth.db.collection("hubs").doc(hubId);
   const memberRef = hubRef.collection("members").doc(auth.decoded.uid);
-  const profile = await ensureUserProfile(
+  const ensuredProfile = await ensureUserProfile(
     auth.decoded.uid,
     cleanDisplayName(body.displayName, auth.decoded.name ?? auth.decoded.email ?? ""),
     auth.decoded.email ?? "",
   );
+  const profile = await saveAccountProfile(auth.decoded.uid, {
+    displayName: bestProfileDisplayName(auth.decoded.uid, body.displayName, ensuredProfile.displayName, ensuredProfile.handle),
+  }, {
+    email: auth.decoded.email ?? "",
+  });
 
   try {
     await auth.db.runTransaction(async (tx) => {
@@ -44,7 +49,7 @@ export async function POST(req: NextRequest) {
         uid: auth.decoded.uid,
         role: "owner",
         handle: profile.handle,
-        displayName: cleanDisplayName(profile.displayName, profile.handle || "Owner"),
+        displayName: bestProfileDisplayName(auth.decoded.uid, profile.displayName, profile.handle),
         joinedAt: Date.now(),
         updatedAt: Date.now(),
       }, { merge: true });

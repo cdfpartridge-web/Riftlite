@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import Script from "next/script";
 
+import { PageViewTracker } from "@/components/analytics/page-view-tracker";
 import { SiteFooter } from "@/components/site/site-footer";
 import { SiteHeader } from "@/components/site/site-header";
 import { getSiteSettings } from "@/lib/sanity/content";
@@ -121,6 +122,7 @@ export default async function RootLayout({
           <main>{children}</main>
           <SiteFooter settings={settings} />
         </div>
+        <PageViewTracker />
         <Script
           async
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1277251394011398"

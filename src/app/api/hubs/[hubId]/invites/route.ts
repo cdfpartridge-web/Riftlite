@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { type NextRequest } from "next/server";
 
-import { assertHubRole, cleanDisplayName, cleanHandle, ensureUserProfile, handleLower, requireUser, socialJson } from "@/lib/social/server";
+import { assertHubRole, bestProfileDisplayName, cleanHandle, ensureUserProfile, handleLower, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,6 +19,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
     const hubData = hubSnap.data() ?? {};
     const hubName = String(hubData.name ?? hubId);
     const senderProfile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "", auth.decoded.email ?? "");
+    const senderDisplayName = bestProfileDisplayName(auth.decoded.uid, senderProfile.displayName, senderProfile.handle);
+    await repairProfileReferences({ ...senderProfile, displayName: senderDisplayName }).catch(() => undefined);
     const targetHandle = cleanHandle(body.targetHandle);
     const targetHandleLower = handleLower(targetHandle);
     let targetUid = "";
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
       createdBy: auth.decoded.uid,
       senderUid: auth.decoded.uid,
       senderHandle: senderProfile.handle,
-      senderDisplayName: cleanDisplayName(senderProfile.displayName, senderProfile.handle || "RiftLite Player"),
+      senderDisplayName,
       createdAt: now,
       expiresAt: now + INVITE_TTL_MS,
       status: "open",
@@ -71,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
         targetHandle,
         senderUid: auth.decoded.uid,
         senderHandle: senderProfile.handle,
-        senderDisplayName: cleanDisplayName(senderProfile.displayName, senderProfile.handle || "RiftLite Player"),
+        senderDisplayName,
         status: "open",
         createdAt: now,
         expiresAt: now + INVITE_TTL_MS,
