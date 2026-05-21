@@ -119,6 +119,9 @@ export async function createDiscordLfgVoiceChannel(input: CreateVoiceInput) {
 
     return {
       channelId: channel.id,
+      guildId: config.guildId,
+      channelUrl: `https://discord.com/channels/${config.guildId}/${channel.id}`,
+      appUrl: `discord://discord.com/channels/${config.guildId}/${channel.id}`,
       inviteUrl: `https://discord.gg/${invite.code}`,
       expiresAt: Date.now() + inviteTtlSeconds * 1000
     };

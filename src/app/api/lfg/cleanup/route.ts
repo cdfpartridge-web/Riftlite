@@ -38,6 +38,9 @@ export async function POST(req: NextRequest) {
     batch.set(doc.ref, {
       ...(shouldClose ? { status: "expired", closedAt: now } : {}),
       discordVoiceChannelId: "",
+      discordGuildId: "",
+      discordChannelUrl: "",
+      discordAppUrl: "",
       discordInviteUrl: "",
       discordVoiceExpiresAt: 0,
       updatedAt: now

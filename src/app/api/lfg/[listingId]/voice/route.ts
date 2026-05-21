@@ -44,6 +44,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ lis
 
     const patch = {
       discordVoiceChannelId: voice.channelId,
+      discordGuildId: voice.guildId,
+      discordChannelUrl: voice.channelUrl,
+      discordAppUrl: voice.appUrl,
       discordInviteUrl: voice.inviteUrl,
       discordVoiceExpiresAt: voice.expiresAt,
       updatedAt: now
@@ -74,6 +77,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ l
   if (channelId) await deleteDiscordVoiceChannel(channelId).catch(() => undefined);
   const patch = {
     discordVoiceChannelId: "",
+    discordGuildId: "",
+    discordChannelUrl: "",
+    discordAppUrl: "",
     discordInviteUrl: "",
     discordVoiceExpiresAt: 0,
     updatedAt: Date.now()

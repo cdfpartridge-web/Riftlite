@@ -82,6 +82,9 @@ export async function POST(req: NextRequest) {
     expiresAt: now + LFG_TTL_MS,
     closedAt: 0,
     discordVoiceChannelId: "",
+    discordGuildId: "",
+    discordChannelUrl: "",
+    discordAppUrl: "",
     discordInviteUrl: "",
     discordVoiceExpiresAt: 0
   };
@@ -101,6 +104,9 @@ export async function POST(req: NextRequest) {
       closedAt: now,
       updatedAt: now,
       discordVoiceChannelId: "",
+      discordGuildId: "",
+      discordChannelUrl: "",
+      discordAppUrl: "",
       discordInviteUrl: "",
       discordVoiceExpiresAt: 0
     }, { merge: true });

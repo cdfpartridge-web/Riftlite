@@ -26,6 +26,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ li
     closedAt: now,
     updatedAt: now,
     discordVoiceChannelId: "",
+    discordGuildId: "",
+    discordChannelUrl: "",
+    discordAppUrl: "",
     discordInviteUrl: "",
     discordVoiceExpiresAt: 0
   };

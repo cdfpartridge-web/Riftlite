@@ -29,6 +29,8 @@ type LfgListing = {
   note: string;
   expiresAt: number;
   uid: string;
+  discordChannelUrl?: string;
+  discordAppUrl?: string;
   discordInviteUrl?: string;
   discordVoiceExpiresAt?: number;
 };
@@ -177,8 +179,10 @@ export function LfgClient() {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      const payload = await response.json() as { error?: string };
+      const payload = await response.json() as { listing?: LfgListing; error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Could not create Discord voice.");
+      const channelUrl = payload.listing?.discordChannelUrl || payload.listing?.discordInviteUrl;
+      if (channelUrl) window.open(channelUrl, "_blank", "noopener,noreferrer");
       setMessage("Discord voice room ready.");
       await refreshListings(false);
     } catch (error) {
@@ -188,9 +192,11 @@ export function LfgClient() {
     }
   }
 
-  function joinVoice(url: string) {
+  function joinVoice(listing: LfgListing) {
+    const url = listing.discordChannelUrl || listing.discordInviteUrl || "";
+    if (!url) return;
     window.open(url, "_blank", "noopener,noreferrer");
-    setMessage("Opening Discord invite...");
+    setMessage(listing.discordChannelUrl ? "Opening Discord voice channel..." : "Opening Discord invite...");
   }
 
   async function copyRoomCode(code: string) {
@@ -268,7 +274,7 @@ export function LfgClient() {
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => void copyRoomCode(listing.roomCode)} size="sm">Copy {listing.roomCode}</Button>
                     {listing.discordInviteUrl ? (
-                      <Button onClick={() => joinVoice(listing.discordInviteUrl ?? "")} size="sm" variant="secondary">Join voice</Button>
+                      <Button onClick={() => joinVoice(listing)} size="sm" variant="secondary">Join voice</Button>
                     ) : null}
                     {listing.uid === user.uid && !listing.discordInviteUrl ? (
                       <Button onClick={() => void createVoice(listing)} size="sm" variant="secondary">Create voice</Button>

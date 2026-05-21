@@ -129,6 +129,9 @@ export function lfgFromDoc(id: string, data: Record<string, unknown>) {
     expiresAt,
     closedAt: Number(data.closedAt ?? 0),
     discordVoiceChannelId: exposeDiscordVoice ? String(data.discordVoiceChannelId ?? "") : "",
+    discordGuildId: exposeDiscordVoice ? String(data.discordGuildId ?? "") : "",
+    discordChannelUrl: exposeDiscordVoice ? String(data.discordChannelUrl ?? "") : "",
+    discordAppUrl: exposeDiscordVoice ? String(data.discordAppUrl ?? "") : "",
     discordInviteUrl: exposeDiscordVoice ? String(data.discordInviteUrl ?? "") : "",
     discordVoiceExpiresAt: exposeDiscordVoice ? discordVoiceExpiresAt : 0
   };
