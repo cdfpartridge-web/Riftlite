@@ -77,19 +77,34 @@ async function discordRequest<T>(config: DiscordConfig, path: string, init: Requ
   return await response.json() as T;
 }
 
-export async function createDiscordLfgVoiceChannel(input: CreateVoiceInput) {
-  const config = getDiscordConfig();
-  const inviteTtlSeconds = Math.max(60, Math.ceil((input.expiresAt - Date.now()) / 1000));
+function isInvalidParentCategoryError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes("CHANNEL_PARENT_INVALID_TYPE") || error.message.includes("Not a category");
+}
 
-  const channel = await discordRequest<DiscordChannel>(config, `/guilds/${config.guildId}/channels`, {
+async function createVoiceChannel(config: DiscordConfig, input: CreateVoiceInput, withCategory: boolean) {
+  return await discordRequest<DiscordChannel>(config, `/guilds/${config.guildId}/channels`, {
     method: "POST",
     body: JSON.stringify({
       name: safeChannelName(input),
       type: 2,
-      parent_id: config.categoryId,
+      ...(withCategory ? { parent_id: config.categoryId } : {}),
       user_limit: input.format === "Bo3" ? 4 : 2
     })
   });
+}
+
+export async function createDiscordLfgVoiceChannel(input: CreateVoiceInput) {
+  const config = getDiscordConfig();
+  const inviteTtlSeconds = Math.max(60, Math.ceil((input.expiresAt - Date.now()) / 1000));
+
+  let channel: DiscordChannel;
+  try {
+    channel = await createVoiceChannel(config, input, true);
+  } catch (error) {
+    if (!isInvalidParentCategoryError(error)) throw error;
+    channel = await createVoiceChannel(config, input, false);
+  }
 
   try {
     const invite = await discordRequest<DiscordInvite>(config, `/channels/${channel.id}/invites`, {
