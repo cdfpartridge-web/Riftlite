@@ -27,8 +27,12 @@ type LfgListing = {
   lookingForLegends: string[];
   allowAny: boolean;
   note: string;
+  status?: "active" | "matched" | "closed" | "expired";
   expiresAt: number;
   uid: string;
+  acceptedByDisplayName?: string;
+  acceptedByHandle?: string;
+  acceptedAt?: number;
   discordChannelUrl?: string;
   discordAppUrl?: string;
   discordInviteUrl?: string;
@@ -152,6 +156,9 @@ export function LfgClient() {
   }
 
   async function closeListing(id: string) {
+    if (!window.confirm("Are you sure? This will close the LFG post and any Discord voice call created for it.")) {
+      return;
+    }
     setBusy(true);
     try {
       const token = await getToken();
@@ -165,6 +172,31 @@ export function LfgClient() {
       await refreshListings(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not close listing.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function acceptListing(listing: LfgListing) {
+    setBusy(true);
+    setMessage("Accepting listing...");
+    try {
+      const token = await getToken();
+      const response = await fetch(`/api/lfg/${encodeURIComponent(listing.id)}/accept`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json() as { listing?: LfgListing; error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Could not accept listing.");
+      await navigator.clipboard.writeText(listing.roomCode);
+      const accepted = payload.listing ?? listing;
+      if (accepted.discordChannelUrl || accepted.discordInviteUrl) {
+        joinVoice(accepted);
+      }
+      setMessage(`Accepted ${listing.displayName}'s room. Copied ${listing.roomCode}.`);
+      await refreshListings(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not accept listing.");
     } finally {
       setBusy(false);
     }
@@ -263,7 +295,21 @@ export function LfgClient() {
           <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">Sign in to view active room codes.</p>
         ) : listings.length ? (
           <div className="grid gap-3">
-            {listings.map((listing) => (
+            {listings.filter((listing) => listing.status === "matched" && listing.uid === user.uid).map((listing) => (
+              <div className="rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4" key={`accepted-${listing.id}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="font-display text-lg font-semibold text-white">Listing accepted</div>
+                    <p className="text-sm text-slate-300">{listing.acceptedByDisplayName || listing.acceptedByHandle || "A RiftLite player"} accepted your {listing.myLegend} {listing.format} room.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {listing.discordInviteUrl ? <Button onClick={() => joinVoice(listing)} size="sm" variant="secondary">Join voice</Button> : null}
+                    <Button onClick={() => void closeListing(listing.id)} size="sm" variant="secondary">Dismiss</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {listings.filter((listing) => (listing.status ?? "active") === "active").map((listing) => (
               <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/8 p-4" key={listing.id}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -272,8 +318,12 @@ export function LfgClient() {
                     {listing.note ? <p className="mt-2 text-sm text-slate-300">{listing.note}</p> : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button onClick={() => void copyRoomCode(listing.roomCode)} size="sm">Copy {listing.roomCode}</Button>
-                    {listing.discordInviteUrl ? (
+                    {listing.uid === user.uid ? (
+                      <Button onClick={() => void copyRoomCode(listing.roomCode)} size="sm">Copy {listing.roomCode}</Button>
+                    ) : (
+                      <Button onClick={() => void acceptListing(listing)} size="sm">Accept</Button>
+                    )}
+                    {listing.uid !== user.uid && listing.discordInviteUrl ? (
                       <Button onClick={() => joinVoice(listing)} size="sm" variant="secondary">Join voice</Button>
                     ) : null}
                     {listing.uid === user.uid && !listing.discordInviteUrl ? (

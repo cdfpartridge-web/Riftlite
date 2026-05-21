@@ -49,6 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ lis
       discordAppUrl: voice.appUrl,
       discordInviteUrl: voice.inviteUrl,
       discordVoiceExpiresAt: voice.expiresAt,
+      discordVoiceCreatedAt: now,
       updatedAt: now
     };
     await ref.set(patch, { merge: true });
@@ -82,6 +83,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ l
     discordAppUrl: "",
     discordInviteUrl: "",
     discordVoiceExpiresAt: 0,
+    discordVoiceCreatedAt: 0,
     updatedAt: Date.now()
   };
   await ref.set(patch, { merge: true });

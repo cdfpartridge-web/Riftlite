@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 
 import { deleteDiscordVoiceChannel } from "@/lib/discord-lfg";
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
-import { socialJson } from "@/lib/social-hub";
+import { LFG_IDLE_VOICE_MS, socialJson } from "@/lib/social-hub";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   if (!db) return socialJson({ error: "Firebase admin is not configured." }, 500);
   const now = Date.now();
   const snap = await db.collection("lfgListings")
-    .where("status", "==", "active")
+    .where("status", "in", ["active", "matched"])
     .limit(200)
     .get();
 
@@ -29,9 +29,12 @@ export async function POST(req: NextRequest) {
     const data = doc.data();
     const expiresAt = Number(data.expiresAt ?? 0);
     const voiceExpiresAt = Number(data.discordVoiceExpiresAt ?? 0);
+    const acceptedAt = Number(data.acceptedAt ?? 0);
+    const voiceCreatedAt = Number(data.discordVoiceCreatedAt ?? 0);
     const shouldClose = expiresAt > 0 && expiresAt <= now;
     const shouldClearVoice = voiceExpiresAt > 0 && voiceExpiresAt <= now;
-    if (!shouldClose && !shouldClearVoice) continue;
+    const shouldClearIdleVoice = Boolean(data.discordVoiceChannelId) && !acceptedAt && voiceCreatedAt > 0 && voiceCreatedAt + LFG_IDLE_VOICE_MS <= now;
+    if (!shouldClose && !shouldClearVoice && !shouldClearIdleVoice) continue;
 
     const channelId = String(data.discordVoiceChannelId ?? "");
     if (channelId) channelIds.push(channelId);
@@ -43,6 +46,7 @@ export async function POST(req: NextRequest) {
       discordAppUrl: "",
       discordInviteUrl: "",
       discordVoiceExpiresAt: 0,
+      discordVoiceCreatedAt: 0,
       updatedAt: now
     }, { merge: true });
     closed += shouldClose ? 1 : 0;

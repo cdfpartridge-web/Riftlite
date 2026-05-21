@@ -20,6 +20,7 @@ import {
 export { socialJson };
 
 export const LFG_TTL_MS = 15 * 60 * 1000;
+export const LFG_IDLE_VOICE_MS = 3 * 60 * 1000;
 export const TEAM_MESSAGE_LIMIT = 40;
 
 type RequireUserSuccess = Extract<Awaited<ReturnType<typeof requireUser>>, { db: unknown }>;
@@ -111,7 +112,7 @@ export function lfgFromDoc(id: string, data: Record<string, unknown>) {
   const expiresAt = Number(data.expiresAt ?? 0);
   const resolvedStatus = status === "active" && expiresAt > 0 && expiresAt <= now ? "expired" : status;
   const discordVoiceExpiresAt = Number(data.discordVoiceExpiresAt ?? 0);
-  const exposeDiscordVoice = resolvedStatus === "active" && discordVoiceExpiresAt > now;
+  const exposeDiscordVoice = (resolvedStatus === "active" || resolvedStatus === "matched") && discordVoiceExpiresAt > now;
   return {
     id,
     uid: String(data.uid ?? ""),
@@ -125,6 +126,10 @@ export function lfgFromDoc(id: string, data: Record<string, unknown>) {
     allowAny: Boolean(data.allowAny),
     note: String(data.note ?? ""),
     status: resolvedStatus,
+    acceptedByUid: String(data.acceptedByUid ?? ""),
+    acceptedByHandle: String(data.acceptedByHandle ?? ""),
+    acceptedByDisplayName: cleanDisplayName(data.acceptedByDisplayName, String(data.acceptedByHandle ?? ""), String(data.acceptedByUid ?? "")),
+    acceptedAt: Number(data.acceptedAt ?? 0),
     createdAt: Number(data.createdAt ?? 0),
     expiresAt,
     closedAt: Number(data.closedAt ?? 0),
@@ -133,7 +138,8 @@ export function lfgFromDoc(id: string, data: Record<string, unknown>) {
     discordChannelUrl: exposeDiscordVoice ? String(data.discordChannelUrl ?? "") : "",
     discordAppUrl: exposeDiscordVoice ? String(data.discordAppUrl ?? "") : "",
     discordInviteUrl: exposeDiscordVoice ? String(data.discordInviteUrl ?? "") : "",
-    discordVoiceExpiresAt: exposeDiscordVoice ? discordVoiceExpiresAt : 0
+    discordVoiceExpiresAt: exposeDiscordVoice ? discordVoiceExpiresAt : 0,
+    discordVoiceCreatedAt: Number(data.discordVoiceCreatedAt ?? 0)
   };
 }
 

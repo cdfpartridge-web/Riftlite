@@ -30,7 +30,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ li
     discordChannelUrl: "",
     discordAppUrl: "",
     discordInviteUrl: "",
-    discordVoiceExpiresAt: 0
+    discordVoiceExpiresAt: 0,
+    discordVoiceCreatedAt: 0
   };
   await ref.set(patch, { merge: true });
   return socialJson({ ok: true, listing: { ...listing, ...patch } });

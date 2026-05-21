@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 
 import { deleteDiscordVoiceChannel } from "@/lib/discord-lfg";
 import {
+  LFG_IDLE_VOICE_MS,
   LFG_TTL_MS,
   cleanLegendList,
   cleanLongText,
@@ -28,14 +29,65 @@ export async function GET(req: NextRequest) {
     .limit(Math.max(limit, 100))
     .get();
 
-  const listings = snap.docs
-    .map((doc) => lfgFromDoc(doc.id, doc.data()))
+  const staleVoiceDocs = snap.docs.filter((doc) => {
+    const data = doc.data();
+    const channelId = String(data.discordVoiceChannelId ?? "");
+    const acceptedAt = Number(data.acceptedAt ?? 0);
+    const voiceCreatedAt = Number(data.discordVoiceCreatedAt ?? 0);
+    return Boolean(channelId) && !acceptedAt && voiceCreatedAt > 0 && voiceCreatedAt + LFG_IDLE_VOICE_MS <= now;
+  });
+  if (staleVoiceDocs.length) {
+    const batch = auth.db.batch();
+    for (const doc of staleVoiceDocs) {
+      batch.set(doc.ref, {
+        discordVoiceChannelId: "",
+        discordGuildId: "",
+        discordChannelUrl: "",
+        discordAppUrl: "",
+        discordInviteUrl: "",
+        discordVoiceExpiresAt: 0,
+        updatedAt: now
+      }, { merge: true });
+    }
+    await batch.commit();
+    await Promise.allSettled(staleVoiceDocs.map((doc) => deleteDiscordVoiceChannel(String(doc.data().discordVoiceChannelId ?? ""))));
+  }
+  const staleVoiceIds = new Set(staleVoiceDocs.map((doc) => doc.id));
+
+  const activeListings = snap.docs
+    .map((doc) => {
+      const data = doc.data();
+      return lfgFromDoc(doc.id, staleVoiceIds.has(doc.id) ? {
+        ...data,
+        discordVoiceChannelId: "",
+        discordGuildId: "",
+        discordChannelUrl: "",
+        discordAppUrl: "",
+        discordInviteUrl: "",
+        discordVoiceExpiresAt: 0,
+        discordVoiceCreatedAt: 0
+      } : data);
+    })
     .filter((listing) => listing.status === "active" && listing.expiresAt > now)
     .filter((listing) => includeMine || listing.uid !== auth.decoded.uid)
     .sort((left, right) => right.expiresAt - left.expiresAt)
     .slice(0, limit);
 
-  return socialJson({ ok: true, listings, now });
+  let ownMatchedListings: ReturnType<typeof lfgFromDoc>[] = [];
+  if (includeMine) {
+    const matchedSnap = await auth.db
+      .collection("lfgListings")
+      .where("uid", "==", auth.decoded.uid)
+      .where("status", "==", "matched")
+      .limit(20)
+      .get();
+    ownMatchedListings = matchedSnap.docs
+      .map((doc) => lfgFromDoc(doc.id, doc.data()))
+      .filter((listing) => listing.status === "matched" && listing.expiresAt > now)
+      .sort((left, right) => right.acceptedAt - left.acceptedAt);
+  }
+
+  return socialJson({ ok: true, listings: [...ownMatchedListings, ...activeListings], now });
 }
 
 export async function POST(req: NextRequest) {
@@ -78,6 +130,10 @@ export async function POST(req: NextRequest) {
     allowAny,
     note,
     status: "active",
+    acceptedByUid: "",
+    acceptedByHandle: "",
+    acceptedByDisplayName: "",
+    acceptedAt: 0,
     createdAt: now,
     expiresAt: now + LFG_TTL_MS,
     closedAt: 0,
@@ -86,7 +142,8 @@ export async function POST(req: NextRequest) {
     discordChannelUrl: "",
     discordAppUrl: "",
     discordInviteUrl: "",
-    discordVoiceExpiresAt: 0
+    discordVoiceExpiresAt: 0,
+    discordVoiceCreatedAt: 0
   };
 
   const batch = auth.db.batch();
@@ -108,7 +165,8 @@ export async function POST(req: NextRequest) {
       discordChannelUrl: "",
       discordAppUrl: "",
       discordInviteUrl: "",
-      discordVoiceExpiresAt: 0
+      discordVoiceExpiresAt: 0,
+      discordVoiceCreatedAt: 0
     }, { merge: true });
   }
   batch.set(auth.db.collection("lfgListings").doc(id), listing);
