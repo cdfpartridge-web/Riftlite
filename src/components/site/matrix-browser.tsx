@@ -23,6 +23,13 @@ function playerHref(username: string) {
   return `/community/players/${encodeURIComponent(username)}`;
 }
 
+function matrixLegendLabel(legend: string) {
+  if (legend === "Master Yi, Wuju Master") return "Yi Master";
+  if (legend === "Master Yi, Wuju Bladesman") return "Yi Bladesman";
+  if (legend === "Master Yi") return "Master Yi";
+  return legend.split(",")[0]?.trim() || legend;
+}
+
 type MatrixBrowserProps = {
   matrix: MatrixView;
   matches: CommunityMatch[];
@@ -572,6 +579,36 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
     () => (selected ? matchupMatches(matches, selected) : []),
     [selected, matches],
   );
+  const rowTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const cell of matrix.cells) {
+      if (cell.totalGames > 0) {
+        totals.set(cell.myLegend, (totals.get(cell.myLegend) ?? 0) + cell.totalGames);
+      }
+    }
+    return totals;
+  }, [matrix.cells]);
+  const matrixReadyTotal = useMemo(
+    () => matrix.cells.reduce((sum, cell) => sum + cell.totalGames, 0),
+    [matrix.cells],
+  );
+  const dateSpan = useMemo(() => {
+    if (matrix.sourceFirstCreatedAt && matrix.sourceLastCreatedAt) {
+      return `${formatDate(new Date(matrix.sourceFirstCreatedAt).toISOString())} to ${formatDate(new Date(matrix.sourceLastCreatedAt).toISOString())}`;
+    }
+    const times = matches
+      .map((match) => Number(match.createdAt ?? 0))
+      .filter((time) => Number.isFinite(time) && time > 0)
+      .map((time) => (time < 10_000_000_000 ? time * 1000 : time));
+    if (!times.length) return "";
+    const min = Math.min(...times);
+    const max = Math.max(...times);
+    if (Number.isNaN(min) || Number.isNaN(max)) return "";
+    return `${formatDate(new Date(min).toISOString())} to ${formatDate(new Date(max).toISOString())}`;
+  }, [matches, matrix.sourceFirstCreatedAt, matrix.sourceLastCreatedAt]);
+  const sourceMatchCount = matrix.sourceMatchCount ?? matches.length;
+  const detailMatchCount = matrix.detailMatchCount ?? matches.length;
+  const hasPartialDrilldown = detailMatchCount < sourceMatchCount;
 
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
 
@@ -584,8 +621,20 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
   return (
     <div className="space-y-6">
       <Card className="min-w-0 overflow-hidden p-5">
-        <div className="mb-4 text-xs uppercase tracking-[0.2em] text-slate-500">
-          Click any cell to inspect the matchup
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+              Click any cell to inspect the matchup
+            </div>
+            <div className="mt-1 text-sm text-slate-400">
+              {matrixReadyTotal.toLocaleString()} matrix-ready matches from{" "}
+              {sourceMatchCount.toLocaleString()} public matches in this view
+              {hasPartialDrilldown
+                ? ` (latest ${detailMatchCount.toLocaleString()} detailed rows for drilldown)`
+                : ""}
+              {dateSpan ? ` · ${dateSpan}` : ""}
+            </div>
+          </div>
         </div>
         <div
           className="overflow-auto"
@@ -629,8 +678,13 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
                       href={legendHref(rowLegend)}
                     >
                       <LegendPortrait legend={rowLegend} size={34} />
-                      <span className="max-w-[100px] truncate text-xs font-medium text-slate-300">
-                        {rowLegend.split(" ")[0]}
+                      <span className="flex min-w-0 flex-col">
+                        <span className="max-w-[96px] truncate text-xs font-medium text-slate-300">
+                          {matrixLegendLabel(rowLegend)}
+                        </span>
+                        <span className="text-[10px] font-semibold text-cyan-200">
+                          {(rowTotals.get(rowLegend) ?? 0).toLocaleString()} {(rowTotals.get(rowLegend) ?? 0) === 1 ? "match" : "matches"}
+                        </span>
                       </span>
                     </Link>
                   </td>

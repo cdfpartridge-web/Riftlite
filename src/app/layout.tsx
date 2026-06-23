@@ -87,7 +87,7 @@ export default async function RootLayout({
       "@id": `${SITE_URL}/#software`,
       name: SITE_NAME,
       applicationCategory: "GameApplication",
-      operatingSystem: "Windows",
+      operatingSystem: ["Windows", "macOS"],
       url: absoluteUrl("/download"),
       downloadUrl,
       image: absoluteUrl("/screenshots/replay-viewer.webp"),

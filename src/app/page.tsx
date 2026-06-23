@@ -71,7 +71,7 @@ export default async function HomePage() {
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500">
             <span className="inline-flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              Windows · installs in under a minute
+              Windows stable + Mac beta
             </span>
             <span>No account required</span>
             <span>{overview.totalMatches.toLocaleString()} lifetime matches tracked</span>
@@ -112,7 +112,7 @@ export default async function HomePage() {
 
       {/* Stat cards — social proof */}
       <FadeUp className="grid gap-4 md:grid-cols-4">
-        <StatCard label="Matches tracked" value={overview.totalMatches.toLocaleString()} />
+        <StatCard label="Lifetime matches tracked" value={overview.totalMatches.toLocaleString()} />
         <StatCard label={playerStatLabel} value={overview.totalPlayers.toLocaleString()} />
         <StatCard label="Top Legend" value={overview.topLegend?.legend ?? "—"} />
         <StatCard

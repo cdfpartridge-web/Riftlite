@@ -6,7 +6,12 @@ import { BATTLEFIELD_ALIASES, BATTLEFIELDS, LEGEND_ALIASES, LEGENDS } from "@/li
 describe("canonical choices", () => {
   it("normalizes legends without allowing unknown values", () => {
     expect(canonicalChoice("kaisa", LEGENDS, LEGEND_ALIASES)).toBe("Kai'Sa");
-    expect(canonicalChoice("Master Yi", LEGENDS, LEGEND_ALIASES)).toBe("Master Yi (Wuju Bladesman)");
+    expect(canonicalChoice("Master Yi", LEGENDS, LEGEND_ALIASES)).toBe("Master Yi");
+    expect(canonicalChoice("Master Yi, Wuju Bladesman", LEGENDS, LEGEND_ALIASES)).toBe("Master Yi, Wuju Bladesman");
+    expect(canonicalChoice("Master Yi, Wuju Master", LEGENDS, LEGEND_ALIASES)).toBe("Master Yi, Wuju Master");
+    expect(canonicalChoice("Master Yi, Wuji Master", LEGENDS, LEGEND_ALIASES)).toBe("Master Yi, Wuju Master");
+    expect(canonicalChoice("Mechanized Menace", LEGENDS, LEGEND_ALIASES)).toBe("Rumble");
+    expect(canonicalChoice("Victor", LEGENDS, LEGEND_ALIASES)).toBe("Viktor");
     expect(hasInvalidChoice("Totally Not A Legend", LEGENDS, LEGEND_ALIASES)).toBe(true);
   });
 

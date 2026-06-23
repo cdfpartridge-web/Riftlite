@@ -8,8 +8,11 @@ import {
 } from "@/lib/community/aggregate";
 import { applyCommunityFilters, paginate } from "@/lib/community/filters";
 import {
+  filterCommunityMatchesByDays,
   getCommunityAggregateCounts,
   getCommunityMatchWindow,
+  getCommunityRangeMatchWindow,
+  getCommunityRangeStats,
 } from "@/lib/community/data";
 import {
   buildDeckComparison,
@@ -20,7 +23,12 @@ import {
 import type { CommunityFilterParams } from "@/lib/types";
 
 export async function getFilteredCommunityMatches(filters: CommunityFilterParams) {
-  const matches = await getCommunityMatchWindow();
+  const matches =
+    filters.range === "1d"
+      ? filterCommunityMatchesByDays(await getCommunityMatchWindow(), 1)
+      : filters.range === "7d" || filters.range === "14d" || filters.range === "30d"
+        ? await getCommunityRangeMatchWindow(Number.parseInt(filters.range, 10) as 7 | 14 | 30)
+        : await getCommunityMatchWindow();
   return applyCommunityFilters(matches, filters);
 }
 
@@ -33,11 +41,35 @@ export async function getCommunityOverview() {
 }
 
 export async function getLegendMeta(filters: CommunityFilterParams) {
+  const rangeStats = await getUnfilteredRangeStats(filters);
+  if (rangeStats) {
+    return rangeStats.legendMeta;
+  }
   return buildLegendMeta(await getFilteredCommunityMatches(filters));
 }
 
 export async function getMatrix(filters: CommunityFilterParams) {
+  const rangeStats = await getUnfilteredRangeStats(filters);
+  if (rangeStats) {
+    return rangeStats.matrix;
+  }
   return buildMatrix(await getFilteredCommunityMatches(filters));
+}
+
+async function getUnfilteredRangeStats(filters: CommunityFilterParams) {
+  const isRange =
+    filters.range === "7d" || filters.range === "14d" || filters.range === "30d";
+  if (
+    !isRange ||
+    filters.legend ||
+    filters.result ||
+    filters.seat ||
+    filters.battlefield ||
+    filters.flags
+  ) {
+    return null;
+  }
+  return getCommunityRangeStats(Number.parseInt(filters.range, 10) as 7 | 14 | 30);
 }
 
 export async function getPaginatedMatches(filters: CommunityFilterParams) {

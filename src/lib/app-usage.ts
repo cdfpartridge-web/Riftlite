@@ -10,6 +10,7 @@ const USAGE_COLLECTION = "app_usage_daily";
 const INSTALL_COLLECTION = "app_installs";
 const DEFAULT_REPORT_DAYS = 30;
 const MAX_REPORT_DAYS = 120;
+const HEARTBEAT_WRITE_THROTTLE_MS = 4 * 60 * 60 * 1000;
 
 export type AppUsageInput = {
   installId: string;
@@ -115,6 +116,19 @@ function normalizeActivePlatforms(value: string[] | undefined): string[] {
     .slice(0, 6);
 }
 
+function timestampToMillis(value: unknown): number {
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  if (typeof value === "object") {
+    const candidate = value as { toMillis?: () => number };
+    if (typeof candidate.toMillis === "function") {
+      return candidate.toMillis();
+    }
+  }
+  return 0;
+}
+
 export function normalizeAppUsageHeartbeat(input: AppUsageInput): AppUsageHeartbeat {
   const installId = (input.installId ?? "").trim();
   if (installId.length < 16 || installId.length > 160) {
@@ -146,10 +160,13 @@ export async function recordAppUsageHeartbeat(input: AppUsageInput): Promise<App
   const installRef = db.collection(INSTALL_COLLECTION).doc(heartbeat.installHash);
 
   await db.runTransaction(async (transaction) => {
-    const [dailyInstallSnap, installSnap] = await Promise.all([
-      transaction.get(dailyInstallRef),
-      transaction.get(installRef),
-    ]);
+    const dailyInstallSnap = await transaction.get(dailyInstallRef);
+    const lastSeenAt = timestampToMillis(dailyInstallSnap.data()?.lastSeenAt);
+    if (dailyInstallSnap.exists && lastSeenAt > 0 && Date.now() - lastSeenAt < HEARTBEAT_WRITE_THROTTLE_MS) {
+      return;
+    }
+
+    const installSnap = await transaction.get(installRef);
     const firstSeenToday = !dailyInstallSnap.exists;
     const newInstall = !installSnap.exists;
     const featureIds = [

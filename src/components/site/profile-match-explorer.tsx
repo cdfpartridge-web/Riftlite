@@ -15,6 +15,12 @@ type ProfileMatchExplorerProps = {
   displayName: string;
   showStats: boolean;
   showDecks: boolean;
+  explorerTitle?: string;
+  explorerDescription?: string;
+  emptyDescription?: string;
+  recentTitle?: string;
+  sourceLabel?: string;
+  matchContextLabel?: string;
 };
 
 type Filters = {
@@ -376,9 +382,13 @@ function DeckSnapshotPanel({
 function MatchDetail({
   match,
   showDecks,
+  sourceLabel,
+  matchContextLabel,
 }: {
   match: CommunityMatch;
   showDecks: boolean;
+  sourceLabel: string;
+  matchContextLabel: string;
 }) {
   const games = gameRows(match);
   return (
@@ -395,7 +405,7 @@ function MatchDetail({
               {match.myChampion || "Unknown legend"} vs {match.oppChampion || "Unknown opponent"}
             </CardTitle>
             <CardDescription>
-              {compactDateTime(match.date)} - {match.fmt || "Unknown format"} - community-submitted match
+              {compactDateTime(match.date)} - {match.fmt || "Unknown format"} - {matchContextLabel}
             </CardDescription>
           </div>
           <div className="flex flex-col items-end gap-2 text-right">
@@ -414,7 +424,7 @@ function MatchDetail({
           <InfoBox label="My battlefield" value={match.myBattlefield || games[0]?.myBf || "Unknown"} />
           <InfoBox label="Opponent battlefield" value={match.oppBattlefield || games[0]?.oppBf || "Unknown"} />
           <InfoBox label="Format" value={match.fmt || "Unknown"} />
-          <InfoBox label="Source" value="Public profile" />
+          <InfoBox label="Source" value={sourceLabel} />
         </div>
 
         <div>
@@ -570,6 +580,12 @@ export function ProfileMatchExplorer({
   displayName,
   showStats,
   showDecks,
+  explorerTitle = "Public match explorer",
+  explorerDescription = "Filter the cached public match window, then click a row to inspect games, battlefields, and deck snapshots.",
+  emptyDescription,
+  recentTitle = "Recent public matches",
+  sourceLabel = "Public profile",
+  matchContextLabel = "community-submitted match",
 }: ProfileMatchExplorerProps) {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selectedId, setSelectedId] = useState(matches[0]?.id ?? "");
@@ -647,7 +663,7 @@ export function ProfileMatchExplorer({
       <Card>
         <CardTitle>No public matches visible</CardTitle>
         <CardDescription className="mt-2">
-          {displayName || handle} has a public RiftLite profile, but no opted-in public matches are available yet.
+          {emptyDescription ?? `${displayName || handle} has a public RiftLite profile, but no opted-in public matches are available yet.`}
         </CardDescription>
       </Card>
     );
@@ -658,9 +674,9 @@ export function ProfileMatchExplorer({
       <Card className="space-y-4 p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <CardTitle className="text-lg">Public match explorer</CardTitle>
+            <CardTitle className="text-lg">{explorerTitle}</CardTitle>
             <CardDescription className="mt-1">
-              Filter the cached public match window, then click a row to inspect games, battlefields, and deck snapshots.
+              {explorerDescription}
             </CardDescription>
           </div>
           <Button onClick={() => setFilters(EMPTY_FILTERS)} size="sm" variant="secondary">
@@ -708,7 +724,7 @@ export function ProfileMatchExplorer({
         <Card className="overflow-hidden p-0">
           <div className="border-b border-white/8 px-5 py-4">
             <CardTitle className="text-sm uppercase tracking-[0.18em] text-slate-500">
-              Recent public matches ({filtered.length})
+              {recentTitle} ({filtered.length})
             </CardTitle>
           </div>
           {filtered.length ? (
@@ -753,7 +769,7 @@ export function ProfileMatchExplorer({
 
         <div id="profile-match-detail" className="min-w-0">
           {selected ? (
-            <MatchDetail match={selected} showDecks={showDecks} />
+            <MatchDetail match={selected} showDecks={showDecks} sourceLabel={sourceLabel} matchContextLabel={matchContextLabel} />
           ) : (
             <Card>
               <CardDescription>No match selected.</CardDescription>

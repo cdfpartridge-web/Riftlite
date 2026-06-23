@@ -51,9 +51,15 @@ export type CommunityMatch = {
   deckSourceKey: string;
   deckSnapshot: DeckSnapshot | null;
   createdAt: number;
+  manualRepair?: boolean;
+  combinedFromMatchIds?: string[];
+  mergedIntoMatchId?: string;
+  superseded?: boolean;
+  supersededAt?: string;
 };
 
 export type CommunityFilterParams = {
+  range: string;
   legend: string;
   result: string;
   seat: string;
@@ -87,6 +93,11 @@ export type MatrixView = {
   rows: string[];
   columns: string[];
   cells: MatchupCell[];
+  sourceMatchCount?: number;
+  detailMatchCount?: number;
+  sourceFirstCreatedAt?: number;
+  sourceLastCreatedAt?: number;
+  sourceRangeDays?: number;
 };
 
 export type DeckGroup = {

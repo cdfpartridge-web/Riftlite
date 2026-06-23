@@ -1,0 +1,38 @@
+# Runs the short-lived Find Match voice/listing cleanup outside Vercel Cron.
+# Vercel Hobby only allows daily cron schedules, so this keeps 5-minute
+# cleanup behavior without blocking production deploys.
+
+name: Cleanup LFG listings
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: lfg-cleanup
+  cancel-in-progress: true
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Hit cleanup endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          auth_args=()
+          if [ -n "$CRON_SECRET" ]; then
+            auth_args=(-H "Authorization: Bearer $CRON_SECRET")
+          fi
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 45 \
+            -X POST \
+            "${auth_args[@]}" \
+            -w "\nHTTP %{http_code} in %{time_total}s\n" \
+            "https://riftlite.vercel.app/api/lfg/cleanup"

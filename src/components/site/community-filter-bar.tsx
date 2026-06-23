@@ -46,7 +46,24 @@ export function CommunityFilterBar({ filters }: CommunityFilterBarProps) {
 
   return (
     <Card className="rounded-[24px] p-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <label className="space-y-2 text-sm text-slate-300">
+          <span className="block text-xs uppercase tracking-[0.2em] text-slate-500">
+            Window
+          </span>
+          <select
+            className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 text-sm text-white outline-none transition focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20"
+            onChange={(event) => update("range", event.target.value)}
+            value={form.range}
+          >
+            <option value="">Latest 7,000</option>
+            <option value="1d">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="14d">Last 14 days</option>
+            <option value="30d">Last 30 days</option>
+          </select>
+        </label>
+
         <label className="space-y-2 text-sm text-slate-300">
           <span className="block text-xs uppercase tracking-[0.2em] text-slate-500">
             Legend

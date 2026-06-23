@@ -23,6 +23,9 @@ export function parseFilters(
   );
 
   return {
+    range: ["1d", "7d", "14d", "30d"].includes(String(source.range ?? ""))
+      ? String(source.range)
+      : DEFAULT_FILTERS.range,
     legend: String(source.legend ?? "").trim(),
     result: String(source.result ?? "").trim(),
     seat: String(source.seat ?? "").trim(),

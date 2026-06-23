@@ -1,4 +1,8 @@
-import { getCommunityMatchWindow } from "@/lib/community/data";
+import {
+  filterCommunityMatchesByDays,
+  getCommunityMatchWindow,
+  getCommunityRangeMatchWindow,
+} from "@/lib/community/data";
 import { communityJson } from "@/lib/community/response";
 import type { CommunityMatch, MatchGame } from "@/lib/types";
 
@@ -54,8 +58,15 @@ function toDesktopMatch(match: CommunityMatch): DesktopMatch {
   };
 }
 
-export async function GET() {
-  const matches = await getCommunityMatchWindow();
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const range = url.searchParams.get("range") ?? "";
+  const matches =
+    range === "1d"
+      ? filterCommunityMatchesByDays(await getCommunityMatchWindow(), 1)
+      : range === "7d" || range === "14d" || range === "30d"
+        ? await getCommunityRangeMatchWindow(Number.parseInt(range, 10) as 7 | 14 | 30)
+        : await getCommunityMatchWindow();
   const desktopMatches = matches.map(toDesktopMatch);
   return communityJson({
     matches: desktopMatches,

@@ -17,7 +17,8 @@
     "report:pageviews": "node scripts/page-view-report.mjs",
     "report:app-usage": "node scripts/app-usage-report.mjs",
     "report:marketing": "node scripts/marketing-report.mjs",
-    "repair:profile-names": "node scripts/repair-profile-display-names.mjs"
+    "repair:profile-names": "node scripts/repair-profile-display-names.mjs",
+    "repair:private-counters": "node scripts/backfill-private-community-counters.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
@@ -31,7 +32,7 @@
     "firebase": "^12.12.1",
     "firebase-admin": "^13.8.0",
     "lucide-react": "^1.8.0",
-    "next": "^16.2.4",
+    "next": "^16.2.7",
     "next-sanity": "^12.3.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

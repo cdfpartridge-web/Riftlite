@@ -112,4 +112,23 @@ describe("normalizeMatch", () => {
       wentFirst: "1st",
     });
   });
+
+  it("normalizes manual combine repair metadata", () => {
+    const match = normalizeMatch("m5", {
+      uid: "u5",
+      username: "BMU",
+      result: "Win",
+      manual_repair: true,
+      combined_from_match_ids: ["g1", "g2"],
+      merged_into_match_id: "bo3",
+      superseded: "true",
+      superseded_at: "2026-05-31T12:00:00.000Z",
+    });
+
+    expect(match.manualRepair).toBe(true);
+    expect(match.combinedFromMatchIds).toEqual(["g1", "g2"]);
+    expect(match.mergedIntoMatchId).toBe("bo3");
+    expect(match.superseded).toBe(true);
+    expect(match.supersededAt).toBe("2026-05-31T12:00:00.000Z");
+  });
 });

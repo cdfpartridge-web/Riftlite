@@ -12,12 +12,17 @@ import { safeHref } from "@/lib/utils";
 export const revalidate = 600;
 
 export const metadata = createPageMetadata({
-  title: "Download RiftLite for Windows",
+  title: "Download RiftLite",
   description:
-    "Download the free RiftLite desktop app for automatic Riftbound match tracking, visual replays, personal stats, community meta data, and OBS overlays.",
+    "Download the free RiftLite desktop app for automatic Riftbound match tracking, visual replays, personal stats, community meta data, and OBS overlays on Windows and Mac beta.",
   path: "/download",
   image: "/screenshots/replay-viewer.webp",
 });
+
+const MAC_ARM64_DOWNLOAD_URL =
+  "https://github.com/cdfpartridge-web/RiftLite-Desktop-Mac/releases/latest/download/RiftLiteBetaInstall-arm64.dmg";
+const MAC_X64_DOWNLOAD_URL =
+  "https://github.com/cdfpartridge-web/RiftLite-Desktop-Mac/releases/latest/download/RiftLiteBetaInstall-x64.dmg";
 
 const features = [
   "Fully automatic match tracking on TCGA and RiftAtlas",
@@ -38,7 +43,7 @@ export default async function DownloadPage() {
         eyebrow="Download"
         headingLevel={1}
         title="Get the RiftLite desktop app."
-        description="Fully automatic match tracking on TCGA and RiftAtlas, visual replays, a personal matchup matrix, and a live OBS overlay. Free, Windows, no account required."
+        description="Fully automatic match tracking on TCGA and RiftAtlas, visual replays, a personal matchup matrix, and a live OBS overlay. Free, no account required."
       />
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
@@ -61,15 +66,28 @@ export default async function DownloadPage() {
               </li>
             ))}
           </ul>
-          <div className="flex flex-wrap gap-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Button asChild size="lg">
-              <Link href={downloadHref}>Download RiftLite</Link>
+              <Link href={downloadHref}>Windows</Link>
+            </Button>
+            <Button asChild size="lg" variant="secondary">
+              <Link href={MAC_ARM64_DOWNLOAD_URL}>Mac Apple Silicon</Link>
+            </Button>
+            <Button asChild size="lg" variant="secondary">
+              <Link href={MAC_X64_DOWNLOAD_URL}>Mac Intel</Link>
             </Button>
             <Button asChild size="lg" variant="secondary">
               <Link href={SITE_PATHS.guide}>How to use it</Link>
             </Button>
           </div>
-          <div className="text-xs text-slate-500">Windows · free · no account required</div>
+          <div className="text-xs text-slate-500">
+            Windows stable | Mac beta | free | no account required
+          </div>
+          <div className="rounded-2xl border border-amber-300/15 bg-amber-300/8 p-4 text-xs leading-5 text-amber-100/90">
+            Mac builds are currently unsigned. If macOS says RiftLite is damaged
+            or blocks the in-app updater, install manually from the DMG and replace
+            the old app in Applications.
+          </div>
         </Card>
 
         <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-slate-950/60 p-4 shadow-[0_0_60px_rgba(89,167,255,0.08)]">

@@ -2,10 +2,27 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const isVercelBuild = process.env.VERCEL === "1";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost"],
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(), payment=()"
+          }
+        ]
+      }
+    ];
+  },
   images: {
     // Vercel's free tier caps image-optimisation transformations at 5k/mo.
     // Our LegendChip is rendered hundreds of times per page (every match
@@ -31,9 +48,11 @@ const nextConfig = {
       { protocol: "https", hostname: "ddragon.leagueoflegends.com" },
     ],
   },
-  turbopack: {
-    root: __dirname,
-  },
+  ...(isVercelBuild ? {} : {
+    turbopack: {
+      root: __dirname,
+    },
+  }),
 };
 
 export default nextConfig;

@@ -19,20 +19,20 @@ export const BRAND = {
   violet: "#A67CFF",
 };
 
-// Upper bound on how many matches the aggregate doc holds and the cron
-// scans from Firestore. The desktop client now expects the website to
-// return the full set (limit=all), so this is also the cap on what the
-// `/api/community/desktop` endpoint can serve.
+// Upper bound on the detailed public match window.
+// Stored in chunked aggregate docs so /api/community/desktop can serve a
+// larger window without one Firestore document becoming too large.
 //
-// Cost: cron reads this many docs every 4 hours = 6 × WINDOW per day.
-// At 2000 that's 12k Firestore reads/day, well under the Spark 50k quota.
+// Daily repair reads this many public match docs once.
+// Normal freshness comes from desktop append calls; private hub totals use
+// cached counters instead of hub-match scans.
 //
-// Doc size: matches are gzip+base64 packed before writing to Firestore
-// (see data.ts encodeMatches). Real-world ratio is ~6-8× because deck
-// lists and field names repeat heavily, so 2000 matches still fits well
-// under Firestore's 1 MB per-document cap. If we ever push toward
-// 4-5k+ we'll need to shard the aggregate across multiple docs.
-export const COMMUNITY_WINDOW_SIZE = 2000;
+// Match chunks are gzip+base64 packed before writing to Firestore.
+// (see data.ts encodeMatches). Real-world ratio is roughly 6-8x because deck
+// lists and field names repeat heavily, so 1,000-match chunks fit well
+// under Firestore's 1 MB per-document cap.
+export const COMMUNITY_WINDOW_SIZE = 7000;
+export const COMMUNITY_CHUNK_SIZE = 1000;
 export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
 export const MATCH_CACHE_MS = 60_000;
@@ -56,6 +56,7 @@ export const SITE_PATHS = {
 };
 
 export const DEFAULT_FILTERS: CommunityFilterParams = {
+  range: "",
   legend: "",
   result: "",
   seat: "",
@@ -88,8 +89,9 @@ export const LEGENDS = [
   "Lillia",
   "Lucian",
   "Lux",
-  "Master Yi (Wuju Bladesman)",
-  "Master Yi (Wuju Master)",
+  "Master Yi",
+  "Master Yi, Wuju Bladesman",
+  "Master Yi, Wuju Master",
   "Miss Fortune",
   "Ornn",
   "Poppy",
@@ -112,16 +114,21 @@ export const LEGEND_ALIASES = {
   victor: "Viktor",
   viktor: "Viktor",
   renata: "Renata Glasc",
-  masteryi: "Master Yi (Wuju Bladesman)",
-  masteryiwujubladesman: "Master Yi (Wuju Bladesman)",
-  masteryiwujumaster: "Master Yi (Wuju Master)",
-  wujubladesman: "Master Yi (Wuju Bladesman)",
-  wujumaster: "Master Yi (Wuju Master)",
+  masteryi: "Master Yi",
+  masteryiwujubladesman: "Master Yi, Wuju Bladesman",
+  masteryiwujumaster: "Master Yi, Wuju Master",
+  masteryiwujimaster: "Master Yi, Wuju Master",
+  wujubladesman: "Master Yi, Wuju Bladesman",
+  wujumaster: "Master Yi, Wuju Master",
+  wujimaster: "Master Yi, Wuju Master",
   kaisa: "Kai'Sa",
   khazix: "Kha'Zix",
   reksai: "Rek'Sai",
   leblanc: "LeBlanc",
   missfortune: "Miss Fortune",
+  mechanizedmenace: "Rumble",
+  rocketbarrage: "Rumble",
+  lilila: "Lillia",
 } as const;
 
 export const BATTLEFIELDS = [

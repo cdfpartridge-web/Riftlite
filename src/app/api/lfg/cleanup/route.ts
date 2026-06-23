@@ -7,10 +7,13 @@ import { LFG_IDLE_VOICE_MS, socialJson } from "@/lib/social-hub";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function POST(req: NextRequest) {
+async function cleanupLfg(req: NextRequest) {
   const secret = process.env.CRON_SECRET?.trim() ?? "";
   const authHeader = req.headers.get("authorization") ?? "";
-  if (!secret || authHeader !== `Bearer ${secret}`) {
+  if (!secret) {
+    return socialJson({ error: "LFG cleanup secret is not configured." }, 503);
+  }
+  if (authHeader !== `Bearer ${secret}`) {
     return socialJson({ error: "Unauthorized." }, 401);
   }
 
@@ -55,4 +58,12 @@ export async function POST(req: NextRequest) {
   await batch.commit();
   await Promise.allSettled(channelIds.map((channelId) => deleteDiscordVoiceChannel(channelId)));
   return socialJson({ ok: true, scanned: snap.size, closed, voiceDeleted: channelIds.length });
+}
+
+export async function GET(req: NextRequest) {
+  return cleanupLfg(req);
+}
+
+export async function POST(req: NextRequest) {
+  return cleanupLfg(req);
 }

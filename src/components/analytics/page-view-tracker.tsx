@@ -3,6 +3,8 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 
+const PAGE_VIEW_THROTTLE_MS = 10 * 60 * 1000;
+
 function shouldTrack(): boolean {
   if (typeof window === "undefined") return false;
   if (process.env.NEXT_PUBLIC_RIFTLITE_ANALYTICS_DISABLED === "1") return false;
@@ -10,6 +12,21 @@ function shouldTrack(): boolean {
   const host = window.location.hostname.toLowerCase();
   if (host === "localhost" || host === "127.0.0.1" || host === "::1") return false;
   return host.endsWith("riftlite.com");
+}
+
+function recentlyTracked(key: string): boolean {
+  try {
+    const storageKey = `riftlite:page-view:${key}`;
+    const now = Date.now();
+    const last = Number(window.sessionStorage.getItem(storageKey) ?? "0");
+    if (Number.isFinite(last) && now - last < PAGE_VIEW_THROTTLE_MS) {
+      return true;
+    }
+    window.sessionStorage.setItem(storageKey, String(now));
+  } catch {
+    // Analytics should never rely on browser storage being available.
+  }
+  return false;
 }
 
 export function PageViewTracker() {
@@ -21,6 +38,7 @@ export function PageViewTracker() {
 
     const key = `${pathname}|${document.title}`;
     if (lastTrackedRef.current === key) return;
+    if (recentlyTracked(key)) return;
     lastTrackedRef.current = key;
 
     const payload = JSON.stringify({

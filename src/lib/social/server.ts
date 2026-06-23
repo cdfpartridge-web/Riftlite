@@ -432,6 +432,37 @@ function firstProfileNumber(source: Record<string, unknown>, ...keys: string[]):
   return 0;
 }
 
+function firstProfileBoolean(source: Record<string, unknown>, ...keys: string[]): boolean {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === null || value === undefined || value === "") continue;
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value !== 0;
+    const text = String(value).trim().toLowerCase();
+    if (["true", "1", "yes", "y"].includes(text)) return true;
+    if (["false", "0", "no", "n"].includes(text)) return false;
+  }
+  return false;
+}
+
+function firstProfileStringArray(source: Record<string, unknown>, ...keys: string[]): string[] {
+  for (const key of keys) {
+    const value = source[key];
+    if (value === null || value === undefined || value === "") continue;
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item).trim()).filter(Boolean);
+    }
+    const text = String(value).trim();
+    if (!text) continue;
+    const parsed = text.startsWith("[") ? safeJsonParse(text) : null;
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item).trim()).filter(Boolean);
+    }
+    return text.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 function normalizeProfileGames(value: unknown, match: Record<string, unknown>): MatchGame[] {
   const parsed =
     typeof value === "string" && value
@@ -506,6 +537,11 @@ function normalizeProfileMatch(id: string, raw: Record<string, unknown>): Commun
     deckSourceKey: cleanDeckSource(raw.my_deck_source_key ?? raw.deckSourceKey),
     deckSnapshot: normalizeProfileSnapshot(raw.my_deck_snapshot_json ?? raw.deckSnapshot),
     createdAt: Number(raw.created_at ?? raw.createdAt ?? Date.now()),
+    manualRepair: firstProfileBoolean(raw, "manual_repair", "manualRepair"),
+    combinedFromMatchIds: firstProfileStringArray(raw, "combined_from_match_ids", "combinedFromMatchIds"),
+    mergedIntoMatchId: firstProfileString(raw, "merged_into_match_id", "mergedIntoMatchId"),
+    superseded: firstProfileBoolean(raw, "superseded"),
+    supersededAt: firstProfileString(raw, "superseded_at", "supersededAt"),
   };
 }
 
@@ -514,7 +550,9 @@ export function repairCachedProfileMatch(match: CommunityMatch): CommunityMatch 
 }
 
 function repairCachedProfileMatches(matches: CommunityMatch[]): CommunityMatch[] {
-  return matches.map((match) => repairCachedProfileMatch(match));
+  return matches
+    .map((match) => repairCachedProfileMatch(match))
+    .filter((match) => !match.superseded);
 }
 
 export async function appendUserPublicMatch(match: CommunityMatch) {
@@ -529,7 +567,10 @@ export async function appendUserPublicMatch(match: CommunityMatch) {
   const ref = db.collection("userAggregates").doc(match.uid);
   const snap = await ref.get();
   const existing = decodeMatches(String(snap.data()?.matchesEncoded ?? ""));
-  const matches = [match, ...existing.filter((item) => item.id !== match.id)]
+  const shouldRemove = Boolean(match.superseded || match.mergedIntoMatchId);
+  const matches = (shouldRemove
+    ? existing.filter((item) => item.id !== match.id)
+    : [match, ...existing.filter((item) => item.id !== match.id)])
     .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))
     .slice(0, USER_MATCH_WINDOW);
   const aggregate = buildUserAggregate(profile, matches);
@@ -589,7 +630,7 @@ export async function rebuildUserPublicAggregate(profileOrUid: AccountProfile | 
   }
 
   const matches = Array.from(byId.values())
-    .filter((match) => match.uid === profile.uid)
+    .filter((match) => match.uid === profile.uid && !match.superseded)
     .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))
     .slice(0, USER_MATCH_WINDOW);
   const aggregate = buildUserAggregate(profile, matches);

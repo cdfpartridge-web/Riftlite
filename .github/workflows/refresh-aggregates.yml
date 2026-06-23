@@ -1,38 +1,36 @@
-# Cron that refreshes the community aggregate Firestore doc.
+# Cron that refreshes the community aggregate Firestore docs.
 #
 # Why GitHub Actions instead of Vercel Cron: the Hobby Vercel plan only
-# allows a single daily cron. We want sub-hour freshness, so we drive
-# the refresh from here (free, 5-minute minimum cadence) and just hit
-# the secret-gated webhook on the deployed site.
+# allows a single daily cron, and keeping this job here lets us manually
+# repair/prime the aggregate without changing site code.
 #
-# What the webhook does: reads COMMUNITY_WINDOW_SIZE matches from
-# Firestore, writes a normalized blob into `aggregates/community-v1`,
-# and invalidates the `community-matches` cache tag. This reduces
-# the per-cache-miss read cost from 500 to 1, which is the whole
-# point of the exercise — Firebase Spark tier has a 50k/day read quota.
+# What the webhook does: reads COMMUNITY_WINDOW_SIZE public matches from
+# Firestore, writes the normalized latest window into chunked aggregate
+# docs, refreshes range docs, and invalidates the `community-matches`
+# cache tag. Desktop appends handle normal freshness; this is the repair
+# safety net so hot page loads do not scan raw matches.
 #
-# See: web/src/app/api/community/aggregate/refresh/route.ts
-#      web/src/lib/community/data.ts
+# See: src/app/api/community/aggregate/refresh/route.ts
+#      src/lib/community/data.ts
 
 name: Refresh community aggregate
 
 on:
   schedule:
-    # Every 4 hours. This is the SAFETY NET, not the fast path.
+    # Daily. This is the SAFETY NET, not the fast path.
     # The desktop client triggers /api/community/aggregate/append after
-    # each match save for near-instant freshness — this cron only exists
+    # each match save for near-instant freshness; this cron only exists
     # to catch edits, deletions, and anything the append path missed.
-    # 6 runs/day × 500 reads = 3,000 reads/day (~6% of the 50k Spark
-    # quota). Bumping this cadence is the knob to turn if the desktop
-    # webhook proves unreliable.
-    - cron: "0 */4 * * *"
+    # 1 run/day reads the latest 7,000 public matches. The 7/14/30 day
+    # range caches use a one-time raw backfill, then daily chunk-level
+    # merge/prune repair so they do not triple the daily read cost.
+    - cron: "17 3 * * *"
   # Manual trigger so we can prime the aggregate doc on first deploy
   # and recover quickly if something gets wedged.
   workflow_dispatch:
 
 concurrency:
-  # If a previous run is still going (shouldn't happen — the endpoint
-  # is fast — but just in case), skip this one instead of piling up.
+  # If a previous run is still going, skip this one instead of piling up.
   group: refresh-community-aggregate
   cancel-in-progress: false
 

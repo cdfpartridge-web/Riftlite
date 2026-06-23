@@ -30,6 +30,17 @@ export type LinkedSocialAuth = RequireUserSuccess & {
   displayName: string;
 };
 
+function envList(name: string): Set<string> {
+  return new Set(
+    String(process.env[name] ?? "")
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+const BUILT_IN_MODERATOR_HANDLES = new Set(["bmu", "bmucasts"]);
+
 export async function requireLinkedProfile(req: NextRequest): Promise<LinkedSocialAuth | { error: ReturnType<typeof socialJson> }> {
   const auth = await requireUser(req);
   if ("error" in auth && auth.error) return { error: auth.error };
@@ -39,6 +50,27 @@ export async function requireLinkedProfile(req: NextRequest): Promise<LinkedSoci
   }
   const displayName = bestProfileDisplayName(auth.decoded.uid, profile.displayName, profile.handle);
   return { ...auth, profile, displayName };
+}
+
+export async function isSocialModerator(auth: LinkedSocialAuth): Promise<boolean> {
+  const uid = String(auth.decoded.uid ?? "").toLowerCase();
+  const handle = String(auth.profile.handleLower || handleLower(auth.profile.handle)).toLowerCase();
+  if (envList("RIFTLITE_MODERATOR_UIDS").has(uid)) return true;
+  if (envList("RIFTLITE_MODERATOR_HANDLES").has(handle)) return true;
+  if (BUILT_IN_MODERATOR_HANDLES.has(handle)) return true;
+  const userSnap = await auth.db.collection("users").doc(auth.decoded.uid).get().catch(() => null);
+  const raw = userSnap?.data() ?? {};
+  const roles = readBodyObject(raw.roles);
+  return raw.moderator === true || raw.teamModerator === true || roles.moderator === true || roles.teamModerator === true;
+}
+
+export async function requireSocialModerator(req: NextRequest): Promise<LinkedSocialAuth | { error: ReturnType<typeof socialJson> }> {
+  const auth = await requireLinkedProfile(req);
+  if ("error" in auth) return auth;
+  if (!(await isSocialModerator(auth))) {
+    return { error: socialJson({ error: "Moderator access required." }, 403) };
+  }
+  return auth;
 }
 
 export function readBodyObject(value: unknown): Record<string, unknown> {

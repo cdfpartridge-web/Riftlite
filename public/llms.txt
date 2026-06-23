@@ -1,11 +1,11 @@
 # RiftLite
 
-> RiftLite is a free Windows desktop companion app for Riftbound. It fully automatically tracks every match you play on TCGA and RiftAtlas, saves visual replays for review, surfaces your matchup stats, and includes a streamer overlay for OBS. The website hosts download links, the community meta, matchup matrix, deck stats, guides, and news.
+> RiftLite is a free desktop companion app for Riftbound, available on Windows with a Mac beta. It fully automatically tracks every match you play on TCGA and RiftAtlas, saves visual replays for review, surfaces your matchup stats, and includes a streamer overlay for OBS. The website hosts download links, the community meta, matchup matrix, deck stats, guides, and news.
 
 ## Core pages
 
 - [Home](https://www.riftlite.com/): Overview and download CTA.
-- [Download](https://www.riftlite.com/download): Get the Windows desktop app. Free, no account required.
+- [Download](https://www.riftlite.com/download): Get the Windows app or Mac beta. Free, no account required.
 - [Guide](https://www.riftlite.com/guide): How to install and use RiftLite.
 - [News](https://www.riftlite.com/news): Patch notes and release announcements.
 - [About](https://www.riftlite.com/about): What RiftLite is and who makes it.

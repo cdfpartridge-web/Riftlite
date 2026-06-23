@@ -12,8 +12,8 @@ export const runtime = "nodejs";
  * Read the public match window from Firestore, normalize it, count the
  * lifetime public matches via Firestore aggregation, repair the
  * lifetime public player index if needed, and write the result to the
- * `aggregates/community-v1` doc. Triggered by GitHub Actions every 4
- * hours (see .github/workflows/refresh-aggregates.yml).
+ * `aggregates/community-v1` doc. Triggered daily by GitHub Actions
+ * (see .github/workflows/refresh-aggregates.yml).
  *
  * Secret-gated via COMMUNITY_AGGREGATE_SECRET. Accepts either:
  *   Authorization: Bearer <secret>

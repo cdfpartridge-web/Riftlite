@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import type { CollectionReference } from "firebase-admin/firestore";
 
+import { ProfileMatchExplorer } from "@/components/site/profile-match-explorer";
 import { TeamActionsClient } from "@/components/site/team-actions-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { normalizeMatch } from "@/lib/community/data";
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import { fullTeamFromDoc, memberFromDoc } from "@/lib/social-hub";
+import type { CommunityMatch } from "@/lib/types";
+import { formatPercent } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,7 +34,10 @@ export default async function TeamProfilePage({ params }: { params: Promise<{ sl
   const { slug } = await params;
   const payload = await loadTeam(slug);
   if (!payload) notFound();
-  const { team, members } = payload;
+  const { team, members, matches } = payload;
+  const stats = teamMatchStats(matches);
+  const topLegend = topValue(matches, (match) => match.myChampion);
+  const topDeck = topValue(matches, (match) => match.deckName || match.deckSnapshot?.title || "");
   const socials = team.socials as Record<string, unknown>;
   const links = ([
     ["Discord", team.discord],
@@ -81,6 +89,19 @@ export default async function TeamProfilePage({ params }: { params: Promise<{ sl
       <div className="grid gap-6 xl:grid-cols-[0.7fr_1.3fr]">
         <div className="space-y-6">
           <Card>
+            <CardTitle>Team hub</CardTitle>
+            <CardDescription className="mt-2">
+              Public team profile, member tools, and team-synced match data from RiftLite Desktop.
+            </CardDescription>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <TeamStat label="Synced matches" value={String(matches.length)} sub="Public team window" />
+              <TeamStat label="Win rate" value={formatPercent(stats.winRate)} sub={`${stats.wins}-${stats.losses}${stats.draws ? `, ${stats.draws} draws` : ""}`} />
+              <TeamStat label="Top legend" value={topLegend?.[0] ?? "None yet"} sub={topLegend ? `${topLegend[1]} games` : "Sync matches from the app"} />
+              <TeamStat label="Top deck" value={topDeck?.[0] ?? "No decks yet"} sub={topDeck ? `${topDeck[1]} games` : "Deck snapshots appear here"} />
+            </div>
+          </Card>
+
+          <Card>
             <CardTitle>Members</CardTitle>
             <CardDescription className="mt-2">{members.length} public members shown.</CardDescription>
             <div className="mt-5 grid gap-3">
@@ -108,11 +129,65 @@ export default async function TeamProfilePage({ params }: { params: Promise<{ sl
         </div>
         <TeamActionsClient recruitmentStatus={team.recruitmentStatus} slug={team.slug} teamId={team.id} />
       </div>
+
+      <ProfileMatchExplorer
+        matches={matches}
+        handle={team.slug}
+        displayName={team.name}
+        showStats
+        showDecks
+        explorerTitle="Team match explorer"
+        explorerDescription="Filter this team's synced match window, then click a row to inspect games, battlefields, player names, and deck snapshots."
+        emptyDescription="This public team has not synced public team matches yet. Members can send matches to teams from the RiftLite desktop Social Hub."
+        recentTitle="Recent team matches"
+        sourceLabel="Team hub"
+        matchContextLabel="team-synced match"
+      />
     </div>
   );
 }
 
-async function loadTeam(slug: string): Promise<{ team: Team; members: Member[] } | null> {
+function TeamStat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+      <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">{label}</div>
+      <div className="mt-1 truncate font-display text-2xl font-bold text-cyan-200" title={value}>
+        {value}
+      </div>
+      <div className="mt-1 text-xs text-slate-500">{sub}</div>
+    </div>
+  );
+}
+
+function teamMatchStats(matches: CommunityMatch[]) {
+  let wins = 0;
+  let losses = 0;
+  let draws = 0;
+  for (const match of matches) {
+    if (match.result === "Win") wins += 1;
+    else if (match.result === "Loss") losses += 1;
+    else if (match.result === "Draw") draws += 1;
+  }
+  const decisive = wins + losses;
+  return {
+    wins,
+    losses,
+    draws,
+    winRate: decisive ? Number(((wins / decisive) * 100).toFixed(1)) : 0,
+  };
+}
+
+function topValue(matches: CommunityMatch[], pick: (match: CommunityMatch) => string) {
+  const counts = new Map<string, number>();
+  for (const match of matches) {
+    const value = pick(match).trim();
+    if (!value) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+}
+
+async function loadTeam(slug: string): Promise<{ team: Team; members: Member[]; matches: CommunityMatch[] } | null> {
   const db = getFirestoreAdmin();
   if (!db) return null;
   const clean = slug.trim().toLowerCase();
@@ -124,8 +199,26 @@ async function loadTeam(slug: string): Promise<{ team: Team; members: Member[] }
   const team = fullTeamFromDoc(teamSnap.id, teamSnap.data() ?? {});
   if (team.visibility === "private" || team.hidden) return null;
   const memberSnap = await teamSnap.ref.collection("members").orderBy("joinedAt", "asc").limit(80).get().catch(() => null);
+  const matches = await loadTeamMatches(teamSnap.ref.collection("matches"));
   return {
     team,
     members: memberSnap?.docs.map((doc) => memberFromDoc(doc.id, doc.data())) ?? [],
+    matches,
   };
+}
+
+async function loadTeamMatches(collection: CollectionReference): Promise<CommunityMatch[]> {
+  const ordered =
+    (await collection.orderBy("created_at", "desc").limit(500).get().catch(() => null)) ??
+    (await collection.orderBy("createdAt", "desc").limit(500).get().catch(() => null)) ??
+    (await collection.limit(500).get().catch(() => null));
+
+  return ordered?.docs
+    .map((doc) =>
+      normalizeMatch(doc.id, {
+        id: doc.id,
+        ...doc.data(),
+      }),
+    )
+    .filter((match) => !match.superseded) ?? [];
 }

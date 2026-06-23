@@ -36,22 +36,6 @@ export async function GET(req: NextRequest) {
     const voiceCreatedAt = Number(data.discordVoiceCreatedAt ?? 0);
     return Boolean(channelId) && !acceptedAt && voiceCreatedAt > 0 && voiceCreatedAt + LFG_IDLE_VOICE_MS <= now;
   });
-  if (staleVoiceDocs.length) {
-    const batch = auth.db.batch();
-    for (const doc of staleVoiceDocs) {
-      batch.set(doc.ref, {
-        discordVoiceChannelId: "",
-        discordGuildId: "",
-        discordChannelUrl: "",
-        discordAppUrl: "",
-        discordInviteUrl: "",
-        discordVoiceExpiresAt: 0,
-        updatedAt: now
-      }, { merge: true });
-    }
-    await batch.commit();
-    await Promise.allSettled(staleVoiceDocs.map((doc) => deleteDiscordVoiceChannel(String(doc.data().discordVoiceChannelId ?? ""))));
-  }
   const staleVoiceIds = new Set(staleVoiceDocs.map((doc) => doc.id));
 
   const activeListings = snap.docs
@@ -74,20 +58,37 @@ export async function GET(req: NextRequest) {
     .slice(0, limit);
 
   let ownMatchedListings: ReturnType<typeof lfgFromDoc>[] = [];
+  let acceptedByMeListings: ReturnType<typeof lfgFromDoc>[] = [];
   if (includeMine) {
     const matchedSnap = await auth.db
       .collection("lfgListings")
       .where("uid", "==", auth.decoded.uid)
-      .where("status", "==", "matched")
-      .limit(20)
+      .limit(80)
       .get();
     ownMatchedListings = matchedSnap.docs
       .map((doc) => lfgFromDoc(doc.id, doc.data()))
       .filter((listing) => listing.status === "matched" && listing.expiresAt > now)
       .sort((left, right) => right.acceptedAt - left.acceptedAt);
+
+    const acceptedSnap = await auth.db
+      .collection("lfgListings")
+      .where("acceptedByUid", "==", auth.decoded.uid)
+      .limit(80)
+      .get();
+    acceptedByMeListings = acceptedSnap.docs
+      .map((doc) => lfgFromDoc(doc.id, doc.data()))
+      .filter((listing) => listing.status === "matched" && listing.expiresAt > now)
+      .sort((left, right) => right.acceptedAt - left.acceptedAt);
   }
 
-  return socialJson({ ok: true, listings: [...ownMatchedListings, ...activeListings], now });
+  const seen = new Set<string>();
+  const listings = [...ownMatchedListings, ...acceptedByMeListings, ...activeListings].filter((listing) => {
+    if (seen.has(listing.id)) return false;
+    seen.add(listing.id);
+    return true;
+  });
+
+  return socialJson({ ok: true, listings, now });
 }
 
 export async function POST(req: NextRequest) {
@@ -150,10 +151,11 @@ export async function POST(req: NextRequest) {
   const voiceChannelsToDelete: string[] = [];
   const userActive = await auth.db.collection("lfgListings")
     .where("uid", "==", auth.decoded.uid)
-    .where("status", "==", "active")
-    .limit(10)
+    .limit(40)
     .get();
   for (const doc of userActive.docs) {
+    const existing = lfgFromDoc(doc.id, doc.data());
+    if (existing.status !== "active" || existing.expiresAt <= now) continue;
     const channelId = String(doc.data().discordVoiceChannelId ?? "");
     if (channelId) voiceChannelsToDelete.push(channelId);
     batch.set(doc.ref, {

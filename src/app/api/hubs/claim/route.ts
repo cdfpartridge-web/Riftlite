@@ -11,7 +11,10 @@ export async function POST(req: NextRequest) {
   if ("error" in auth) return auth.error;
   const body = await readBody(req);
   const hubId = String(body.hubId ?? "").trim() || hubIdFromName(String(body.name ?? ""));
-  const passwordHash = String(body.passwordHash ?? "").trim() || hashPassword(String(body.password ?? ""));
+  if (String(body.passwordHash ?? "").trim()) {
+    return socialJson({ error: "Hub ownership must be claimed with the hub password, not a stored hash." }, 400);
+  }
+  const passwordHash = hashPassword(String(body.password ?? ""));
   if (!hubId || !passwordHash) return socialJson({ error: "Hub and password are required" }, 400);
 
   const hubRef = auth.db.collection("hubs").doc(hubId);
