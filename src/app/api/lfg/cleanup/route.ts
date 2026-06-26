@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function cleanupLfg(req: NextRequest) {
-  const secret = process.env.CRON_SECRET?.trim() ?? "";
+  const secret = process.env.CRON_SECRET?.trim()
+    || process.env.COMMUNITY_AGGREGATE_SECRET?.trim()
+    || "";
   const authHeader = req.headers.get("authorization") ?? "";
   if (!secret) {
     return socialJson({ error: "LFG cleanup secret is not configured." }, 503);

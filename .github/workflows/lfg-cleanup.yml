@@ -21,18 +21,30 @@ jobs:
       - name: Hit cleanup endpoint
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          COMMUNITY_AGGREGATE_SECRET: ${{ secrets.COMMUNITY_AGGREGATE_SECRET }}
         run: |
-          auth_args=()
-          if [ -n "$CRON_SECRET" ]; then
-            auth_args=(-H "Authorization: Bearer $CRON_SECRET")
+          CLEANUP_SECRET="${CRON_SECRET:-$COMMUNITY_AGGREGATE_SECRET}"
+          if [ -z "$CLEANUP_SECRET" ]; then
+            echo "::error::Set CRON_SECRET or COMMUNITY_AGGREGATE_SECRET in repo secrets for LFG cleanup"
+            exit 1
           fi
 
-          curl \
-            --fail \
+          response_file="$(mktemp)"
+          http_code="$(curl \
             --silent \
             --show-error \
             --max-time 45 \
             -X POST \
-            "${auth_args[@]}" \
-            -w "\nHTTP %{http_code} in %{time_total}s\n" \
-            "https://riftlite.vercel.app/api/lfg/cleanup"
+            -H "Authorization: Bearer $CLEANUP_SECRET" \
+            -o "$response_file" \
+            -w "%{http_code}" \
+            "https://riftlite.vercel.app/api/lfg/cleanup")"
+
+          echo "HTTP $http_code"
+          cat "$response_file"
+          echo
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::LFG cleanup endpoint returned HTTP $http_code"
+            exit 1
+          fi
