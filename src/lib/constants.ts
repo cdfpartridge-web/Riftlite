@@ -44,6 +44,7 @@ export const SITE_PATHS = {
   matrix: "/community/matrix",
   matches: "/community/matches",
   decks: "/community/decks",
+  riftreplay: "/riftreplay",
   news: "/news",
   guide: "/guide",
   scorepad: "/scorepad",

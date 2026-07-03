@@ -13,8 +13,8 @@ type HomeFeaturedVideo = {
 
 const DEFAULT_FEATURED_VIDEO: HomeFeaturedVideo = {
   title: "Featured video",
-  url: "https://www.youtube.com/watch?v=DMXztr0OOXc",
-  embedUrl: "https://www.youtube-nocookie.com/embed/DMXztr0OOXc",
+  url: "https://www.youtube.com/watch?v=4n0x_t-wprg",
+  embedUrl: "https://www.youtube-nocookie.com/embed/4n0x_t-wprg",
 };
 
 const JSON_HEADERS = {
