@@ -31,6 +31,26 @@ type RiftReplayViewerProps = {
 
 const DEFAULT_ENDPOINT = "https://riftreplay.com";
 
+type ReplayIntroKind = "matchup" | "battlefields" | "initiative" | "mulligan" | "openingHands";
+
+type ReplayPlaybackItem =
+  | {
+      id: string;
+      kind: ReplayIntroKind;
+      label: string;
+      packetType: "intro";
+      frame?: ReplayFrame;
+      event?: ReplayTimelineEvent;
+    }
+  | {
+      id: string;
+      kind: "board";
+      label: string;
+      packetType: string;
+      frame: ReplayFrame;
+      event: ReplayTimelineEvent | null;
+    };
+
 export function RiftReplayViewer({ initialReplayId = "" }: RiftReplayViewerProps) {
   const [rawText, setRawText] = useState("");
   const [replayId, setReplayId] = useState(initialReplayId);
@@ -42,27 +62,29 @@ export function RiftReplayViewer({ initialReplayId = "" }: RiftReplayViewerProps
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const selectedEvent = model?.timeline[Math.min(selectedIndex, Math.max(0, model.timeline.length - 1))] ?? null;
-  const selectedFrame = model?.frames[Math.min(selectedIndex, Math.max(0, model.frames.length - 1))] ?? null;
+  const playbackItems = useMemo(() => (model ? buildPlaybackItems(model) : []), [model]);
+  const selectedItem = playbackItems[Math.min(selectedIndex, Math.max(0, playbackItems.length - 1))] ?? null;
+  const selectedEvent = selectedItem?.event ?? null;
+  const selectedFrame = selectedItem?.frame ?? null;
   const sortedPacketCounts = useMemo(() => {
     if (!model) return [];
     return Object.entries(model.packetCounts).sort((a, b) => b[1] - a[1]);
   }, [model]);
 
   useEffect(() => {
-    if (!playing || !model?.frames.length) return;
+    if (!playing || !playbackItems.length) return;
     const id = window.setInterval(() => {
       setSelectedIndex((current) => {
-        if (current >= model.frames.length - 1) {
+        if (current >= playbackItems.length - 1) {
           window.clearInterval(id);
           setPlaying(false);
           return current;
         }
         return current + 1;
       });
-    }, 850);
+    }, selectedItem?.kind === "board" ? 850 : 1650);
     return () => window.clearInterval(id);
-  }, [model, playing]);
+  }, [playbackItems.length, playing, selectedItem?.kind]);
 
   useEffect(() => {
     if (!initialReplayId.trim()) return;
@@ -240,7 +262,9 @@ export function RiftReplayViewer({ initialReplayId = "" }: RiftReplayViewerProps
             model={model}
             onSelect={setSelectedIndex}
             packetCounts={sortedPacketCounts}
+            playbackItems={playbackItems}
             playing={playing}
+            selectedItem={selectedItem}
             selectedIndex={selectedIndex}
             setPlaying={setPlaying}
           />
@@ -306,7 +330,9 @@ function ReplayPlaybackShell({
   model,
   onSelect,
   packetCounts,
+  playbackItems,
   playing,
+  selectedItem,
   selectedIndex,
   setPlaying,
 }: {
@@ -315,13 +341,21 @@ function ReplayPlaybackShell({
   model: RiftReplayViewModel;
   onSelect: (index: number) => void;
   packetCounts: [string, number][];
+  playbackItems: ReplayPlaybackItem[];
   playing: boolean;
+  selectedItem: ReplayPlaybackItem | null;
   selectedIndex: number;
   setPlaying: (playing: boolean) => void;
 }) {
-  const maxIndex = Math.max(0, model.frames.length - 1);
+  const maxIndex = Math.max(0, playbackItems.length - 1);
+  const introCount = playbackItems.findIndex((item) => item.kind === "board");
+  const boardStartIndex = introCount < 0 ? 0 : introCount;
   const selectedCard = frame && event?.cardName ? findCardInFrame(frame, event.cardName) : undefined;
-  const fallbackCard = frame?.players.flatMap((player) => [player.legend, player.battlefield]).find(Boolean);
+  const fallbackCard =
+    selectedItem?.kind === "battlefields"
+      ? model.players.map((player) => player.battlefield).find(Boolean)
+      : frame?.players.flatMap((player) => [player.legend, player.battlefield]).find(Boolean) ??
+        model.players.flatMap((player) => [player.legend, player.battlefield]).find(Boolean);
   const focusCard = selectedCard ?? fallbackCard;
 
   function jump(delta: number) {
@@ -356,7 +390,13 @@ function ReplayPlaybackShell({
           </div>
 
           <div className="min-h-0 flex-1 bg-[radial-gradient(circle_at_50%_15%,rgba(34,211,238,0.12),transparent_30%),linear-gradient(180deg,#0a1019,#05070b)] p-2">
-            {frame ? <ReplayBoardCanvas frame={frame} /> : <NoFrameState />}
+            {selectedItem?.kind && selectedItem.kind !== "board" ? (
+              <ReplayIntroStage item={selectedItem} model={model} />
+            ) : frame ? (
+              <ReplayBoardCanvas frame={frame} />
+            ) : (
+              <NoFrameState />
+            )}
           </div>
 
           <div className="border-t border-white/[0.08] bg-slate-950/85 px-4 py-2.5">
@@ -371,10 +411,10 @@ function ReplayPlaybackShell({
                 type="range"
                 value={Math.min(selectedIndex, maxIndex)}
               />
-              <div className="w-16 font-mono text-xs text-slate-400">{model.frames.length}</div>
+              <div className="w-16 font-mono text-xs text-slate-400">{playbackItems.length}</div>
             </div>
             <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
-              <span className="truncate">{frame?.label || "No frame selected"}</span>
+              <span className="truncate">{selectedItem?.label || frame?.label || "No frame selected"}</span>
               <span className="shrink-0">{formatEventTime(frame?.ts)}</span>
             </div>
           </div>
@@ -394,13 +434,279 @@ function ReplayPlaybackShell({
               </div>
             )}
           </div>
-          <EventRail events={model.timeline} onSelect={onSelect} selectedIndex={selectedIndex} />
+          <EventRail
+            events={model.timeline}
+            onSelect={(eventIndex) => onSelect(Math.min(maxIndex, boardStartIndex + eventIndex))}
+            selectedIndex={Math.max(0, selectedIndex - boardStartIndex)}
+          />
           <div className="min-h-0 overflow-y-auto border-t border-white/[0.08] p-3">
             <InspectorPanel diagnostics={model.diagnostics} event={event} packetCounts={packetCounts} />
           </div>
         </aside>
       </div>
     </Card>
+  );
+}
+
+function buildPlaybackItems(model: RiftReplayViewModel): ReplayPlaybackItem[] {
+  const handFrame = findFrameWithZone(model.frames, ["hand"]) ?? model.frames[0];
+  const battlefieldFrame = findFrameWithBattlefields(model.frames) ?? model.frames[0];
+  const introEvents = model.timeline.filter((event) => event.packetType === "chat_append" || event.type === "chat_append");
+  const eventById = new Map(model.timeline.map((event) => [event.id, event]));
+  const introItems: ReplayPlaybackItem[] = [
+    {
+      id: "intro-matchup",
+      kind: "matchup",
+      label: "The matchup",
+      packetType: "intro",
+      frame: battlefieldFrame,
+      event: introEvents[0],
+    },
+    {
+      id: "intro-battlefields",
+      kind: "battlefields",
+      label: "Battlefields",
+      packetType: "intro",
+      frame: battlefieldFrame,
+      event: introEvents.find((event) => /battlefield|chose/i.test(`${event.label} ${event.detail ?? ""}`)),
+    },
+    {
+      id: "intro-initiative",
+      kind: "initiative",
+      label: "Initiative",
+      packetType: "intro",
+      frame: battlefieldFrame,
+      event: introEvents.find((event) => /rolled|go first|goes first|chose to go/i.test(`${event.label} ${event.detail ?? ""}`)),
+    },
+    {
+      id: "intro-mulligan",
+      kind: "mulligan",
+      label: "Mulligan",
+      packetType: "intro",
+      frame: handFrame,
+      event: introEvents.find((event) => /mulligan|redraw/i.test(`${event.label} ${event.detail ?? ""}`)),
+    },
+    {
+      id: "intro-opening-hands",
+      kind: "openingHands",
+      label: "Opening hands",
+      packetType: "intro",
+      frame: handFrame,
+      event: introEvents.find((event) => /game start|mulligans complete/i.test(`${event.label} ${event.detail ?? ""}`)),
+    },
+  ];
+
+  return [
+    ...introItems,
+    ...model.frames.map((frame) => ({
+      id: `board-${frame.id}`,
+      kind: "board" as const,
+      label: frame.label,
+      packetType: frame.packetType,
+      frame,
+      event: eventById.get(frame.eventId) ?? null,
+    })),
+  ];
+}
+
+function ReplayIntroStage({ item, model }: { item: Extract<ReplayPlaybackItem, { kind: ReplayIntroKind }>; model: RiftReplayViewModel }) {
+  const framePlayers = item.frame?.players.length ? item.frame.players : model.players;
+  const players = sortReplayPlayers(framePlayers);
+  const bottomPlayer = players[0];
+  const topPlayer = players[1] ?? players[0];
+
+  if (item.kind === "matchup") {
+    return (
+      <IntroStageFrame eyebrow="The matchup" title="The Matchup" subtitle={model.title}>
+        <div className="grid h-full place-items-center">
+          <div className="grid w-full max-w-3xl gap-10">
+            <IntroLoadout player={topPlayer} tone="opponent" />
+            <div className="text-center font-display text-4xl font-black tracking-[0.25em] text-slate-300">VS</div>
+            <IntroLoadout player={bottomPlayer} tone="local" />
+          </div>
+        </div>
+      </IntroStageFrame>
+    );
+  }
+
+  if (item.kind === "battlefields") {
+    return (
+      <IntroStageFrame eyebrow="Battlefields" title="Battlefields" subtitle="Chosen battlefield package">
+        <div className="grid h-full items-center gap-8 lg:grid-cols-2">
+          <BattlefieldIntroCard player={topPlayer} title="Opponent battlefield" tone="opponent" />
+          <BattlefieldIntroCard player={bottomPlayer} title="Your battlefield" tone="local" />
+        </div>
+      </IntroStageFrame>
+    );
+  }
+
+  if (item.kind === "initiative") {
+    const rolls = findRolls(model.timeline, [topPlayer, bottomPlayer]);
+    const topRoll = rolls.get(topPlayer?.id ?? "") ?? rolls.get(normalizeLabel(topPlayer?.name ?? ""));
+    const bottomRoll = rolls.get(bottomPlayer?.id ?? "") ?? rolls.get(normalizeLabel(bottomPlayer?.name ?? ""));
+    const firstPlayer = findFirstPlayerText(model.timeline) || (topRoll && bottomRoll ? `${topRoll > bottomRoll ? topPlayer?.name : bottomPlayer?.name} goes first.` : "Waiting for first-player decision.");
+    return (
+      <IntroStageFrame eyebrow="Initiative" title="Initiative" subtitle="Opening rolls and first-player decision">
+        <div className="grid h-full place-items-center">
+          <div className="grid w-full max-w-4xl items-center gap-8 md:grid-cols-[1fr_auto_1fr]">
+            <DiceRollCard player={topPlayer} value={topRoll} tone="opponent" />
+            <div className="text-center font-display text-3xl font-black tracking-[0.3em] text-slate-200">ROLL</div>
+            <DiceRollCard player={bottomPlayer} value={bottomRoll} tone="local" />
+          </div>
+          <div className="mt-10 rounded-full border border-cyan-300/25 bg-cyan-300/10 px-5 py-2 text-center text-sm text-cyan-100">
+            {firstPlayer}
+          </div>
+        </div>
+      </IntroStageFrame>
+    );
+  }
+
+  if (item.kind === "mulligan") {
+    return (
+      <IntroStageFrame eyebrow="Mulligan" title="Mulligan" subtitle="Opening hand decisions">
+        <div className="grid h-full items-center gap-8 lg:grid-cols-2">
+          <OpeningHandPanel hidden player={topPlayer} title={topPlayer?.name || "Opponent"} />
+          <OpeningHandPanel player={bottomPlayer} title={bottomPlayer?.name || "You"} />
+        </div>
+      </IntroStageFrame>
+    );
+  }
+
+  return (
+    <IntroStageFrame eyebrow="Opening hands" title="Opening Hands" subtitle="Game start state">
+      <div className="grid h-full items-center gap-8 lg:grid-cols-2">
+        <OpeningHandPanel hidden player={topPlayer} title={topPlayer?.name || "Opponent"} />
+        <OpeningHandPanel player={bottomPlayer} title={bottomPlayer?.name || "You"} />
+      </div>
+    </IntroStageFrame>
+  );
+}
+
+function IntroStageFrame({
+  children,
+  eyebrow,
+  subtitle,
+  title,
+}: {
+  children: React.ReactNode;
+  eyebrow: string;
+  subtitle: string;
+  title: string;
+}) {
+  return (
+    <div className="relative h-full overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_50%_50%,rgba(34,211,238,0.11),transparent_34%),#10151c] p-8">
+      <div className="pointer-events-none absolute inset-x-10 top-4 h-px bg-gradient-to-r from-transparent via-cyan-200/25 to-transparent" />
+      <div className="relative z-10 flex h-full flex-col">
+        <div className="text-center">
+          <div className="text-[11px] font-black uppercase tracking-[0.42em] text-cyan-100/75">{eyebrow}</div>
+          <div className="mt-3 font-display text-4xl font-black tracking-tight text-white">{title}</div>
+          <div className="mt-2 text-sm text-slate-400">{subtitle}</div>
+        </div>
+        <div className="min-h-0 flex-1">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function IntroLoadout({ player, tone }: { player?: ReplayPlayer; tone: "local" | "opponent" }) {
+  const cards = [player?.legend, ...championCards(player)].filter(isReplayCard).slice(0, 3);
+  return (
+    <div className={cn("grid justify-center gap-3 text-center", tone === "opponent" ? "text-rose-100" : "text-cyan-100")}>
+      <div className="flex justify-center gap-4">
+        {cards.length ? cards.map((card) => <StageCard key={`${player?.id}-${card.id}`} card={card} glow={tone} />) : <CardBack label="Unknown" large />}
+      </div>
+      <div>
+        <div className="font-display text-lg font-bold text-white">{player?.name || "Unknown player"}</div>
+        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">{tone === "opponent" ? "Opponent" : "You"}</div>
+      </div>
+    </div>
+  );
+}
+
+function BattlefieldIntroCard({ player, title, tone }: { player?: ReplayPlayer; title: string; tone: "local" | "opponent" }) {
+  const battlefield = player?.battlefield ?? findZoneByKey(player, ["battlefield"])?.cards[0];
+  return (
+    <div className={cn("grid min-h-[360px] place-items-center rounded-3xl border p-5 text-center", tone === "local" ? "border-cyan-300/35 bg-cyan-300/9" : "border-rose-300/35 bg-rose-300/9")}>
+      <div className="space-y-4">
+        <div className="text-[11px] font-black uppercase tracking-[0.28em] text-slate-400">{title}</div>
+        <div className="font-display text-3xl font-black text-white">{battlefield?.name || "Battlefield unknown"}</div>
+        <div className="text-sm font-semibold text-slate-300">{player?.name || "Unknown player"}</div>
+        <div className="mx-auto max-w-[330px]">{battlefield ? <StageCard card={battlefield} landscape glow={tone} /> : <CardBack label="BF" landscape large />}</div>
+      </div>
+    </div>
+  );
+}
+
+function DiceRollCard({ player, tone, value }: { player?: ReplayPlayer; tone: "local" | "opponent"; value?: number }) {
+  return (
+    <div className={cn("grid min-h-40 place-items-center rounded-3xl border p-5 text-center shadow-2xl", tone === "local" ? "border-cyan-300/25 bg-cyan-300/8 shadow-cyan-500/10" : "border-rose-300/25 bg-rose-300/8 shadow-rose-500/10")}>
+      <div className="grid gap-3">
+        <div className="mx-auto grid h-20 w-20 place-items-center rounded-2xl border border-white/10 bg-[linear-gradient(145deg,#0c2332,#05080f)] shadow-[0_0_35px_rgba(34,211,238,0.18)]">
+          <span className="font-display text-3xl font-black text-white">{value ?? "..."}</span>
+        </div>
+        <div className="font-display text-lg font-bold text-white">{player?.name || "Unknown"}</div>
+      </div>
+    </div>
+  );
+}
+
+function OpeningHandPanel({ hidden = false, player, title }: { hidden?: boolean; player?: ReplayPlayer; title: string }) {
+  const hand = findZoneByKey(player, ["hand"]);
+  const cards = hand?.cards ?? [];
+  const cardBackCount = Math.max(hand?.hidden ?? 0, cards.length || 4);
+  return (
+    <div className="grid min-h-[360px] place-items-center rounded-3xl border border-white/10 bg-slate-950/42 p-5">
+      <div className="w-full space-y-5 text-center">
+        <div className="text-[11px] font-black uppercase tracking-[0.28em] text-slate-400">{title}</div>
+        <div className="flex min-h-44 flex-wrap items-center justify-center gap-3">
+          {hidden
+            ? Array.from({ length: Math.min(6, cardBackCount) }).map((_, index) => <CardBack key={`${player?.id}-back-${index}`} />)
+            : cards.length
+              ? cards.slice(0, 7).map((card) => <StageCard card={card} key={`${player?.id}-hand-${card.id}`} />)
+              : Array.from({ length: 4 }).map((_, index) => <CardBack key={`${player?.id}-empty-${index}`} label="?" />)}
+        </div>
+        <div className="mx-auto inline-flex rounded-full border border-white/10 bg-white/[0.06] px-4 py-1.5 text-xs font-semibold text-slate-300">
+          {hidden ? "Opponent hand hidden" : `${cards.length} visible card${cards.length === 1 ? "" : "s"}`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StageCard({ card, glow = "local", landscape = false }: { card: ReplayCard; glow?: "local" | "opponent"; landscape?: boolean }) {
+  const glowClass = glow === "local" ? "shadow-[0_0_26px_rgba(34,211,238,0.32)]" : "shadow-[0_0_26px_rgba(244,63,94,0.3)]";
+  if (card.imageUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        alt={card.name}
+        className={cn(
+          "mx-auto rounded-xl border border-black/70 bg-black object-contain",
+          glowClass,
+          landscape ? "h-36 w-72" : "h-36 w-[104px]",
+        )}
+        src={card.imageUrl}
+        title={card.name}
+      />
+    );
+  }
+  return (
+    <div className={cn("grid place-items-center rounded-xl border border-cyan-300/25 bg-cyan-300/8 p-3 text-center text-xs font-black text-cyan-100", glowClass, landscape ? "h-36 w-72" : "h-36 w-[104px]")}>
+      {card.name}
+    </div>
+  );
+}
+
+function CardBack({ label = "", landscape = false, large = false }: { label?: string; landscape?: boolean; large?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "grid place-items-center rounded-xl border border-cyan-300/35 bg-[radial-gradient(circle_at_50%_45%,rgba(34,211,238,0.3),transparent_32%),linear-gradient(145deg,#05273a,#0a1522)] font-display font-black text-cyan-100 shadow-[0_0_24px_rgba(34,211,238,0.16)]",
+        landscape ? "h-32 w-64" : large ? "h-36 w-[104px]" : "h-32 w-24",
+      )}
+    >
+      {label || "R"}
+    </div>
   );
 }
 
@@ -1032,6 +1338,55 @@ function uniqueCards(cards: ReplayCard[]): ReplayCard[] {
     result.push(card);
   }
   return result;
+}
+
+function isReplayCard(value: ReplayCard | undefined | null): value is ReplayCard {
+  return Boolean(value?.name);
+}
+
+function sortReplayPlayers(players: ReplayPlayer[]) {
+  return [...players].sort((a, b) => Number(a.seat ?? 99) - Number(b.seat ?? 99) || a.name.localeCompare(b.name));
+}
+
+function championCards(player: ReplayPlayer | undefined): ReplayCard[] {
+  const legendKey = normalizeLabel(player?.legend?.name ?? "");
+  return uniqueCards(zoneCards(player, ["champion", "legend"]).filter((card) => normalizeLabel(card.name) !== legendKey));
+}
+
+function findFrameWithZone(frames: ReplayFrame[], keys: string[]) {
+  return frames.find((frame) => frame.players.some((player) => findZoneByKey(player, keys)?.cards.length || findZoneByKey(player, keys)?.hidden));
+}
+
+function findFrameWithBattlefields(frames: ReplayFrame[]) {
+  return frames.find((frame) => frame.players.some((player) => player.battlefield || findZoneByKey(player, ["battlefield"])?.cards.length));
+}
+
+function findRolls(events: ReplayTimelineEvent[], players: Array<ReplayPlayer | undefined>) {
+  const rolls = new Map<string, number>();
+  const nameToId = new Map<string, string>();
+  players.forEach((player) => {
+    if (!player) return;
+    nameToId.set(normalizeLabel(player.name), player.id);
+  });
+  for (const event of events) {
+    const text = `${event.label} ${event.detail ?? ""}`;
+    const match = text.match(/([A-Za-z0-9_\-\s.'[\]]{2,40})\s+rolled\s+(\d{1,2})/i);
+    if (!match) continue;
+    const name = normalizeLabel(match[1].replace(/^\[[^\]]+\]\s*/, "").trim());
+    const value = Number(match[2]);
+    if (!Number.isFinite(value)) continue;
+    rolls.set(name, value);
+    const playerId = nameToId.get(name);
+    if (playerId) rolls.set(playerId, value);
+  }
+  return rolls;
+}
+
+function findFirstPlayerText(events: ReplayTimelineEvent[]) {
+  const event = events.find((item) => /go first|goes first|chose to go/i.test(`${item.label} ${item.detail ?? ""}`));
+  const text = event?.detail || event?.label;
+  if (!text) return "";
+  return text.replace(/^Chat message\s*/i, "").trim();
 }
 
 function normalizeLabel(value: string) {
