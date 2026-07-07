@@ -32,7 +32,17 @@ export type ReplayPlayer = {
   score?: number;
   legend?: ReplayCard;
   battlefield?: ReplayCard;
+  selectedBattlefieldName?: string;
+  battlefieldOptions?: ReplayCard[];
   zones: ReplayZone[];
+};
+
+export type ReplayRoomState = {
+  phase?: string;
+  firstPlayerId?: string;
+  activeTurnPlayerId?: string;
+  initiativeRolls?: Record<string, number>;
+  mulliganPlaybackByPlayerId?: Record<string, unknown>;
 };
 
 export type ReplayTimelineEvent = {
@@ -60,6 +70,7 @@ export type ReplayFrame = {
   label: string;
   packetType: string;
   players: ReplayPlayer[];
+  roomState?: ReplayRoomState;
 };
 
 export type ReplayDiagnostic = {
@@ -83,6 +94,7 @@ export type RiftReplayViewModel = {
   players: ReplayPlayer[];
   timeline: ReplayTimelineEvent[];
   frames: ReplayFrame[];
+  roomState?: ReplayRoomState;
   diagnostics: ReplayDiagnostic[];
   packetCounts: Record<string, number>;
 };

@@ -4,10 +4,12 @@ import type {
   ReplayDiagnostic,
   ReplayFrame,
   ReplayPlayer,
+  ReplayRoomState,
   ReplayTimelineEvent,
   ReplayZone,
   RiftReplayViewModel,
 } from "@/lib/riftreplay/types";
+import { BATTLEFIELDS } from "@/lib/constants";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -27,6 +29,19 @@ const ZONE_LABELS: Record<string, string> = {
   sideboard: "Sideboard",
   stack: "Stack",
   trash: "Trash",
+};
+
+const KNOWN_CARD_CODES_BY_NAME: Record<string, string> = {
+  altartounity: "OGN-275",
+  aspirantsclimb: "OGN-276",
+  duskroselab: "UNL-209",
+  targonspeak: "OGN-289",
+  thearenasgreatest: "OGN-290",
+  thegrandplaza: "OGN-293",
+  trifarianwarcamp: "OGN-294",
+  windswepthillock: "OGN-297",
+  zaunwarrens: "OGN-298",
+  starspring: "UNL-215",
 };
 
 export function parseRiftReplayInput(input: string): RiftReplayViewModel {
@@ -66,13 +81,17 @@ function parseRawCapture(root: UnknownRecord, rawMessages: RawReplayMessage[]): 
   const frames: ReplayFrame[] = [];
   const diagnostics: ReplayDiagnostic[] = [];
   const packetCounts: Record<string, number> = {};
+  const roomState: ReplayRoomState = {
+    initiativeRolls: {},
+    mulliganPlaybackByPlayerId: {},
+  };
   let lastPhase = stringValue(lifecycle?.lastPhase);
   let lastGameNumber = numberValue(lifecycle?.lastGameNumber);
   let matchFormat = "";
 
   const pushEvent = (event: ReplayTimelineEvent) => {
     timeline.push(event);
-    frames.push(frameFromEvent(event, frames.length, players, zones));
+    frames.push(frameFromEvent(event, frames.length, players, zones, roomState));
   };
 
   sorted.forEach((message, index) => {
@@ -95,6 +114,7 @@ function parseRawCapture(root: UnknownRecord, rawMessages: RawReplayMessage[]): 
       const sessionDoc = asRecord(packet.sessionDoc) ?? {};
       lastPhase = stringValue(sessionDoc.phase) || lastPhase;
       lastGameNumber = numberValue(sessionDoc.gameNumber) ?? lastGameNumber;
+      mergeRoomState(roomState, sessionDoc);
       matchFormat =
         stringValue(sessionDoc.matchFormat) ||
         stringValue(sessionDoc.format) ||
@@ -120,7 +140,7 @@ function parseRawCapture(root: UnknownRecord, rawMessages: RawReplayMessage[]): 
 
     if (packetType === "authoritative_patch_commit") {
       const events = collectPatchEvents(index, message, packet, players);
-      applyPatchCommit(packet, players, zones);
+      applyPatchCommit(packet, players, zones, roomState);
       events.forEach(pushEvent);
       return;
     }
@@ -163,6 +183,7 @@ function parseRawCapture(root: UnknownRecord, rawMessages: RawReplayMessage[]): 
     players: playerList,
     timeline,
     frames,
+    roomState: cloneRoomState(roomState),
     diagnostics,
     packetCounts,
   };
@@ -265,25 +286,42 @@ function parseMessagePacket(message: RawReplayMessage): { packet: UnknownRecord 
 }
 
 function collectSessionPlayers(sessionDoc: UnknownRecord, players: Map<string, ReplayPlayer>) {
-  const directPlayers = [sessionDoc.selfPlayer, sessionDoc.opponentPlayer, sessionDoc.player, sessionDoc.opponent, sessionDoc.viewer]
+  const directPlayers: UnknownRecord[] = [sessionDoc.selfPlayer, sessionDoc.opponentPlayer, sessionDoc.player, sessionDoc.opponent, sessionDoc.viewer]
     .map(asRecord)
     .filter(isRecord);
   const arrayPlayers = [
     ...(Array.isArray(sessionDoc.players) ? sessionDoc.players : []),
     ...(Array.isArray(sessionDoc.roomPlayers) ? sessionDoc.roomPlayers : []),
+    ...(Array.isArray(sessionDoc.publicPlayers) ? sessionDoc.publicPlayers : []),
+    ...(Array.isArray(sessionDoc.spectatorPlayers) ? sessionDoc.spectatorPlayers : []),
   ]
     .map(asRecord)
     .filter(isRecord);
+  const publicPlayerMap = asRecord(sessionDoc.publicPlayers);
+  const mappedPlayers: UnknownRecord[] = [];
+  if (publicPlayerMap) {
+    for (const [playerId, value] of Object.entries(publicPlayerMap)) {
+      const record = asRecord(value);
+      if (record) mappedPlayers.push({ ...record, id: stringValue(record.id) || playerId });
+    }
+  }
 
-  for (const player of [...directPlayers, ...arrayPlayers]) {
+  for (const player of [...directPlayers, ...arrayPlayers, ...mappedPlayers]) {
     const id = stringValue(player.id) || stringValue(player.playerId) || stringValue(player.uid);
     if (!id) continue;
     const entry = ensurePlayer(players, id);
     entry.name = stringValue(player.name) || stringValue(player.displayName) || entry.name;
     entry.role = stringValue(player.role) || entry.role;
     entry.seat = numberValue(player.seat) ?? stringValue(player.seat) ?? entry.seat;
-    const battlefield = cardFromUnknown(player.selectedBattlefield, `${id}-battlefield`);
-    if (battlefield) entry.battlefield = battlefield;
+    const legend = firstSectionCard(player, ["legend"]);
+    const battlefieldOptions = uniqueByName([...sectionCards(player, ["battlefield", "battlefields"]), ...fieldCards(player.battlefieldOptions, `${id}-battlefield-option`)]);
+    const selectedBattlefield = selectedBattlefieldCard(player.selectedBattlefield, entry, battlefieldOptions, `${id}-battlefield`);
+    if (legend) entry.legend = legend;
+    if (battlefieldOptions.length) entry.battlefieldOptions = battlefieldOptions;
+    if (selectedBattlefield) {
+      entry.battlefield = selectedBattlefield;
+      entry.selectedBattlefieldName = selectedBattlefield.name;
+    }
   }
 }
 
@@ -310,19 +348,44 @@ function collectSnapshot(snapshot: UnknownRecord | null, players: Map<string, Re
         hidden,
         cards,
       });
-      if (zoneKey.toLowerCase().includes("champion") && cards[0]) {
+      const normalizedZone = normalizeZoneKey(zoneKey);
+      if (normalizedZone === "legend" && cards[0]) {
         entry.legend = cards[0];
-      }
-      if (zoneKey.toLowerCase().includes("battlefield") && cards[0]) {
-        entry.battlefield = cards[0];
       }
     }
   }
 }
 
-function applyPatchCommit(packet: UnknownRecord, players: Map<string, ReplayPlayer>, zones: Map<string, ReplayZone>) {
+function applyPatchCommit(
+  packet: UnknownRecord,
+  players: Map<string, ReplayPlayer>,
+  zones: Map<string, ReplayZone>,
+  roomState: ReplayRoomState,
+) {
   for (const op of patchOperations(packet)) {
     const opKind = stringValue(op.op) || stringValue(op.type) || "patch";
+    if (opKind === "set_room_fields") {
+      mergeRoomState(roomState, asRecord(op.fields) ?? op);
+      continue;
+    }
+
+    if (opKind === "set_player_fields") {
+      const playerId = stringValue(op.playerId);
+      const fields = asRecord(op.fields);
+      if (playerId && fields) {
+        const entry = ensurePlayer(players, playerId);
+        entry.name = stringValue(fields.name) || stringValue(fields.displayName) || entry.name;
+        entry.score = numberValue(fields.score) ?? entry.score;
+        const options = entry.battlefieldOptions ?? [];
+        const selectedBattlefield = selectedBattlefieldCard(fields.selectedBattlefield, entry, options, `${playerId}-battlefield`);
+        if (selectedBattlefield) {
+          entry.battlefield = selectedBattlefield;
+          entry.selectedBattlefieldName = selectedBattlefield.name;
+        }
+      }
+      continue;
+    }
+
     if (opKind === "zone_insert") {
       const playerId = stringValue(op.playerId) || stringValue(op.ownerPlayerId);
       const zone = stringValue(op.zone);
@@ -434,7 +497,30 @@ function collectPatchEvents(
     return [makeEvent(index, message, "authoritative_patch_commit", "Patch committed", { raw: packet })];
   }
 
-  return operations.slice(0, 12).map((op, opIndex) => {
+  const logEvents = operations.flatMap((op, opIndex) => {
+    const opName = stringValue(op.op) || stringValue(op.type) || "patch";
+    if (opName !== "log_insert") return [];
+    const entries = Array.isArray(op.entries) ? op.entries.map(asRecord).filter(isRecord) : [asRecord(op.entry)].filter(isRecord);
+    return entries.map((entry, entryIndex) => {
+      const playerId = stringValue(entry.playerId) || stringValue(entry.actorPlayerId) || stringValue(entry.authorPlayerId);
+      const detail = stringValue(entry.message) || stringValue(entry.text) || stringValue(entry.label) || "Log entry";
+      const card = cardFromUnknown(entry.card, `${index}-${opIndex}-${entryIndex}`);
+      return makeEvent(index + opIndex / 100 + entryIndex / 1000, message, "log_insert", detail, {
+        playerId,
+        playerName: playerId ? players.get(playerId)?.name : undefined,
+        cardName: card?.name,
+        raw: entry,
+      });
+    });
+  });
+
+  const stateEvents = operations
+    .filter((op) => {
+      const opName = stringValue(op.op) || stringValue(op.type) || "patch";
+      return !["log_insert", "log_remove", "set_room_fields", "set_player_fields"].includes(opName);
+    })
+    .slice(0, 12)
+    .map((op, opIndex) => {
     const opName = stringValue(op.op) || stringValue(op.type) || "patch";
     const from = asRecord(op.from);
     const to = asRecord(op.to);
@@ -457,6 +543,7 @@ function collectPatchEvents(
       raw: op,
     });
   });
+  return [...logEvents, ...stateEvents];
 }
 
 function patchOperations(packet: UnknownRecord): UnknownRecord[] {
@@ -471,6 +558,10 @@ function patchOperations(packet: UnknownRecord): UnknownRecord[] {
 }
 
 function cardFromUnknown(value: unknown, fallbackId: string): ReplayCard | null {
+  if (typeof value === "string") {
+    const name = value.trim();
+    return name ? enrichReplayCard({ id: fallbackId, name }) : null;
+  }
   const record = asRecord(value);
   if (!record || record.isPlaceholder === true) return null;
   const nested = asRecord(record.card) ?? asRecord(record.cardDef) ?? asRecord(record.definition) ?? asRecord(record.proto);
@@ -485,13 +576,143 @@ function cardFromUnknown(value: unknown, fallbackId: string): ReplayCard | null 
   if (!name) return null;
   const id = stringValue(source.id) || stringValue(source.instanceId) || stringValue(source.cardId) || fallbackId;
   const code = stringValue(source.cardCode) || stringValue(source.code) || stringValue(source.variantNumber);
-  return {
+  return enrichReplayCard({
     id,
     name,
     imageUrl: findImageUrl(source) || imageUrlFromCardCode(code),
     type: stringValue(source.type) || stringValue(source.cardType),
     ownerId: stringValue(source.ownerPlayerId) || stringValue(source.ownerId),
     code,
+  });
+}
+
+function firstSectionCard(player: UnknownRecord, sectionNames: string[]) {
+  return sectionCards(player, sectionNames)[0];
+}
+
+function sectionCards(player: UnknownRecord, sectionNames: string[]) {
+  const sections =
+    asRecord(asRecord(player.deck)?.sections) ??
+    asRecord(asRecord(player.submittedDeck)?.sections) ??
+    asRecord(player.deckSections) ??
+    asRecord(player.sections);
+  if (!sections) return [];
+  const normalizedNames = sectionNames.map(normalizeZoneKey);
+  const cards: ReplayCard[] = [];
+  for (const [sectionName, value] of Object.entries(sections)) {
+    if (!normalizedNames.includes(normalizeZoneKey(sectionName))) continue;
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => {
+        const card = cardFromUnknown(entry, `${sectionName}-${index}`);
+        if (card) cards.push(card);
+      });
+      continue;
+    }
+    const record = asRecord(value);
+    const sectionCardsValue = record?.cards ?? record?.entries ?? record?.items;
+    if (Array.isArray(sectionCardsValue)) {
+      sectionCardsValue.forEach((entry, index) => {
+        const card = cardFromUnknown(entry, `${sectionName}-${index}`);
+        if (card) cards.push(card);
+      });
+    }
+  }
+  return uniqueByName(cards);
+}
+
+function fieldCards(value: unknown, fallbackPrefix: string) {
+  if (!Array.isArray(value)) return [];
+  return uniqueByName(
+    value
+      .map((entry, index) => cardFromUnknown(entry, `${fallbackPrefix}-${index}`))
+      .filter(isReplayCard),
+  );
+}
+
+function selectedBattlefieldCard(
+  value: unknown,
+  player: ReplayPlayer,
+  battlefieldOptions: ReplayCard[],
+  fallbackId: string,
+) {
+  const selected = cardFromUnknown(value, fallbackId);
+  const selectedName = selected?.name || stringValue(value);
+  if (!selectedName) return null;
+  const normalizedSelected = normalizeZoneKey(selectedName);
+  const matchedOption =
+    battlefieldOptions.find((card) => normalizeZoneKey(card.name) === normalizedSelected) ??
+    player.battlefieldOptions?.find((card) => normalizeZoneKey(card.name) === normalizedSelected);
+  if (matchedOption) return enrichReplayCard(matchedOption);
+  const enriched = enrichReplayCard(selected);
+  if (enriched && isBattlefieldCard(enriched)) return enriched;
+  return null;
+}
+
+function enrichReplayCard(card: ReplayCard | null): ReplayCard | null {
+  if (!card) return null;
+  const normalizedName = normalizeZoneKey(card.name);
+  const code = card.code || KNOWN_CARD_CODES_BY_NAME[normalizedName];
+  return {
+    ...card,
+    code,
+    imageUrl: card.imageUrl || imageUrlFromCardCode(code),
+  };
+}
+
+function uniqueByName(cards: ReplayCard[]) {
+  const seen = new Set<string>();
+  const result: ReplayCard[] = [];
+  for (const card of cards) {
+    const key = normalizeZoneKey(card.name || card.code || card.id);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(card);
+  }
+  return result;
+}
+
+function isBattlefieldCard(card: ReplayCard) {
+  const normalizedName = normalizeZoneKey(card.name);
+  const normalizedType = normalizeZoneKey(card.type ?? "");
+  return (
+    normalizedType.includes("battlefield") ||
+    Boolean(KNOWN_CARD_CODES_BY_NAME[normalizedName]) ||
+    BATTLEFIELDS.some((name) => normalizeZoneKey(name) === normalizedName)
+  );
+}
+
+function mergeRoomState(roomState: ReplayRoomState, fields: UnknownRecord | null) {
+  if (!fields) return;
+  roomState.phase = stringValue(fields.phase) || roomState.phase;
+  roomState.firstPlayerId = stringValue(fields.firstPlayerId) || roomState.firstPlayerId;
+  roomState.activeTurnPlayerId = stringValue(fields.activeTurnPlayerId) || roomState.activeTurnPlayerId;
+
+  const initiativeRolls = asRecord(fields.initiativeRolls);
+  if (initiativeRolls) {
+    roomState.initiativeRolls = {
+      ...(roomState.initiativeRolls ?? {}),
+      ...Object.fromEntries(
+        Object.entries(initiativeRolls)
+          .map(([playerId, value]) => [playerId, numberValue(value)] as const)
+          .filter((entry): entry is readonly [string, number] => entry[1] !== undefined),
+      ),
+    };
+  }
+
+  const mulliganPlaybackByPlayerId = asRecord(fields.mulliganPlaybackByPlayerId);
+  if (mulliganPlaybackByPlayerId) {
+    roomState.mulliganPlaybackByPlayerId = {
+      ...(roomState.mulliganPlaybackByPlayerId ?? {}),
+      ...mulliganPlaybackByPlayerId,
+    };
+  }
+}
+
+function cloneRoomState(roomState: ReplayRoomState): ReplayRoomState {
+  return {
+    ...roomState,
+    initiativeRolls: { ...(roomState.initiativeRolls ?? {}) },
+    mulliganPlaybackByPlayerId: { ...(roomState.mulliganPlaybackByPlayerId ?? {}) },
   };
 }
 
@@ -505,13 +726,20 @@ function findImageUrl(source: UnknownRecord): string | undefined {
     source.img,
   ]
     .map(stringValue)
-    .find((value) => value.startsWith("http"));
-  if (direct) return direct;
+    .find((value) => value.startsWith("http") || value.startsWith("/"));
+  if (direct) return normalizeImageUrl(direct);
   const variants = source.variantImages;
   if (Array.isArray(variants)) {
-    return variants.map(stringValue).find((value) => value.startsWith("http"));
+    const variant = variants.map(stringValue).find((value) => value.startsWith("http") || value.startsWith("/"));
+    if (variant) return normalizeImageUrl(variant);
   }
   return undefined;
+}
+
+function normalizeImageUrl(value: string) {
+  if (value.startsWith("http")) return value;
+  if (value.startsWith("/")) return `https://play.riftatlas.com${value}`;
+  return value;
 }
 
 function imageUrlFromCardCode(code?: string) {
@@ -543,6 +771,7 @@ function materializePlayers(players: Map<string, ReplayPlayer>, zones: Map<strin
     ...player,
     legend: player.legend ? { ...player.legend } : undefined,
     battlefield: player.battlefield ? { ...player.battlefield } : undefined,
+    battlefieldOptions: player.battlefieldOptions?.map((card) => ({ ...card })),
     zones: cloneZones(zoneListByPlayer.get(player.id) ?? player.zones ?? []),
   }));
 }
@@ -552,6 +781,7 @@ function frameFromEvent(
   index: number,
   players: Map<string, ReplayPlayer>,
   zones: Map<string, ReplayZone>,
+  roomState: ReplayRoomState,
 ): ReplayFrame {
   return {
     id: `frame-${index}-${event.id}`,
@@ -562,6 +792,7 @@ function frameFromEvent(
     label: event.label,
     packetType: event.packetType || event.type,
     players: materializePlayers(players, zones),
+    roomState: cloneRoomState(roomState),
   };
 }
 
@@ -797,6 +1028,10 @@ function prettifyType(value: string) {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^./, (char) => char.toUpperCase());
+}
+
+function normalizeZoneKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function firstRecord(value: unknown) {

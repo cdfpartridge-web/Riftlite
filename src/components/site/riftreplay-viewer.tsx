@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { parseRiftReplayInput, parseRiftReplayPayload } from "@/lib/riftreplay/parse";
-import type { ReplayCard, ReplayFrame, ReplayPlayer, ReplayTimelineEvent, ReplayZone, RiftReplayViewModel } from "@/lib/riftreplay/types";
+import type { ReplayCard, ReplayFrame, ReplayPlayer, ReplayRoomState, ReplayTimelineEvent, ReplayZone, RiftReplayViewModel } from "@/lib/riftreplay/types";
 import { cn } from "@/lib/utils";
 
 type RiftReplayViewerProps = {
@@ -364,7 +364,7 @@ function ReplayPlaybackShell({
 
   return (
     <Card className="overflow-hidden rounded-[28px] border-cyan-300/15 bg-[#090d14] p-0 shadow-2xl">
-      <div className="grid h-[calc(100vh-84px)] min-h-[640px] max-h-[980px] overflow-hidden lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="grid h-[calc(100vh-84px)] min-h-[640px] max-h-[980px] overflow-hidden lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-white/[0.08]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] bg-white/[0.025] px-4 py-2.5">
             <div className="min-w-0">
@@ -420,8 +420,8 @@ function ReplayPlaybackShell({
           </div>
         </div>
 
-        <aside className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_190px] overflow-hidden bg-[#10131a]">
-          <div className="border-b border-white/[0.08] p-3">
+        <aside className="grid min-h-0 grid-rows-[auto_268px_minmax(0,1fr)] overflow-hidden bg-[#10131a]">
+          <div className="min-h-0 overflow-hidden border-b border-white/[0.08] p-3">
             <div className="font-display text-lg font-bold text-white">RiftLite Replay</div>
             <div className="truncate text-xs text-slate-400">{model.title}</div>
           </div>
@@ -439,9 +439,6 @@ function ReplayPlaybackShell({
             onSelect={(eventIndex) => onSelect(Math.min(maxIndex, boardStartIndex + eventIndex))}
             selectedIndex={Math.max(0, selectedIndex - boardStartIndex)}
           />
-          <div className="min-h-0 overflow-y-auto border-t border-white/[0.08] p-3">
-            <InspectorPanel diagnostics={model.diagnostics} event={event} packetCounts={packetCounts} />
-          </div>
         </aside>
       </div>
     </Card>
@@ -451,6 +448,8 @@ function ReplayPlaybackShell({
 function buildPlaybackItems(model: RiftReplayViewModel): ReplayPlaybackItem[] {
   const handFrame = findFrameWithZone(model.frames, ["hand"]) ?? model.frames[0];
   const battlefieldFrame = findFrameWithBattlefields(model.frames) ?? model.frames[0];
+  const initiativeFrame = findFrameWithRolls(model.frames) ?? battlefieldFrame;
+  const mulliganFrame = findFrameWithMulligan(model.frames) ?? handFrame;
   const introEvents = model.timeline.filter((event) => event.packetType === "chat_append" || event.type === "chat_append");
   const eventById = new Map(model.timeline.map((event) => [event.id, event]));
   const introItems: ReplayPlaybackItem[] = [
@@ -475,7 +474,7 @@ function buildPlaybackItems(model: RiftReplayViewModel): ReplayPlaybackItem[] {
       kind: "initiative",
       label: "Initiative",
       packetType: "intro",
-      frame: battlefieldFrame,
+      frame: initiativeFrame,
       event: introEvents.find((event) => /rolled|go first|goes first|chose to go/i.test(`${event.label} ${event.detail ?? ""}`)),
     },
     {
@@ -483,7 +482,7 @@ function buildPlaybackItems(model: RiftReplayViewModel): ReplayPlaybackItem[] {
       kind: "mulligan",
       label: "Mulligan",
       packetType: "intro",
-      frame: handFrame,
+      frame: mulliganFrame,
       event: introEvents.find((event) => /mulligan|redraw/i.test(`${event.label} ${event.detail ?? ""}`)),
     },
     {
@@ -541,10 +540,11 @@ function ReplayIntroStage({ item, model }: { item: Extract<ReplayPlaybackItem, {
   }
 
   if (item.kind === "initiative") {
-    const rolls = findRolls(model.timeline, [topPlayer, bottomPlayer]);
+    const displayRoomState = combineRoomState(item.frame?.roomState, model.roomState);
+    const rolls = findRolls(model.timeline, [topPlayer, bottomPlayer], displayRoomState);
     const topRoll = rolls.get(topPlayer?.id ?? "") ?? rolls.get(normalizeLabel(topPlayer?.name ?? ""));
     const bottomRoll = rolls.get(bottomPlayer?.id ?? "") ?? rolls.get(normalizeLabel(bottomPlayer?.name ?? ""));
-    const firstPlayer = findFirstPlayerText(model.timeline) || (topRoll && bottomRoll ? `${topRoll > bottomRoll ? topPlayer?.name : bottomPlayer?.name} goes first.` : "Waiting for first-player decision.");
+    const firstPlayer = findFirstPlayerText(model.timeline, [topPlayer, bottomPlayer], displayRoomState) || (topRoll && bottomRoll ? `${topRoll > bottomRoll ? topPlayer?.name : bottomPlayer?.name} goes first.` : "Waiting for first-player decision.");
     return (
       <IntroStageFrame eyebrow="Initiative" title="Initiative" subtitle="Opening rolls and first-player decision">
         <div className="grid h-full place-items-center">
@@ -562,21 +562,23 @@ function ReplayIntroStage({ item, model }: { item: Extract<ReplayPlaybackItem, {
   }
 
   if (item.kind === "mulligan") {
+    const displayRoomState = combineRoomState(item.frame?.roomState, model.roomState);
     return (
       <IntroStageFrame eyebrow="Mulligan" title="Mulligan" subtitle="Opening hand decisions">
         <div className="grid h-full items-center gap-8 lg:grid-cols-2">
-          <OpeningHandPanel hidden player={topPlayer} title={topPlayer?.name || "Opponent"} />
-          <OpeningHandPanel player={bottomPlayer} title={bottomPlayer?.name || "You"} />
+          <OpeningHandPanel hidden player={topPlayer} roomState={displayRoomState} title={topPlayer?.name || "Opponent"} />
+          <OpeningHandPanel player={bottomPlayer} roomState={displayRoomState} title={bottomPlayer?.name || "You"} />
         </div>
       </IntroStageFrame>
     );
   }
 
+  const displayRoomState = combineRoomState(item.frame?.roomState, model.roomState);
   return (
     <IntroStageFrame eyebrow="Opening hands" title="Opening Hands" subtitle="Game start state">
       <div className="grid h-full items-center gap-8 lg:grid-cols-2">
-        <OpeningHandPanel hidden player={topPlayer} title={topPlayer?.name || "Opponent"} />
-        <OpeningHandPanel player={bottomPlayer} title={bottomPlayer?.name || "You"} />
+        <OpeningHandPanel hidden player={topPlayer} roomState={displayRoomState} title={topPlayer?.name || "Opponent"} />
+        <OpeningHandPanel player={bottomPlayer} roomState={displayRoomState} title={bottomPlayer?.name || "You"} />
       </div>
     </IntroStageFrame>
   );
@@ -624,7 +626,7 @@ function IntroLoadout({ player, tone }: { player?: ReplayPlayer; tone: "local" |
 }
 
 function BattlefieldIntroCard({ player, title, tone }: { player?: ReplayPlayer; title: string; tone: "local" | "opponent" }) {
-  const battlefield = player?.battlefield ?? findZoneByKey(player, ["battlefield"])?.cards[0];
+  const battlefield = player?.battlefield;
   return (
     <div className={cn("grid min-h-[360px] place-items-center rounded-3xl border p-5 text-center", tone === "local" ? "border-cyan-300/35 bg-cyan-300/9" : "border-rose-300/35 bg-rose-300/9")}>
       <div className="space-y-4">
@@ -650,23 +652,41 @@ function DiceRollCard({ player, tone, value }: { player?: ReplayPlayer; tone: "l
   );
 }
 
-function OpeningHandPanel({ hidden = false, player, title }: { hidden?: boolean; player?: ReplayPlayer; title: string }) {
+function OpeningHandPanel({
+  hidden = false,
+  player,
+  roomState,
+  title,
+}: {
+  hidden?: boolean;
+  player?: ReplayPlayer;
+  roomState?: ReplayRoomState;
+  title: string;
+}) {
   const hand = findZoneByKey(player, ["hand"]);
   const cards = hand?.cards ?? [];
   const cardBackCount = Math.max(hand?.hidden ?? 0, cards.length || 4);
+  const summary = mulliganSummary(player, roomState);
   return (
     <div className="grid min-h-[360px] place-items-center rounded-3xl border border-white/10 bg-slate-950/42 p-5">
       <div className="w-full space-y-5 text-center">
         <div className="text-[11px] font-black uppercase tracking-[0.28em] text-slate-400">{title}</div>
-        <div className="flex min-h-44 flex-wrap items-center justify-center gap-3">
+        <div className="flex min-h-44 flex-wrap items-center justify-center gap-3 overflow-hidden">
           {hidden
             ? Array.from({ length: Math.min(6, cardBackCount) }).map((_, index) => <CardBack key={`${player?.id}-back-${index}`} />)
             : cards.length
               ? cards.slice(0, 7).map((card) => <StageCard card={card} key={`${player?.id}-hand-${card.id}`} />)
               : Array.from({ length: 4 }).map((_, index) => <CardBack key={`${player?.id}-empty-${index}`} label="?" />)}
         </div>
-        <div className="mx-auto inline-flex rounded-full border border-white/10 bg-white/[0.06] px-4 py-1.5 text-xs font-semibold text-slate-300">
-          {hidden ? "Opponent hand hidden" : `${cards.length} visible card${cards.length === 1 ? "" : "s"}`}
+        <div className="mx-auto flex flex-wrap justify-center gap-2">
+          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-4 py-1.5 text-xs font-semibold text-slate-300">
+            {hidden ? "Opponent hand hidden" : `${cards.length} visible card${cards.length === 1 ? "" : "s"}`}
+          </div>
+          {summary ? (
+            <div className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-1.5 text-xs font-semibold text-cyan-100">
+              {summary}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -721,19 +741,41 @@ function ReplayBoardCanvas({ frame }: { frame: ReplayFrame }) {
   ]);
   const expandedPlayer = [bottomPlayer, topPlayer].find((player) => player?.id === expandedTrash);
   const expandedTrashZone = findZoneByKey(expandedPlayer, ["trash", "discard"]);
+  const battlefieldA = topPlayer?.battlefield;
+  const battlefieldB = bottomPlayer?.battlefield;
+  const topBattlefieldA = zoneCardsExact(topPlayer, "battlefieldA");
+  const topBattlefieldB = zoneCardsExact(topPlayer, "battlefieldB");
+  const bottomBattlefieldA = zoneCardsExact(bottomPlayer, "battlefieldA");
+  const bottomBattlefieldB = zoneCardsExact(bottomPlayer, "battlefieldB");
+  const topBase = zoneCardsExact(topPlayer, "base");
+  const bottomBase = zoneCardsExact(bottomPlayer, "base");
 
   return (
-    <div className="relative grid h-full min-h-0 gap-2 lg:grid-cols-[102px_minmax(0,1fr)_94px]">
+    <div className="relative grid h-full min-h-0 gap-2 lg:grid-cols-[96px_minmax(0,1fr)_88px]">
       <PlayerSideRail expanded={expandedTrash === topPlayer?.id} onToggleTrash={setExpandedTrash} player={topPlayer} position="top" />
-      <div className="grid min-h-0 min-w-0 grid-rows-[136px_minmax(0,1fr)_136px] gap-2">
+      <div className="grid min-h-0 min-w-0 grid-rows-[112px_62px_minmax(260px,1fr)_62px_128px] gap-2">
         <PlayerRow player={topPlayer} tone="opponent" />
+        <BaseLane cards={topBase} flipped label="Opponent base" tone="opponent" />
         <div className="grid min-h-0 gap-2 md:grid-cols-2">
-          <BoardLane label="Battlefield" player={bottomPlayer} />
-          <BoardLane label="Opponent battlefield" player={topPlayer} opponent />
+          <SharedBattlefieldLane
+            battlefield={battlefieldA}
+            bottomCards={bottomBattlefieldA}
+            label={battlefieldA?.name || "Battlefield A"}
+            tone="opponent"
+            topCards={topBattlefieldA}
+          />
+          <SharedBattlefieldLane
+            battlefield={battlefieldB}
+            bottomCards={bottomBattlefieldB}
+            label={battlefieldB?.name || "Battlefield B"}
+            tone="local"
+            topCards={topBattlefieldB}
+          />
         </div>
+        <BaseLane cards={bottomBase} label="Your base" tone="local" />
         <PlayerRow player={bottomPlayer} tone="local" />
       </div>
-      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_178px] gap-2">
+      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_168px] gap-2">
         <ZoneColumn cards={chainCards} label="Chain" />
         <PlayerSideRail expanded={expandedTrash === bottomPlayer?.id} onToggleTrash={setExpandedTrash} player={bottomPlayer} position="bottom" />
       </div>
@@ -795,59 +837,67 @@ function DeckBox({ count }: { count: number }) {
 
 function PlayerRow({ player, tone }: { player?: ReplayPlayer; tone: "local" | "opponent" }) {
   const hand = findZoneByKey(player, ["hand"]);
-  const base = findZoneByKey(player, ["base"]);
-  const runes = findZoneByKey(player, ["runearea", "rune"]);
+  const runes = findZoneByKey(player, ["runearea"]);
   const runeDeck = findZoneByKey(player, ["runedeck"]);
   const cards = hand?.cards ?? [];
   return (
-    <div className={cn("grid min-h-0 grid-rows-[auto_minmax(0,1fr)] rounded-xl border p-2", tone === "local" ? "border-cyan-300/40 bg-cyan-300/8" : "border-white/10 bg-white/[0.025]")}>
-      <div className="mb-1.5 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-bold text-white">{player?.name || "Unknown player"}</div>
-          <div className="truncate text-[11px] text-slate-400">{player?.legend?.name || "Legend unknown"}</div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {player?.legend ? <TinyCard card={player.legend} /> : null}
-          {base?.cards.slice(0, 3).map((card) => <TinyCard card={card} key={`${base.id}-${card.id}`} />)}
-        </div>
-      </div>
-      <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_220px] gap-2">
-        <div className={cn("flex min-h-0 items-end gap-1.5 overflow-hidden rounded-lg border border-white/10 bg-slate-950/45 p-1.5", tone === "opponent" && "items-start")}>
-          {cards.length ? cards.slice(0, 14).map((card) => <BoardCard card={card} flipped={tone === "opponent"} key={`${tone}-${card.id}`} small />) : <EmptyZone label={tone === "local" ? "Hand" : "Opponent hand"} />}
-          {hand?.hidden ? <HiddenCount label="hidden" value={hand.hidden} /> : null}
-        </div>
-        <RuneStrip hidden={runeDeck?.hidden ?? 0} runes={runes?.cards ?? []} tone={tone} />
+    <div className={cn("grid min-h-0 grid-rows-[46px_minmax(0,1fr)] rounded-xl border p-2", tone === "local" ? "border-cyan-300/40 bg-cyan-300/8" : "border-white/10 bg-white/[0.025]")}>
+      <RuneStrip hidden={runeDeck?.hidden ?? 0} runes={runes?.cards ?? []} tone={tone} />
+      <div className={cn("mt-1 flex min-h-0 items-end justify-center gap-1.5 overflow-hidden rounded-lg border border-white/10 bg-slate-950/45 p-1", tone === "opponent" && "items-start")}>
+        {cards.length ? cards.slice(0, 14).map((card) => <BoardCard card={card} compact={cards.length > 7} flipped={tone === "opponent"} key={`${tone}-${card.id}`} small />) : <EmptyZone label={tone === "local" ? "Hand" : "Opponent hand"} />}
+        {hand?.hidden ? <HiddenCount label="hidden" value={hand.hidden} /> : null}
       </div>
     </div>
   );
 }
 
-function BoardLane({ label, opponent = false, player }: { label: string; opponent?: boolean; player?: ReplayPlayer }) {
-  const boardCards = [
-    ...zoneCards(player, ["battlefield", "board"]),
-    ...zoneCards(player, ["played"]),
-  ];
-  const battlefield = player?.battlefield ?? findZone(player, ["battlefield"])?.cards[0];
+function BaseLane({ cards, flipped = false, label, tone }: { cards: ReplayCard[]; flipped?: boolean; label: string; tone: "local" | "opponent" }) {
   return (
-    <div className={cn("relative min-h-0 rounded-xl border p-2", opponent ? "border-rose-300/15 bg-rose-300/7" : "border-cyan-300/15 bg-cyan-300/7")}>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{label}</div>
-        {battlefield ? <div className="truncate text-xs text-slate-300">{battlefield.name}</div> : null}
+    <div className={cn("grid min-h-0 grid-cols-[86px_minmax(0,1fr)] items-center gap-2 rounded-xl border px-2 py-1.5", tone === "opponent" ? "border-rose-300/14 bg-rose-300/[0.045]" : "border-cyan-300/14 bg-cyan-300/[0.045]")}>
+      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="flex min-h-0 items-center justify-center gap-1.5 overflow-hidden rounded-lg border border-dashed border-white/10 bg-slate-950/25 p-1">
+        {cards.length ? cards.slice(0, 12).map((card) => <BoardCard card={card} compact={cards.length > 6} flipped={flipped} key={`${label}-${card.id}`} small />) : <EmptyZone label="Empty" />}
       </div>
-      <div className="grid h-[calc(100%-28px)] min-h-0 place-items-center overflow-hidden rounded-lg border border-dashed border-white/10 bg-slate-950/30 p-2">
-        {boardCards.length ? (
-          <div className="flex max-h-full flex-wrap items-center justify-center gap-2 overflow-hidden">
-            {boardCards.slice(0, 18).map((card) => <BoardCard card={card} flipped={opponent} key={`${label}-${card.id}`} />)}
-          </div>
-        ) : (
-          <EmptyZone label="No board cards" />
-        )}
-      </div>
-      {battlefield ? (
-        <div className="pointer-events-none absolute bottom-3 right-3 opacity-85">
-          <BoardCard card={battlefield} landscape />
+    </div>
+  );
+}
+
+function SharedBattlefieldLane({
+  battlefield,
+  bottomCards,
+  label,
+  tone,
+  topCards,
+}: {
+  battlefield?: ReplayCard;
+  bottomCards: ReplayCard[];
+  label: string;
+  tone: "local" | "opponent";
+  topCards: ReplayCard[];
+}) {
+  return (
+    <div className={cn("grid min-h-0 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] rounded-xl border p-2", tone === "opponent" ? "border-rose-300/15 bg-rose-300/7" : "border-cyan-300/15 bg-cyan-300/7")}>
+      <BattlefieldSide cards={topCards} flipped label="Opponent side" />
+      <div className="my-1.5 flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-slate-950/40 px-2 py-1">
+        <div className="min-w-0">
+          <div className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{tone === "opponent" ? "Opponent battlefield" : "Your battlefield"}</div>
+          <div className="truncate text-xs font-semibold text-slate-300">{label}</div>
         </div>
-      ) : null}
+        {battlefield ? <BoardCard card={battlefield} landscape /> : <CardBack label="BF" landscape />}
+      </div>
+      <BattlefieldSide cards={bottomCards} label="Your side" />
+    </div>
+  );
+}
+
+function BattlefieldSide({ cards, flipped = false, label }: { cards: ReplayCard[]; flipped?: boolean; label: string }) {
+  return (
+    <div className="flex min-h-0 flex-wrap content-center items-center justify-center gap-1.5 overflow-hidden rounded-lg border border-dashed border-white/10 bg-slate-950/25 p-1.5">
+      {cards.length ? (
+        cards.slice(0, 12).map((card) => <BoardCard card={card} compact={cards.length > 4} flipped={flipped} key={`${label}-${card.id}`} small />)
+      ) : (
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-700">{label}</div>
+      )}
     </div>
   );
 }
@@ -865,9 +915,9 @@ function ZoneColumn({ cards, label }: { cards: ReplayCard[]; label: string }) {
 
 function RuneStrip({ hidden, runes, tone }: { hidden: number; runes: ReplayCard[]; tone: "local" | "opponent" }) {
   return (
-    <div className="flex min-h-0 items-center gap-1 overflow-hidden rounded-lg border border-white/10 bg-slate-950/45 p-1.5">
+    <div className="flex min-h-0 items-center justify-center gap-1 overflow-hidden rounded-lg border border-white/10 bg-slate-950/45 p-1">
       <div className="mr-1 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-600">Runes</div>
-      {runes.slice(0, 6).map((card) => <BoardCard card={card} flipped={tone === "opponent"} key={`rune-${card.id}`} rune />)}
+      {runes.slice(0, 12).map((card) => <BoardCard card={card} flipped={tone === "opponent"} key={`rune-${card.id}`} rune />)}
       {hidden > 0 ? <HiddenCount label="deck" value={hidden} /> : null}
       {!runes.length && !hidden ? <EmptyZone label="No runes" /> : null}
     </div>
@@ -902,25 +952,27 @@ function TrashPopover({ onClose, player, zone }: { onClose: () => void; player: 
 
 function BoardCard({
   card,
+  compact = false,
   flipped = false,
   landscape = false,
   rune = false,
   small = false,
 }: {
   card: ReplayCard;
+  compact?: boolean;
   flipped?: boolean;
   landscape?: boolean;
   rune?: boolean;
   small?: boolean;
 }) {
-  const dimensions = landscape ? "h-14 w-24" : rune ? "h-12 w-12" : small ? "h-16 w-11" : "h-24 w-[68px]";
+  const dimensions = landscape ? "h-10 w-24" : rune ? "h-10 w-10" : compact ? "h-14 w-10" : small ? "h-[68px] w-12" : "h-20 w-[58px]";
   const transform = flipped ? "rotate-180" : "";
   if (card.imageUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         alt={card.name}
-        className={cn(dimensions, transform, "rounded-lg border border-black/70 object-cover shadow-[0_8px_18px_rgba(0,0,0,0.45)]")}
+        className={cn(dimensions, transform, "rounded-lg border border-black/70 bg-black object-contain shadow-[0_8px_18px_rgba(0,0,0,0.45)]")}
         src={card.imageUrl}
         title={card.name}
       />
@@ -943,19 +995,19 @@ function EmptyZone({ label }: { label: string }) {
 
 function FocusedCard({ card }: { card: ReplayCard }) {
   return (
-    <div className="space-y-3">
-      <div className="mx-auto max-w-[220px]">
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="mx-auto flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         {card.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img alt={card.name} className="mx-auto aspect-[0.72] max-h-72 rounded-xl border border-white/10 object-cover shadow-2xl" src={card.imageUrl} />
+          <img alt={card.name} className="max-h-full w-auto max-w-full rounded-xl border border-white/10 object-contain shadow-2xl" src={card.imageUrl} />
         ) : (
-          <div className="flex aspect-[0.72] max-h-72 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/8 p-4 text-center font-bold text-cyan-100">
+          <div className="flex h-full max-h-full w-full max-w-[180px] items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/8 p-4 text-center font-bold text-cyan-100">
             {card.name}
           </div>
         )}
       </div>
-      <div>
-        <div className="font-display text-lg font-bold text-white">{card.name}</div>
+      <div className="min-w-0">
+        <div className="truncate font-display text-sm font-bold text-white">{card.name}</div>
         <div className="text-xs text-slate-400">{card.code || card.type || "Replay card"}</div>
       </div>
     </div>
@@ -971,22 +1023,26 @@ function EventRail({
   onSelect: (index: number) => void;
   selectedIndex: number;
 }) {
+  const indexedEvents = events
+    .map((event, index) => ({ event, index }))
+    .filter(({ event }) => shouldShowReplayEvent(event));
   const windowSize = 18;
-  const windowStart = Math.max(0, Math.min(selectedIndex - 6, Math.max(0, events.length - windowSize)));
-  const visibleEvents = events.slice(windowStart, windowStart + windowSize);
+  const selectedVisibleIndex = Math.max(0, indexedEvents.findIndex(({ index }) => index >= selectedIndex));
+  const windowStart = Math.max(0, Math.min(selectedVisibleIndex - 6, Math.max(0, indexedEvents.length - windowSize)));
+  const visibleEvents = indexedEvents.slice(windowStart, windowStart + windowSize);
+  const firstTs = events.find((event) => event.ts)?.ts;
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <div className="border-b border-white/[0.08] px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Chat / events</div>
           <div className="font-mono text-[10px] text-slate-600">
-            {events.length ? `${windowStart + 1}-${Math.min(events.length, windowStart + windowSize)} / ${events.length}` : "0 / 0"}
+            {indexedEvents.length ? `${windowStart + 1}-${Math.min(indexedEvents.length, windowStart + windowSize)} / ${indexedEvents.length}` : "0 / 0"}
           </div>
         </div>
       </div>
       <div className="min-h-0 space-y-1 overflow-y-auto p-3">
-        {visibleEvents.map((item, offset) => {
-          const index = windowStart + offset;
+        {visibleEvents.map(({ event: item, index }) => {
           return (
           <button
             className={cn(
@@ -997,7 +1053,7 @@ function EventRail({
             onClick={() => onSelect(index)}
             type="button"
           >
-            <span className="font-mono text-xs text-slate-500">{relativeEventTime(events[0]?.ts, item.ts)}</span>
+            <span className="font-mono text-xs text-slate-500">{relativeEventTime(firstTs, item.ts)}</span>
             <span className="min-w-0">
               <span className="block truncate">{item.label}</span>
               {item.detail ? <span className="block truncate text-xs text-slate-500">{item.detail}</span> : null}
@@ -1316,6 +1372,17 @@ function findZoneByKey(player: ReplayPlayer | undefined, keys: string[]): Replay
   );
 }
 
+function zoneCardsExact(player: ReplayPlayer | undefined, key: string): ReplayCard[] {
+  if (!player) return [];
+  const normalizedKey = normalizeLabel(key);
+  return (
+    player.zones.find((zone) => {
+      const zoneKey = normalizeLabel(zone.id.split(":").pop() || zone.name);
+      return zoneKey === normalizedKey;
+    })?.cards ?? []
+  );
+}
+
 function zoneCards(player: ReplayPlayer | undefined, hints: string[]): ReplayCard[] {
   if (!player) return [];
   const normalizedHints = hints.map(normalizeLabel);
@@ -1358,35 +1425,96 @@ function findFrameWithZone(frames: ReplayFrame[], keys: string[]) {
 }
 
 function findFrameWithBattlefields(frames: ReplayFrame[]) {
-  return frames.find((frame) => frame.players.some((player) => player.battlefield || findZoneByKey(player, ["battlefield"])?.cards.length));
+  return frames.find((frame) => frame.players.some((player) => player.battlefield));
 }
 
-function findRolls(events: ReplayTimelineEvent[], players: Array<ReplayPlayer | undefined>) {
+function findFrameWithRolls(frames: ReplayFrame[]) {
+  return (
+    frames.find((frame) => Object.values(frame.roomState?.initiativeRolls ?? {}).filter((value) => Number.isFinite(value)).length >= 2) ??
+    frames.find((frame) => Object.values(frame.roomState?.initiativeRolls ?? {}).some((value) => Number.isFinite(value)))
+  );
+}
+
+function findFrameWithMulligan(frames: ReplayFrame[]) {
+  return (
+    frames.find((frame) => Object.keys(frame.roomState?.mulliganPlaybackByPlayerId ?? {}).length > 0) ??
+    frames.find((frame) => /mulligan/i.test(frame.label))
+  );
+}
+
+function findRolls(events: ReplayTimelineEvent[], players: Array<ReplayPlayer | undefined>, roomState?: ReplayRoomState) {
   const rolls = new Map<string, number>();
   const nameToId = new Map<string, string>();
   players.forEach((player) => {
     if (!player) return;
     nameToId.set(normalizeLabel(player.name), player.id);
   });
+  for (const [playerId, value] of Object.entries(roomState?.initiativeRolls ?? {})) {
+    if (!Number.isFinite(value)) continue;
+    rolls.set(playerId, value);
+    const player = players.find((item) => item?.id === playerId);
+    if (player) rolls.set(normalizeLabel(player.name), value);
+  }
   for (const event of events) {
     const text = `${event.label} ${event.detail ?? ""}`;
-    const match = text.match(/([A-Za-z0-9_\-\s.'[\]]{2,40})\s+rolled\s+(\d{1,2})/i);
-    if (!match) continue;
-    const name = normalizeLabel(match[1].replace(/^\[[^\]]+\]\s*/, "").trim());
-    const value = Number(match[2]);
-    if (!Number.isFinite(value)) continue;
-    rolls.set(name, value);
-    const playerId = nameToId.get(name);
-    if (playerId) rolls.set(playerId, value);
+    for (const match of text.matchAll(/([A-Za-z0-9_\-\s.'[\]]{2,48})\s+rolled\s+(\d{1,2})/gi)) {
+      const name = normalizeLabel(match[1].replace(/^\[[^\]]+\]\s*/, "").trim());
+      const value = Number(match[2]);
+      if (!Number.isFinite(value)) continue;
+      rolls.set(name, value);
+      const playerId = nameToId.get(name);
+      if (playerId) rolls.set(playerId, value);
+    }
   }
   return rolls;
 }
 
-function findFirstPlayerText(events: ReplayTimelineEvent[]) {
-  const event = events.find((item) => /go first|goes first|chose to go/i.test(`${item.label} ${item.detail ?? ""}`));
+function findFirstPlayerText(events: ReplayTimelineEvent[], players: Array<ReplayPlayer | undefined>, roomState?: ReplayRoomState) {
+  const firstPlayer = players.find((player) => player?.id === roomState?.firstPlayerId);
+  if (firstPlayer) return `${firstPlayer.name} goes first.`;
+  const event = events.find((item) => /go first|goes first|chose to go|take the first turn/i.test(`${item.label} ${item.detail ?? ""}`));
   const text = event?.detail || event?.label;
   if (!text) return "";
   return text.replace(/^Chat message\s*/i, "").trim();
+}
+
+function shouldShowReplayEvent(event: ReplayTimelineEvent) {
+  const text = `${event.label} ${event.detail ?? ""}`.trim();
+  if (/^chat sync$/i.test(text)) return false;
+  if (/room state updated|board snapshot|patch committed|state update|authoritative|presence event|presence update/i.test(text)) return false;
+  if (/^(insert|remove|patch card fields):/i.test(event.label)) return false;
+  if (["room_shell_sync", "authoritative_snapshot", "set_room_fields", "set_player_fields", "log_remove", "presence_event", "presence_update"].includes(event.type)) return false;
+  return /rolled|mulligan|game start|score|chose|go first|played|moved|recycled|ended their turn|chat|attack|pass|resolve|chain|exhaust|rune|trash/i.test(text) || event.type === "log_insert" || event.packetType === "chat_append";
+}
+
+function combineRoomState(primary?: ReplayRoomState, fallback?: ReplayRoomState): ReplayRoomState | undefined {
+  if (!primary && !fallback) return undefined;
+  return {
+    ...fallback,
+    ...primary,
+    activeTurnPlayerId: primary?.activeTurnPlayerId || fallback?.activeTurnPlayerId,
+    firstPlayerId: primary?.firstPlayerId || fallback?.firstPlayerId,
+    initiativeRolls: {
+      ...(fallback?.initiativeRolls ?? {}),
+      ...(primary?.initiativeRolls ?? {}),
+    },
+    mulliganPlaybackByPlayerId: {
+      ...(fallback?.mulliganPlaybackByPlayerId ?? {}),
+      ...(primary?.mulliganPlaybackByPlayerId ?? {}),
+    },
+    phase: primary?.phase || fallback?.phase,
+  };
+}
+
+function mulliganSummary(player: ReplayPlayer | undefined, roomState: ReplayRoomState | undefined) {
+  if (!player) return "";
+  const raw = roomState?.mulliganPlaybackByPlayerId?.[player.id];
+  if (!raw || typeof raw !== "object") return "";
+  const record = raw as { redrawCount?: unknown; draws?: unknown[] };
+  const redrawCount = typeof record.redrawCount === "number" ? record.redrawCount : undefined;
+  if (redrawCount === undefined) return "";
+  if (redrawCount <= 0) return "Kept opening hand";
+  return `${redrawCount} recycled, ${redrawCount} redrawn`;
 }
 
 function normalizeLabel(value: string) {
