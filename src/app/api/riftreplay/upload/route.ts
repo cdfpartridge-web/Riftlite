@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 
+import { put } from "@vercel/blob";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -78,7 +79,7 @@ export async function POST(request: Request) {
   const capture = isRecord(root.capture) ? root.capture : {};
   const identity = isRecord(capture.identity) ? capture.identity : {};
 
-  const chunks = splitIntoChunks(parsed.data.payloadGzipBase64, CHUNK_CHAR_SIZE);
+  const storage = await storeCompressedPayload(replayId, compressed, parsed.data.payloadGzipBase64);
   const docRef = db.collection("riftReplays").doc(replayId);
   const batch = db.batch();
   batch.set(docRef, {
@@ -92,15 +93,19 @@ export async function POST(request: Request) {
     roomCode: metadata.roomCode || stringValue(identity.roomCode),
     captureSessionId: metadata.captureSessionId || stringValue(capture.captureSessionId),
     messageCount,
-    chunkCount: chunks.length,
+    storageProvider: storage.provider,
+    blobUrl: storage.blobUrl,
+    blobPath: storage.blobPath,
+    chunkCount: storage.chunks.length,
     compressedBytes: compressed.length,
     rawBytes: Buffer.byteLength(rawText, "utf8"),
     schema: stringValue(root.schema),
     version: numberValue(root.version) ?? null,
+    canonicalPath: `/replay/${replayId}`,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });
-  chunks.forEach((chunk, index) => {
+  storage.chunks.forEach((chunk, index) => {
     batch.set(docRef.collection("chunks").doc(index.toString().padStart(4, "0")), {
       index,
       data: chunk,
@@ -113,7 +118,8 @@ export async function POST(request: Request) {
     {
       replayId,
       visibility,
-      url: `${origin.replace(/\/$/, "")}/riftreplay/${encodeURIComponent(replayId)}`,
+      url: `${origin.replace(/\/$/, "")}/replay/${encodeURIComponent(replayId)}`,
+      libraryUrl: `${origin.replace(/\/$/, "")}/replays`,
     },
     {
       headers: {
@@ -121,6 +127,32 @@ export async function POST(request: Request) {
       },
     },
   );
+}
+
+async function storeCompressedPayload(replayId: string, compressed: Buffer, payloadGzipBase64: string) {
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const blob = await put(`replays/${replayId}.json.gz`, compressed, {
+        access: "public",
+        addRandomSuffix: false,
+        contentType: "application/gzip",
+      });
+      return {
+        provider: "vercel-blob",
+        blobUrl: blob.url,
+        blobPath: "pathname" in blob ? String(blob.pathname) : `replays/${replayId}.json.gz`,
+        chunks: [] as string[],
+      };
+    } catch {
+      // Firestore chunks remain the safe fallback when Blob is not available on an environment.
+    }
+  }
+  return {
+    provider: "firestore-chunks",
+    blobUrl: "",
+    blobPath: "",
+    chunks: splitIntoChunks(payloadGzipBase64, CHUNK_CHAR_SIZE),
+  };
 }
 
 function bearerToken(value: string | null) {

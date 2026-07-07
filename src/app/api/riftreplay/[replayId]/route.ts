@@ -1,5 +1,6 @@
 import { gunzipSync } from "node:zlib";
 
+import type { DocumentData, DocumentReference } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
@@ -37,15 +38,19 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
   }
 
-  const chunkSnap = await doc.ref.collection("chunks").orderBy("index", "asc").get();
-  const base64 = chunkSnap.docs.map((chunk) => String(chunk.data().data ?? "")).join("");
-  if (!base64) {
+  let compressed = Buffer.alloc(0);
+  try {
+    compressed = await readCompressedPayload(doc.ref, metadata);
+  } catch {
+    return NextResponse.json({ error: "Replay payload could not be loaded." }, { status: 500 });
+  }
+  if (!compressed.length) {
     return NextResponse.json({ error: "Replay payload is missing." }, { status: 404 });
   }
 
   let payload: unknown = null;
   try {
-    payload = JSON.parse(gunzipSync(Buffer.from(base64, "base64")).toString("utf8")) as unknown;
+    payload = JSON.parse(gunzipSync(compressed).toString("utf8")) as unknown;
   } catch {
     return NextResponse.json({ error: "Replay payload could not be decoded." }, { status: 500 });
   }
@@ -61,6 +66,24 @@ export async function GET(request: NextRequest, context: RouteContext) {
       },
     },
   );
+}
+
+async function readCompressedPayload(
+  docRef: DocumentReference<DocumentData>,
+  metadata: Record<string, unknown>,
+) {
+  const blobUrl = String(metadata.blobUrl ?? "");
+  if (metadata.storageProvider === "vercel-blob" && blobUrl) {
+    const response = await fetch(blobUrl, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Replay blob fetch failed: ${response.status}`);
+    }
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  const chunkSnap = await docRef.collection("chunks").orderBy("index", "asc").get();
+  const base64 = chunkSnap.docs.map((chunk) => String(chunk.data().data ?? "")).join("");
+  return base64 ? Buffer.from(base64, "base64") : Buffer.alloc(0);
 }
 
 function publicMetadata(metadata: Record<string, unknown>) {

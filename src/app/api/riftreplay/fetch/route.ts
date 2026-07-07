@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   }
 
   const { replayId, apiKey } = parsed.data;
-  const endpoint = normalizeEndpoint(parsed.data.endpoint ?? "https://test.riftreplay.com");
+  const endpoint = normalizeEndpoint(parsed.data.endpoint ?? "https://riftreplay.com");
   if (!endpoint) {
     return NextResponse.json({ error: "Only test.riftreplay.com and riftreplay.com are supported." }, { status: 400 });
   }

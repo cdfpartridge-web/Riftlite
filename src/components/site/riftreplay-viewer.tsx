@@ -29,7 +29,7 @@ type RiftReplayViewerProps = {
   initialReplayId?: string;
 };
 
-const DEFAULT_ENDPOINT = "https://test.riftreplay.com";
+const DEFAULT_ENDPOINT = "https://riftreplay.com";
 
 export function RiftReplayViewer({ initialReplayId = "" }: RiftReplayViewerProps) {
   const [rawText, setRawText] = useState("");
@@ -121,7 +121,7 @@ export function RiftReplayViewer({ initialReplayId = "" }: RiftReplayViewerProps
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/riftreplay/${encodeURIComponent(trimmedId)}`, {
+      const response = await fetch(`/api/replay/${encodeURIComponent(trimmedId)}`, {
         cache: "no-store",
       });
       const data = (await response.json()) as { payload?: unknown; metadata?: { title?: string }; error?: string };
@@ -207,7 +207,7 @@ export function RiftReplayViewer({ initialReplayId = "" }: RiftReplayViewerProps
                   <input
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-white outline-none focus:border-cyan-300/50"
                     onChange={(event) => setEndpoint(event.target.value)}
-                    placeholder="https://test.riftreplay.com"
+                    placeholder="https://riftreplay.com"
                     value={endpoint}
                   />
                   <Button className="mt-2 w-full" disabled={!replayId.trim() || !apiKey.trim() || loading} onClick={() => void fetchExternalReplay()} size="sm">
