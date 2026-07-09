@@ -1,0 +1,16 @@
+export const MAX_INIT_JSON_BYTES = 64 * 1024;
+export const MAX_VISIBILITY_JSON_BYTES = 8 * 1024;
+export const MAX_RAW_GZIP_BYTES = 4 * 1024 * 1024;
+export const MAX_RAW_JSON_BYTES = 32 * 1024 * 1024;
+export const MAX_CANONICAL_JSON_BYTES = 32 * 1024 * 1024;
+export const MAX_CANONICAL_GZIP_BYTES = 4 * 1024 * 1024;
+export const FIRESTORE_CHUNK_CHAR_SIZE = 450_000;
+export const MAX_FIRESTORE_ARTIFACT_CHUNKS = 24;
+export const DEFAULT_REPLAY_LIST_LIMIT = 48;
+export const MAX_REPLAY_LIST_LIMIT = 100;
+export const FIRESTORE_ARTIFACT_FALLBACK_ENV = "REPLAY_V2_ALLOW_FIRESTORE_ARTIFACTS";
+
+export const REPLAY_COLLECTION = "replayV2";
+export const REPLAY_OWNER_COLLECTION = "replayV2Owners";
+export const REPLAY_PUBLIC_COLLECTION = "replayV2Public";
+export const REPLAY_ARTIFACT_COLLECTION = "replayV2Artifacts";
