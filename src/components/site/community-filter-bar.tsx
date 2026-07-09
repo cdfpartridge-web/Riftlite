@@ -24,7 +24,7 @@ export function CommunityFilterBar({ filters }: CommunityFilterBarProps) {
   }
 
   function submit() {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
     for (const [key, value] of Object.entries(form)) {
       if (key === "page" || key === "pageSize") {
         params.set(key, String(value));
@@ -37,11 +37,11 @@ export function CommunityFilterBar({ filters }: CommunityFilterBarProps) {
         params.delete(key);
       }
     }
-    router.push(`${pathname}?${params.toString()}`);
+    router.push(`${pathname ?? "/community"}?${params.toString()}`);
   }
 
   function reset() {
-    router.push(pathname);
+    router.push(pathname ?? "/community");
   }
 
   return (
