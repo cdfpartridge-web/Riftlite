@@ -41,12 +41,15 @@ import {
   gameForState,
   handCards,
   initiativeRoll,
+  isBattlefieldCard,
+  isDuplicateCard,
   legendCard,
   replayDurationMs,
   resolveReplayPlayers,
   sideboardCards,
   turnMarkers,
   visibleCardFields,
+  zoneCards,
   type ReplayPlayerPair,
   type ReplaySceneKind,
   type ReplayTurnMarker,
@@ -112,6 +115,7 @@ export function ReplayV2Player({
   const [currentMs, setCurrentMs] = useState(0);
   const [manualEventIndex, setManualEventIndex] = useState<number | null>(null);
   const [presentation, setPresentation] = useState<PresentationCursor | null>(null);
+  const [completedPreludeGameId, setCompletedPreludeGameId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof PLAYBACK_SPEEDS)[number]>(1);
   const [showMore, setShowMore] = useState(false);
@@ -163,6 +167,7 @@ export function ReplayV2Player({
         const sharedMs = Number.isFinite(sharedSeconds) && sharedSeconds > 0 ? sharedSeconds * 1_000 : 0;
         setCurrentMs(Math.min(replayDurationMs(nextReplay), sharedMs));
         setPresentation(sharedMs > 0 ? null : { gameIndex: 0, stageIndex: 0 });
+        setCompletedPreludeGameId(null);
         setPlaying(false);
       } catch (error: unknown) {
         if (controller.signal.aborted) return;
@@ -298,6 +303,7 @@ export function ReplayV2Player({
       setPlaying(false);
       setManualEventIndex(null);
       setCurrentMs(game?.startedAtMs ?? 0);
+      setCompletedPreludeGameId(null);
       setPresentation({ gameIndex, stageIndex: 0 });
       setMotionSuppressedBriefly();
     },
@@ -314,6 +320,7 @@ export function ReplayV2Player({
         const game = replay.series.games[presentation.gameIndex];
         setPresentation(null);
         setManualEventIndex(null);
+        setCompletedPreludeGameId(game?.id ?? null);
         setCurrentMs(game ? replayGamePlaybackStartMs(game) : currentMs);
         return;
       }
@@ -579,6 +586,7 @@ export function ReplayV2Player({
                 replay={replay}
                 sceneOverride={presentationStage}
                 state={state}
+                suppressCanonicalOpening={completedPreludeGameId === state.gameId}
                 suppressMotion={suppressMotion}
               />
               <InspectorRail
@@ -666,6 +674,7 @@ function ReplayBoard({
   replay,
   sceneOverride,
   state,
+  suppressCanonicalOpening,
   suppressMotion,
 }: {
   currentMs: number;
@@ -678,12 +687,16 @@ function ReplayBoard({
   replay: CanonicalReplayV2;
   sceneOverride: Exclude<ReplaySceneKind, null> | null;
   state: ReplayState;
+  suppressCanonicalOpening: boolean;
   suppressMotion: boolean;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
   const players = useMemo(() => resolveReplayPlayers(replay, state), [replay, state]);
   const battlefields = useMemo(() => battlefieldCards(state, players), [players, state]);
-  const scene = sceneOverride ?? activeScene(replay, state, currentMs);
+  const canonicalScene = activeScene(replay, state, currentMs);
+  const scene = sceneOverride ?? (
+    suppressCanonicalOpening && canonicalScene === "opening" ? null : canonicalScene
+  );
   const action = replay.events[eventIndex];
   useCardMotion(boardRef, eventIndex, suppressMotion);
   useEventEmphasis(boardRef, action);
@@ -697,15 +710,19 @@ function ReplayBoard({
     >
       <PlayerRail
         active={state.room.activeTurnPlayerId === players.top.id}
+        orientation="top"
+        player={players.top}
+      />
+      <PlayerPileStack
         onOpenDiscard={() => onOpenDiscard(players.top)}
         orientation="top"
         player={players.top}
       />
+      <PlayerHeroStack orientation="top" player={players.top} />
       <PlayerHalf
         inspectedCard={inspectedCard}
         onCardHover={onCardHover}
         onCardSelect={onCardSelect}
-        onOpenDiscard={() => onOpenDiscard(players.top)}
         orientation="top"
         player={players.top}
       />
@@ -720,13 +737,17 @@ function ReplayBoard({
         inspectedCard={inspectedCard}
         onCardHover={onCardHover}
         onCardSelect={onCardSelect}
+        orientation="bottom"
+        player={players.bottom}
+      />
+      <PlayerHeroStack orientation="bottom" player={players.bottom} />
+      <PlayerPileStack
         onOpenDiscard={() => onOpenDiscard(players.bottom)}
         orientation="bottom"
         player={players.bottom}
       />
       <PlayerRail
         active={state.room.activeTurnPlayerId === players.bottom.id}
-        onOpenDiscard={() => onOpenDiscard(players.bottom)}
         orientation="bottom"
         player={players.bottom}
       />
@@ -739,7 +760,6 @@ function ReplayBoard({
         <SceneOverlay
           battlefields={battlefields}
           currentMs={currentMs}
-          key={`${scene}-${state.gameId ?? "series"}-${state.phase}-${sceneOverride ?? "canonical"}`}
           playing={playing}
           players={players}
           replay={replay}
@@ -753,19 +773,15 @@ function ReplayBoard({
 
 function PlayerRail({
   active,
-  onOpenDiscard,
   orientation,
   player,
 }: {
   active: boolean;
-  onOpenDiscard: () => void;
   orientation: "top" | "bottom";
   player: ReplayPlayerState;
 }) {
   const legend = legendCard(player);
   const score = player.score ?? looseNumber(player.boardFields.score) ?? looseNumber(player.fields.score) ?? 0;
-  const runeCount = countResource(player, ["runes", "readyRunes", "mana"]);
-  const champion = championCard(player);
   return (
     <header
       className={`${styles.playerRail} ${
@@ -784,15 +800,78 @@ function PlayerRail({
         {active ? "Active turn" : "Waiting"}
       </div>
       <div className={styles.playerRailStats}>
-        {champion ? <span title={cardName(champion)}>Champion · {cardName(champion)}</span> : null}
-        <span>Runes · {runeCount}</span>
-        <span>Deck · {deckCards(player).length}</span>
-        <button onClick={onOpenDiscard} type="button">
-          Trash · {discardCards(player).length}
-        </button>
-        <b aria-label={`${score} points`}>{score}</b>
+        <span className={styles.pointsBadge} data-player-score={score} aria-label={`${score} points`}>
+          <small>Points</small>
+          <b>{score}</b>
+        </span>
       </div>
     </header>
+  );
+}
+
+function PlayerHeroStack({
+  orientation,
+  player,
+}: {
+  orientation: "top" | "bottom";
+  player: ReplayPlayerState;
+}) {
+  const legend = legendCard(player);
+  const champion = championCard(player);
+  return (
+    <aside
+      aria-label={`${player.name} legend and champion`}
+      className={`${styles.playerHeroStack} ${
+        orientation === "top" ? styles.playerHeroStackTop : styles.playerHeroStackBottom
+      }`}
+    >
+      <span>{player.name}</span>
+      {legend ? (
+        <CardTile card={legend} orientation={orientation} size="hero" />
+      ) : (
+        <HeroPlaceholder label="Legend" />
+      )}
+      {champion ? (
+        <CardTile card={champion} orientation={orientation} size="hero" />
+      ) : (
+        <HeroPlaceholder label="Champion" />
+      )}
+    </aside>
+  );
+}
+
+function PlayerPileStack({
+  onOpenDiscard,
+  orientation,
+  player,
+}: {
+  onOpenDiscard: () => void;
+  orientation: "top" | "bottom";
+  player: ReplayPlayerState;
+}) {
+  const deck = deckCards(player);
+  const discard = discardCards(player);
+  const deckPile = <CardPile count={deck.length} kind="deck" label="Deck" orientation={orientation} />;
+  const discardPile = (
+    <CardPile
+      card={discard.at(-1)}
+      count={discard.length}
+      kind="discard"
+      label="Trash"
+      onClick={onOpenDiscard}
+      orientation={orientation}
+    />
+  );
+  return (
+    <aside
+      aria-label={`${player.name} deck and trash`}
+      className={`${styles.playerPileStack} ${
+        orientation === "top" ? styles.playerPileStackTop : styles.playerPileStackBottom
+      }`}
+    >
+      {orientation === "top" ? deckPile : discardPile}
+      {orientation === "top" ? discardPile : deckPile}
+    </aside>
   );
 }
 
@@ -800,21 +879,17 @@ function PlayerHalf({
   inspectedCard,
   onCardHover,
   onCardSelect,
-  onOpenDiscard,
   orientation,
   player,
 }: {
   inspectedCard: ReplayCardState | null;
   onCardHover: (card: ReplayCardState | null) => void;
   onCardSelect: (card: ReplayCardState) => void;
-  onOpenDiscard: () => void;
   orientation: "top" | "bottom";
   player: ReplayPlayerState;
 }) {
   const hand = handCards(player);
   const zones = boardZones(player);
-  const deck = deckCards(player);
-  const discard = discardCards(player);
   const handRow = (
     <div className={`${styles.handRow} ${orientation === "top" ? styles.handRowTop : styles.handRowBottom}`}>
       <span className={styles.zoneLabel}>Hand · {hand.length}</span>
@@ -844,7 +919,6 @@ function PlayerHalf({
     >
       {orientation === "top" ? handRow : null}
       <div className={styles.boardLine}>
-        <CardPile count={deck.length} kind="deck" label="Deck" orientation={orientation} />
         <div className={styles.boardLanes}>
           {zones.map((zone, zoneIndex) => (
             <div className={styles.boardLane} key={zone.key}>
@@ -866,17 +940,71 @@ function PlayerHalf({
             </div>
           ))}
         </div>
-        <RuneWell count={countResource(player, ["runes", "readyRunes", "mana"])} />
-        <CardPile
-          card={discard.at(-1)}
-          count={discard.length}
-          kind="discard"
-          label="Trash"
-          onClick={onOpenDiscard}
-          orientation={orientation}
-        />
       </div>
+      <RuneRail
+        inspectedCard={inspectedCard}
+        onCardHover={onCardHover}
+        onCardSelect={onCardSelect}
+        orientation={orientation}
+        player={player}
+      />
       {orientation === "bottom" ? handRow : null}
+    </div>
+  );
+}
+
+function RuneRail({
+  inspectedCard,
+  onCardHover,
+  onCardSelect,
+  orientation,
+  player,
+}: {
+  inspectedCard: ReplayCardState | null;
+  onCardHover: (card: ReplayCardState | null) => void;
+  onCardSelect: (card: ReplayCardState) => void;
+  orientation: "top" | "bottom";
+  player: ReplayPlayerState;
+}) {
+  const runeArea = zoneCards(player, ["runeArea"]);
+  const runeDeck = zoneCards(player, ["runeDeck"]);
+  const capacity = Math.max(12, runeArea.length + runeDeck.length);
+  const emptySlots = Math.max(0, capacity - runeArea.length);
+
+  return (
+    <div
+      aria-label={`${player.name} rune cards`}
+      className={`${styles.runeRail} ${orientation === "top" ? styles.runeRailTop : styles.runeRailBottom}`}
+      data-rune-rail
+    >
+      <div
+        aria-label={`${player.name} rune deck, ${runeDeck.length} cards`}
+        className={styles.runeDeck}
+        data-rune-deck-count={runeDeck.length}
+        role="img"
+      >
+        <span className={styles.runeDeckStack} aria-hidden="true" />
+        <span className={`${styles.runeDeckFace} ${styles.cardBack}`} aria-hidden="true">
+          <span className={styles.cardBackMark}>R</span>
+        </span>
+        <b>{runeDeck.length}</b>
+      </div>
+      <div className={styles.runeSlots}>
+        {runeArea.map((card) => (
+          <CardTile
+            card={card}
+            inspected={inspectedCard?.id === card.id}
+            key={card.id}
+            onHover={onCardHover}
+            onSelect={onCardSelect}
+            orientation={orientation}
+            size="rune"
+          />
+        ))}
+        {Array.from({ length: emptySlots }, (_, index) => (
+          <span aria-hidden="true" className={styles.runeSlot} data-rune-slot key={`rune-slot-${index}`} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -927,21 +1055,6 @@ function CardPile({
   );
 }
 
-function RuneWell({ count }: { count: number }) {
-  const visible = Math.min(8, Math.max(0, count));
-  return (
-    <div aria-label={`${count} runes`} className={styles.runeWell}>
-      <span className={styles.zoneLabel}>Runes</span>
-      <div>
-        {Array.from({ length: visible }, (_, index) => (
-          <i key={index} />
-        ))}
-        {!visible ? <em>0</em> : null}
-      </div>
-    </div>
-  );
-}
-
 function CardTile({
   card,
   forceFaceDown = false,
@@ -958,7 +1071,7 @@ function CardTile({
   onHover?: (card: ReplayCardState | null) => void;
   onSelect?: (card: ReplayCardState) => void;
   orientation?: "top" | "bottom";
-  size?: "board" | "hand" | "scene" | "discard";
+  size?: "board" | "hand" | "scene" | "discard" | "hero" | "rune";
   style?: CSSProperties;
 }) {
   const [failedImageKey, setFailedImageKey] = useState("");
@@ -966,13 +1079,18 @@ function CardTile({
   const imageKey = `${card.id}|${image ?? ""}`;
   const imageFailed = failedImageKey === imageKey;
   const hidden = forceFaceDown || card.isPlaceholder;
+  const duplicate = !hidden && isDuplicateCard(card);
   return (
     <button
       aria-label={hidden ? "Hidden card" : cardName(card)}
       className={`${styles.cardMotion} ${styles[`cardSize${capitalize(size)}`]} ${
         inspected ? styles.inspectedCard : ""
       }`}
+      data-card-code={card.cardCode}
+      data-card-duplicate={duplicate ? "true" : undefined}
+      data-card-exhausted={card.exhausted ? "true" : "false"}
       data-card-id={card.id}
+      data-rune-card={size === "rune" ? "true" : undefined}
       onBlur={() => onHover?.(null)}
       onClick={() => { if (!hidden) onSelect?.(card); }}
       onFocus={() => onHover?.(hidden ? null : card)}
@@ -997,6 +1115,7 @@ function CardTile({
           <b className={styles.cardCost}>{looseNumber(card.fields.cost)}</b>
         ) : null}
       </span>
+      {duplicate ? <span className={styles.duplicateTag}>Duplicate</span> : null}
     </button>
   );
 }
@@ -1008,82 +1127,150 @@ function CentralArena({
   onCardSelect,
   players,
 }: {
-  battlefields: ReplayCardState[];
+  battlefields: Array<ReplayCardState | undefined>;
   chain: ReplayChainEntry[];
   onCardHover: (card: ReplayCardState | null) => void;
   onCardSelect: (card: ReplayCardState) => void;
   players: ReplayPlayerPair;
 }) {
+  const lanes = [
+    { key: "battlefieldA", label: "Battlefield A" },
+    { key: "battlefieldB", label: "Battlefield B" },
+  ];
   return (
     <div className={styles.centralArena}>
-      <div className={styles.battlefieldStage}>
-        <span className={styles.centralLabel}>Selected battlefields</span>
-        <div className={styles.battlefieldRow}>
-          {battlefields.slice(0, 2).map((card, index) => (
-            <BattlefieldTile
-              card={card}
-              key={card.id}
-              onHover={onCardHover}
-              onSelect={onCardSelect}
-              owner={index === 0 ? players.bottom.name : players.top.name}
+      {lanes.map((lane, index) => {
+        const battlefield = battlefields[index];
+        return (
+          <section className={styles.battlefieldZone} data-battlefield-zone={lane.key} key={lane.key}>
+            <span className={styles.centralLabel}>{lane.label}</span>
+            <BattlefieldUnitRow
+              cards={zoneCards(players.top, [lane.key])}
+              onCardHover={onCardHover}
+              onCardSelect={onCardSelect}
+              orientation="top"
             />
-          ))}
-          {Array.from({ length: Math.max(0, 2 - battlefields.length) }, (_, index) => (
-            <div className={styles.emptyBattlefield} key={`empty-${index}`}>
-              <Icon name="battlefield" />
-              <span>Battlefield</span>
+            <div className={styles.battlefieldCardDock}>
+              {battlefield ? (
+                <BattlefieldTile
+                  card={battlefield}
+                  flipped={index === 1}
+                  onHover={onCardHover}
+                  onSelect={onCardSelect}
+                  owner={index === 0 ? players.bottom.name : players.top.name}
+                />
+              ) : (
+                <div className={styles.emptyBattlefield}>
+                  <Icon name="battlefield" />
+                  <span>Battlefield</span>
+                </div>
+              )}
             </div>
-          ))}
+            <BattlefieldUnitRow
+              cards={zoneCards(players.bottom, [lane.key])}
+              onCardHover={onCardHover}
+              onCardSelect={onCardSelect}
+              orientation="bottom"
+            />
+          </section>
+        );
+      })}
+      {chain.length ? (
+        <div className={styles.chainLane}>
+          <span className={styles.centralLabel}>Chain</span>
+          <div className={styles.chainEntries}>
+            {chain.slice(-5).map((entry, index) => {
+              const card = cardFromChain(entry, index);
+              return card ? (
+                <CardTile
+                  card={card}
+                  key={entry.id}
+                  onHover={onCardHover}
+                  onSelect={onCardSelect}
+                  size="hand"
+                />
+              ) : (
+                <span className={styles.chainToken} key={entry.id}>{index + 1}</span>
+              );
+            })}
+          </div>
         </div>
-      </div>
-      <div className={styles.chainLane}>
-        <span className={styles.centralLabel}>Chain</span>
-        <div className={styles.chainEntries}>
-          {chain.slice(-5).map((entry, index) => {
-            const card = cardFromChain(entry, index);
-            return card ? (
-              <CardTile
-                card={card}
-                key={entry.id}
-                onHover={onCardHover}
-                onSelect={onCardSelect}
-                size="hand"
-              />
-            ) : (
-              <span className={styles.chainToken} key={entry.id}>{index + 1}</span>
-            );
-          })}
-          {!chain.length ? <span className={styles.emptyChain}>No actions on the chain</span> : null}
-        </div>
-      </div>
+      ) : null}
+    </div>
+  );
+}
+
+function BattlefieldUnitRow({
+  cards,
+  onCardHover,
+  onCardSelect,
+  orientation,
+}: {
+  cards: ReplayCardState[];
+  onCardHover: (card: ReplayCardState | null) => void;
+  onCardSelect: (card: ReplayCardState) => void;
+  orientation: "top" | "bottom";
+}) {
+  return (
+    <div className={`${styles.battlefieldUnitRow} ${
+      orientation === "top" ? styles.battlefieldUnitRowTop : styles.battlefieldUnitRowBottom
+    }`}>
+      {cards.slice(0, 7).map((card) => (
+        <CardTile
+          card={card}
+          key={card.id}
+          onHover={onCardHover}
+          onSelect={onCardSelect}
+          orientation={orientation}
+          size="board"
+        />
+      ))}
+      {!cards.length ? <span className={styles.laneGuide}>Open lane</span> : null}
     </div>
   );
 }
 
 function BattlefieldTile({
   card,
+  flipped = false,
   onHover,
   onSelect,
   owner,
 }: {
   card: ReplayCardState;
+  flipped?: boolean;
   onHover: (card: ReplayCardState | null) => void;
   onSelect: (card: ReplayCardState) => void;
   owner: string;
 }) {
+  const [failedImageKey, setFailedImageKey] = useState("");
   const image = cardImageUrl(card);
+  const imageKey = `${card.id}|${image ?? ""}`;
+  const imageFailed = failedImageKey === imageKey;
   return (
     <button
       className={styles.battlefieldTile}
+      data-battlefield-card
+      data-card-code={card.cardCode}
       data-card-id={card.id}
       onBlur={() => onHover(null)}
       onClick={() => onSelect(card)}
       onFocus={() => onHover(card)}
       onMouseEnter={() => onHover(card)}
       onMouseLeave={() => onHover(null)}
-      style={image ? { backgroundImage: `url("${escapeCssUrl(image)}")` } : undefined}
       type="button"
     >
+      {image && !imageFailed ? (
+        // Battlefield scans are portrait files for physically landscape cards.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          className={flipped ? styles.battlefieldImageFlipped : undefined}
+          draggable={false}
+          onError={() => setFailedImageKey(imageKey)}
+          src={image}
+        />
+      ) : <Icon name="battlefield" />}
       <span>{cardName(card)}</span>
       <small>{owner}</small>
     </button>
@@ -1124,7 +1311,7 @@ function SceneOverlay({
   scene,
   state,
 }: {
-  battlefields: ReplayCardState[];
+  battlefields: Array<ReplayCardState | undefined>;
   currentMs: number;
   playing: boolean;
   players: ReplayPlayerPair;
@@ -1156,12 +1343,18 @@ function SceneOverlay({
         <div className={styles.sceneColumn}>
           <SceneHeading eyebrow={`Game ${game?.gameNumber ?? 1}`} title="Selected battlefields" />
           <div className={styles.sceneBattlefields}>
-            {battlefields.slice(0, 2).map((card, index) => (
-              <div key={card.id}>
-                <BattlefieldTile card={card} onHover={() => undefined} onSelect={() => undefined} owner={index ? players.top.name : players.bottom.name} />
+            {battlefields.slice(0, 2).map((card, index) => card ? (
+              <div key={`${index ? players.top.id : players.bottom.id}-${card.id}`}>
+                <BattlefieldTile
+                  card={card}
+                  flipped={index === 1}
+                  onHover={() => undefined}
+                  onSelect={() => undefined}
+                  owner={index ? players.top.name : players.bottom.name}
+                />
               </div>
-            ))}
-            {!battlefields.length ? <p>Battlefield choices are being revealed.</p> : null}
+            ) : null)}
+            {!battlefields.some(Boolean) ? <p>Battlefield choices are being revealed.</p> : null}
           </div>
         </div>
       );
@@ -1240,8 +1433,8 @@ function SceneOverlay({
 
   return (
     <div className={styles.sceneOverlay} data-scene={scene}>
-      <div className={styles.sceneShade} />
-      <div className={styles.sceneContent}>{content}</div>
+      <div className={styles.sceneShade} data-scene-shade />
+      <div className={styles.sceneContent} data-scene-content key={scene}>{content}</div>
       <div className={styles.scenePlaybackState}>
         <Icon name={playing ? "play" : "pause"} />
         {playing ? "Playing" : "Paused"}
@@ -1341,6 +1534,7 @@ function InspectorRail({
 }) {
   const activityRef = useRef<HTMLDivElement>(null);
   const cardImage = cardImageUrl(inspectedCard ?? undefined);
+  const inspectedBattlefield = isBattlefieldCard(inspectedCard ?? undefined);
   const fields = inspectedCard ? visibleCardFields(inspectedCard) : [];
   const activityLength = activityTab === "chat" ? state.chat.length : state.log.length;
   useEffect(() => {
@@ -1370,8 +1564,15 @@ function InspectorRail({
       <section className={styles.cardInspector} aria-live="polite">
         <div className={`${styles.inspectorArt} ${!cardImage ? styles.inspectorArtEmpty : ""}`}>
           {cardImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img alt={inspectedCard ? cardName(inspectedCard) : ""} src={cardImage} />
+            <span
+              className={`${styles.inspectorArtFrame} ${
+                inspectedBattlefield ? styles.inspectorArtFrameBattlefield : ""
+              }`}
+              data-inspector-battlefield={inspectedBattlefield ? "true" : undefined}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img alt={inspectedCard ? cardName(inspectedCard) : ""} src={cardImage} />
+            </span>
           ) : (
             <><Icon name="card" /><span>Hover a card</span></>
           )}
@@ -1904,15 +2105,24 @@ function eventIndexForPresentation(
 ): number {
   const game = replay.series.games[cursor.gameIndex];
   if (!game) return Math.max(0, Math.min(replay.events.length - 1, 0));
-  if (stage === "game_transition" || stage === "matchup") return Math.max(0, game.eventStartIndex);
+  if (stage === "game_transition") {
+    const previousGame = replay.series.games[Math.max(0, cursor.gameIndex - 1)];
+    return Math.max(0, previousGame?.eventEndIndex ?? game.eventStartIndex);
+  }
   if (stage === "game_end") return Math.max(0, game.eventEndIndex);
+  if (stage === "opening") return presentationOpeningEventIndex(replay, game);
+  if (stage === "mulligan") {
+    const mulligan = game.phases.find((phase) => phase.phase === "mulligan");
+    return Math.max(
+      0,
+      Math.min(replay.events.length - 1, mulligan?.endEventIndex ?? presentationSetupEventIndex(replay, game)),
+    );
+  }
+  if (["matchup", "battlefields", "initiative", "game_start"].includes(stage)) {
+    return presentationSetupEventIndex(replay, game);
+  }
 
   const phaseNames: Partial<Record<Exclude<ReplaySceneKind, null>, string[]>> = {
-    battlefields: ["battlefield_pick"],
-    initiative: ["initiative_roll", "first_player_choice"],
-    opening: ["mulligan", "first_player_choice"],
-    mulligan: ["mulligan"],
-    game_start: ["in_game"],
     sideboarding: ["sideboarding"],
   };
   const accepted = new Set(phaseNames[stage] ?? []);
@@ -1921,6 +2131,45 @@ function eventIndexForPresentation(
   if (!phase) return Math.max(0, game.eventStartIndex);
   const index = stage === "game_start" ? phase.startEventIndex : phase.endEventIndex;
   return Math.max(0, Math.min(replay.events.length - 1, index));
+}
+
+function presentationSetupEventIndex(
+  replay: CanonicalReplayV2,
+  game: CanonicalReplayV2["series"]["games"][number],
+): number {
+  const inGame = game.phases.find((phase) => phase.phase === "in_game");
+  if (inGame) {
+    return Math.max(0, Math.min(replay.events.length - 1, inGame.startEventIndex));
+  }
+  const setupEndIndex = game.eventEndIndex;
+  const snapshot = replay.events
+    .filter((event) => (
+      event.index >= game.eventStartIndex &&
+      event.index <= setupEndIndex &&
+      event.kind === "snapshot"
+    ))
+    .at(-1);
+  return Math.max(0, Math.min(replay.events.length - 1, snapshot?.index ?? setupEndIndex));
+}
+
+function presentationOpeningEventIndex(
+  replay: CanonicalReplayV2,
+  game: CanonicalReplayV2["series"]["games"][number],
+): number {
+  const mulligan = game.phases.find((phase) => phase.phase === "mulligan");
+  if (!mulligan) return presentationSetupEventIndex(replay, game);
+  const start = Math.max(game.eventStartIndex, mulligan.startEventIndex);
+  const end = Math.min(game.eventEndIndex, mulligan.endEventIndex);
+  for (let index = start; index <= end; index += 1) {
+    try {
+      const state = seekReplayByEventIndex(replay, index).state;
+      const players = resolveReplayPlayers(replay, state);
+      if (handCards(players.bottom).length || handCards(players.top).length) return index;
+    } catch {
+      // Keep looking for the first projectable opening-hand state.
+    }
+  }
+  return Math.max(0, Math.min(replay.events.length - 1, end));
 }
 
 function presentationStageLabel(stage: Exclude<ReplaySceneKind, null>): string {
@@ -2020,18 +2269,6 @@ function fieldIdentifier(fields: JsonObject, keys: string[]): string | undefined
     }
   }
   return undefined;
-}
-
-function countResource(player: ReplayPlayerState, keys: string[]): number {
-  for (const key of keys) {
-    const value = player.boardFields[key] ?? player.fields[key];
-    const number = looseNumber(value);
-    if (number !== undefined) return Math.max(0, Math.round(number));
-    if (Array.isArray(value)) return value.length;
-    if (isJsonObject(value)) return Object.keys(value).length;
-  }
-  const runeZone = Object.entries(player.zones).find(([key]) => /rune|resource|mana/i.test(key));
-  return runeZone?.[1].length ?? 0;
 }
 
 function relativeReplayTime(replay: CanonicalReplayV2, at: number | undefined): string {

@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
@@ -15,6 +15,10 @@ import { ReplayV2Player, replayGamePlaybackStartMs } from "./ReplayV2Player";
 class TestResizeObserver {
   observe() {}
   disconnect() {}
+}
+
+if (!HTMLElement.prototype.animate) {
+  HTMLElement.prototype.animate = () => ({ pause() {}, play() {} } as Animation);
 }
 
 describe("ReplayV2Player presentation prelude", () => {
@@ -40,6 +44,71 @@ describe("ReplayV2Player presentation prelude", () => {
     });
     expect(view.getByRole("button", { name: "Play replay" })).toBeInTheDocument();
     expect(view.queryByText("Sideboarding")).not.toBeInTheDocument();
+  });
+
+  it("hydrates opener art, keeps its shade mounted, and reveals the selected landscape battlefields", async () => {
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_test" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-scene="matchup"]')).toBeInTheDocument();
+    });
+    const sceneCodes = Array.from(
+      view.container.querySelectorAll<HTMLElement>("[data-scene-content] [data-card-code]"),
+      (element) => element.dataset.cardCode,
+    );
+    expect(sceneCodes).toEqual(expect.arrayContaining(["UNL-199", "UNL-172", "SFD-251", "OGN-232"]));
+    expect(view.container.querySelector('[aria-label$=" runes"]')).not.toBeInTheDocument();
+
+    const shade = view.container.querySelector("[data-scene-shade]");
+    expect(shade).toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Next action" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-scene="battlefields"]')).toBeInTheDocument();
+    });
+    expect(view.container.querySelector("[data-scene-shade]")).toBe(shade);
+    const battlefieldCards = Array.from(
+      view.container.querySelectorAll<HTMLElement>("[data-scene-content] [data-battlefield-card]"),
+    );
+    expect(battlefieldCards).toHaveLength(2);
+    expect(battlefieldCards.map((element) => element.dataset.cardCode)).toEqual(["OGN-297", "SFD-218"]);
+    expect(battlefieldCards.every((element) => Boolean(element.querySelector("img")))).toBe(true);
+  });
+
+  it("renders real rune cards and explicit duplicate markers without the old rune counter", async () => {
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_test" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelectorAll("[data-rune-rail]")).toHaveLength(2);
+    });
+
+    expect(view.container.querySelectorAll("[data-rune-card]")).toHaveLength(2);
+    expect(view.container.querySelectorAll("[data-rune-slot]")).toHaveLength(22);
+    expect(view.container.querySelectorAll('[data-rune-deck-count="11"]')).toHaveLength(2);
+    expect(view.container.querySelectorAll('[data-rune-card][data-card-exhausted="true"]')).toHaveLength(1);
+    expect(view.container.querySelector('[aria-label$=" runes"]')).not.toBeInTheDocument();
+    expect(view.container.querySelector('[data-card-duplicate="true"]')).toHaveTextContent("Duplicate");
+    expect(Array.from(view.container.querySelectorAll<HTMLElement>("[data-player-score]"), (element) => (
+      element.dataset.playerScore
+    ))).toEqual(["5", "7"]);
+  });
+
+  it("shows selected battlefield scans in a landscape inspector frame", async () => {
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_test" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-battlefield-zone="battlefieldA"] [data-battlefield-card]'))
+        .toBeInTheDocument();
+    });
+    const battlefield = view.container.querySelector<HTMLElement>(
+      '[data-battlefield-zone="battlefieldA"] [data-battlefield-card]',
+    );
+    expect(battlefield).not.toBeNull();
+    fireEvent.mouseEnter(battlefield!);
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-inspector-battlefield="true"]')).toBeInTheDocument();
+    });
   });
 
   it("shows a truthful processing state for a 202 replay summary", async () => {
@@ -103,16 +172,46 @@ function sideboardingAtZeroReplay(): CanonicalReplayV2 {
       self: {
         id: "self",
         name: "LeBlanc",
-        fields: {},
+        score: 7,
+        fields: { selectedBattlefield: "Windswept Hillock" },
         boardFields: {},
-        zones: {},
+        zones: {
+          base: [{
+            ...replayCard("self-duplicate", "Ruined Rex", "UNL-067", "mainDeck"),
+            fields: {
+              cardCode: "UNL-067",
+              isDuplicate: true,
+              name: "Ruined Rex",
+              source: "mainDeck",
+            },
+          }],
+          champion: [replayCard("self-champion", "LeBlanc, Fragmented", "UNL-172", "champion")],
+          legend: [replayCard("self-legend", "LeBlanc, Deceiver", "UNL-199", "legend")],
+          runeArea: [{
+            ...replayCard("self-rune", "Order Rune", "OGN-214", "rune"),
+            exhausted: true,
+            fields: {
+              cardCode: "OGN-214",
+              exhausted: true,
+              name: "Order Rune",
+              source: "rune",
+            },
+          }],
+          runeDeck: Array.from({ length: 11 }, (_, index) => hiddenRune(`self-rune-deck-${index}`)),
+        },
       },
       opponent: {
         id: "opponent",
         name: "Fiora",
-        fields: {},
+        score: 5,
+        fields: { selectedBattlefield: "Sunken Temple" },
         boardFields: {},
-        zones: {},
+        zones: {
+          champion: [replayCard("opponent-champion", "Fiora, Victorious", "OGN-232", "champion")],
+          legend: [replayCard("opponent-legend", "Fiora, Grand Duelist", "SFD-251", "legend")],
+          runeArea: [replayCard("opponent-rune", "Body Rune", "OGN-126", "rune")],
+          runeDeck: Array.from({ length: 11 }, (_, index) => hiddenRune(`opponent-rune-deck-${index}`)),
+        },
       },
     },
     chain: [],
@@ -204,5 +303,25 @@ function sideboardingAtZeroReplay(): CanonicalReplayV2 {
     unknownEvents: [],
     diagnostics: [],
     checkpoints: [],
+  };
+}
+
+function replayCard(id: string, name: string, cardCode: string, source: string) {
+  return {
+    id,
+    name,
+    cardCode,
+    source,
+    fields: { cardCode, name, source },
+  };
+}
+
+function hiddenRune(id: string) {
+  return {
+    id,
+    name: "Hidden rune",
+    isPlaceholder: true,
+    source: "runeDeck",
+    fields: { isPlaceholder: true, source: "runeDeck" },
   };
 }

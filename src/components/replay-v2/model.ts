@@ -22,9 +22,81 @@ const NON_BOARD_ZONE_ALIASES = [
   ...DECK_ZONE_ALIASES,
   ...DISCARD_ZONE_ALIASES,
   ...SIDEBOARD_ZONE_ALIASES,
+  "banished",
+  "battlefield",
+  "champion",
   "hidden",
+  "legend",
+  "removed",
+  "rune",
+  "token",
   "unknown",
 ];
+const BATTLEFIELD_CARD_CODES: Record<string, string> = {
+  abandonedhall: "UNL-205",
+  acedemy: "UNL-216",
+  altarofblood: "UNL-206",
+  altartounity: "OGN-275",
+  amateurrecital: "UNL-207",
+  ancienthenge: "SFD-117",
+  academy: "UNL-216",
+  aspirantsclimb: "OGN-276",
+  backalleybar: "OGN-277",
+  bandletree: "OGN-278",
+  blackflamealtar: "UNL-208",
+  dreamingtree: "OGN-292",
+  duskroselab: "UNL-209",
+  emperorsdais: "SFD-207",
+  forbiddingwaste: "UNL-210",
+  forgeofthefluft: "SFD-208",
+  forgottenlibrary: "UNL-211",
+  forgottenmonument: "SFD-209",
+  fortifiedposition: "OGN-279",
+  frozenfortress: "UNL-212",
+  gardensofbecoming: "UNL-213",
+  groveofthegodwillow: "OGN-280",
+  halloflegend: "SFD-210",
+  halloflegends: "SFD-210",
+  hallowedtomb: "OGN-281",
+  maraispire: "SFD-211",
+  minefield: "SFD-212",
+  monasteryofhirana: "OGN-282",
+  navorifightingpit: "OGN-283",
+  obeliskofpower: "OGN-284",
+  ornnsforge: "SFD-213",
+  powernexus: "SFD-214",
+  ravenbloomconservatory: "SFD-215",
+  ravensbloomconservatory: "SFD-215",
+  reaversrow: "OGN-285",
+  reckonersarena: "OGN-286",
+  rippersbay: "UNL-214",
+  rockfallpath: "SFD-216",
+  seatofpower: "SFD-217",
+  sigilofthestorm: "OGN-287",
+  starspring: "UNL-215",
+  startippedpeak: "OGN-288",
+  sunkentemple: "SFD-218",
+  targonspeak: "OGN-289",
+  theacedemy: "UNL-216",
+  theacademy: "UNL-216",
+  thearenasgreatest: "OGN-290",
+  thecandlelitsanctum: "OGN-291",
+  thedreamingtree: "OGN-292",
+  thegrandplaza: "OGN-293",
+  thepapertree: "SFD-219",
+  trappinggrounds: "UNL-217",
+  treasurehoard: "SFD-220",
+  trifarianwarcamp: "OGN-294",
+  vaultofhelia: "UNL-219",
+  vaultsofhelia: "UNL-219",
+  valleyofidols: "UNL-218",
+  veiledtemple: "SFD-221",
+  vilemawslair: "OGN-295",
+  voidgate: "OGN-296",
+  windswepthillock: "OGN-297",
+  zaunwarrens: "OGN-298",
+};
+const BATTLEFIELD_CARD_CODE_SET = new Set(Object.values(BATTLEFIELD_CARD_CODES));
 
 export type ReplayPlayerPair = {
   bottom: ReplayPlayerState;
@@ -150,6 +222,42 @@ export function cardName(card: ReplayCardState): string {
   return card.name || card.cardCode || "Unknown card";
 }
 
+export function isDuplicateCard(card: ReplayCardState | undefined): boolean {
+  const value = card?.fields.isDuplicate;
+  return (
+    value === true ||
+    value === 1 ||
+    (typeof value === "string" && value.trim().toLowerCase() === "true")
+  );
+}
+
+export function isBattlefieldCard(card: ReplayCardState | undefined): boolean {
+  if (!card) return false;
+
+  const sourceMarkers = [
+    card.source,
+    card.fields.source,
+    card.fields.type,
+    card.fields.cardType,
+    card.fields.kind,
+  ];
+  if (
+    sourceMarkers.some((value) => {
+      if (typeof value !== "string") return false;
+      const normalized = normalizeKey(value);
+      return normalized === "battlefield" || normalized === "battlefieldcard";
+    })
+  ) {
+    return true;
+  }
+
+  const code = cardCodeFromValue(card.cardCode) || card.cardCode;
+  return (
+    Boolean(BATTLEFIELD_CARD_CODES[normalizeKey(card.name)]) ||
+    Boolean(code && BATTLEFIELD_CARD_CODE_SET.has(code.toUpperCase()))
+  );
+}
+
 export function cardImageUrl(card: ReplayCardState | undefined): string | undefined {
   if (!card || card.isPlaceholder) return undefined;
   const fields = card.fields;
@@ -163,7 +271,11 @@ export function cardImageUrl(card: ReplayCardState | undefined): string | undefi
   );
   const safeDirect = safeCardImageUrl(direct);
   if (safeDirect) return safeDirect;
-  const code = card.cardCode || cardCodeFromValue(card.id) || cardCodeFromValue(card.name);
+  const code =
+    card.cardCode ||
+    cardCodeFromValue(card.id) ||
+    cardCodeFromValue(card.name) ||
+    BATTLEFIELD_CARD_CODES[normalizeKey(card.name)];
   return code ? `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp` : undefined;
 }
 
@@ -195,59 +307,83 @@ export function cardCodeFromValue(value: string | undefined): string | undefined
 }
 
 export function legendCard(player: ReplayPlayerState): ReplayCardState | undefined {
-  const candidates = [
-    player.fields.legend,
-    player.fields.legendCard,
-    player.fields.champion,
-    player.boardFields.legend,
-    player.boardFields.legendCard,
-  ];
-  for (const candidate of candidates) {
-    const card = looseCard(candidate, `${player.id}-legend`);
-    if (card) return card;
-  }
-  return undefined;
+  return identityCard(player, {
+    fieldCandidates: [
+      player.fields.legend,
+      player.fields.legendCard,
+      player.boardFields.legend,
+      player.boardFields.legendCard,
+    ],
+    kind: "legend",
+  });
 }
 
 export function championCard(player: ReplayPlayerState): ReplayCardState | undefined {
-  const candidates = [
-    player.fields.champion,
-    player.fields.championCard,
-    player.fields.signatureUnit,
-    player.boardFields.champion,
-    player.boardFields.championCard,
-  ];
-  for (const candidate of candidates) {
-    const card = looseCard(candidate, `${player.id}-champion`);
-    if (card) return card;
-  }
-  return undefined;
+  return identityCard(player, {
+    fieldCandidates: [
+      player.fields.champion,
+      player.fields.championCard,
+      player.fields.signatureUnit,
+      player.boardFields.champion,
+      player.boardFields.championCard,
+    ],
+    kind: "champion",
+  });
 }
 
-export function battlefieldCards(state: ReplayState, players: ReplayPlayerPair): ReplayCardState[] {
-  const candidates: JsonValue[] = [];
-  const roomFields = state.room.fields;
-  for (const key of [
-    "battlefields",
-    "battlefieldCards",
-    "selectedBattlefields",
-    "availableBattlefields",
-    "battlefieldOptions",
-  ]) {
-    const value = roomFields[key];
-    if (value !== undefined) candidates.push(value);
-  }
-  for (const player of [players.bottom, players.top]) {
-    for (const key of ["battlefield", "selectedBattlefield", "battlefieldCard", "battlefieldOptions"]) {
-      const value = player.boardFields[key] ?? player.fields[key];
-      if (value !== undefined) candidates.push(value);
+export function battlefieldCards(
+  state: ReplayState,
+  players: ReplayPlayerPair,
+): Array<ReplayCardState | undefined> {
+  const playerOrder = [players.bottom, players.top];
+  const catalog = battlefieldCatalog(playerOrder);
+  const selected = playerOrder.map((player, index) => {
+    const value = firstDefined(
+      player.boardFields.selectedBattlefield,
+      player.fields.selectedBattlefield,
+      player.boardFields.battlefieldCard,
+      player.fields.battlefieldCard,
+      player.boardFields.battlefield,
+      player.fields.battlefield,
+    );
+    const card = looseCard(value, `battlefield-selected-${player.id}-${index}`);
+    return card ? enrichBattlefieldCard(card, catalog) : undefined;
+  });
+
+  // The two player selections are positional. Do not collapse them if both
+  // players legitimately chose the same battlefield.
+  if (selected.every(Boolean)) return selected;
+
+  for (const key of ["selectedBattlefields", "battlefields", "battlefieldCards"]) {
+    const value = state.room.fields[key];
+    if (value === undefined) continue;
+    const candidates = looseCards(value, `battlefield-room-${key}`)
+      .slice(0, 2)
+      .map((card) => enrichBattlefieldCard(card, catalog));
+    if (candidates.length >= 2) {
+      if (!selected[0]) selected[0] = candidates[0];
+      if (!selected[1]) selected[1] = candidates[1];
+    } else if (candidates[0]) {
+      const missingIndex = selected.findIndex((card) => !card);
+      if (missingIndex >= 0) selected[missingIndex] = candidates[0];
     }
+    if (selected.every(Boolean)) return selected;
   }
 
-  const cards = candidates.flatMap((candidate, index) => looseCards(candidate, `battlefield-${index}`));
-  const unique = new Map<string, ReplayCardState>();
-  for (const card of cards) unique.set(card.id || card.cardCode || card.name, card);
-  return Array.from(unique.values()).slice(0, 3);
+  // Option lists are diagnostic fallbacks only. Fill the corresponding
+  // player's missing slot without moving the other player's selection.
+  for (const [index, player] of playerOrder.entries()) {
+    if (selected[index]) continue;
+    const value = player.boardFields.battlefieldOptions ?? player.fields.battlefieldOptions;
+    if (value === undefined) continue;
+    const candidates = looseCards(value, `battlefield-options-${player.id}`)
+      .map((card) => enrichBattlefieldCard(card, catalog));
+    const otherSelection = selected[index === 0 ? 1 : 0];
+    const otherIdentity = otherSelection ? battlefieldIdentity(otherSelection) : "";
+    selected[index] = candidates.find((card) => battlefieldIdentity(card) !== otherIdentity) ?? candidates[0];
+  }
+
+  return selected;
 }
 
 export function initiativeRoll(player: ReplayPlayerState, state: ReplayState): number | undefined {
@@ -404,6 +540,82 @@ export function gameForState(replay: CanonicalReplayV2, state: ReplayState) {
 
 export function isRecord(value: unknown): value is Record<string, JsonValue> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function identityCard(
+  player: ReplayPlayerState,
+  options: { fieldCandidates: Array<JsonValue | undefined>; kind: "legend" | "champion" },
+): ReplayCardState | undefined {
+  const exactZone = zoneCards(player, [options.kind]).find((card) => !card.isPlaceholder);
+  if (exactZone) return exactZone;
+
+  for (const candidate of options.fieldCandidates) {
+    const card = looseCard(candidate, `${player.id}-${options.kind}`);
+    if (card) return card;
+  }
+
+  const movedIdentity = Object.values(player.zones)
+    .flat()
+    .find((card) => {
+      const source = firstString(card.source, card.fields.source, card.fields.type);
+      return source ? normalizeKey(source) === options.kind : false;
+    });
+  if (movedIdentity) return movedIdentity;
+
+  for (const deckKey of ["deck", "submittedDeck", "registeredDeck"]) {
+    const deck = player.fields[deckKey];
+    if (!isRecord(deck) || !isRecord(deck.sections)) continue;
+    const section = Object.entries(deck.sections).find(([key]) => normalizeKey(key) === options.kind)?.[1];
+    if (section === undefined) continue;
+    const card = looseCards(section, `${player.id}-${options.kind}-deck`)[0];
+    if (card) return card;
+  }
+  return undefined;
+}
+
+function battlefieldCatalog(players: ReplayPlayerState[]): Map<string, ReplayCardState> {
+  const catalog = new Map<string, ReplayCardState>();
+  for (const player of players) {
+    for (const deckKey of ["deck", "submittedDeck", "registeredDeck"]) {
+      const deck = player.fields[deckKey];
+      if (!isRecord(deck) || !isRecord(deck.sections)) continue;
+      const section = Object.entries(deck.sections)
+        .find(([key]) => normalizeKey(key) === "battlefields")?.[1];
+      if (section === undefined) continue;
+      for (const card of looseCards(section, `${player.id}-battlefield-deck`)) {
+        catalog.set(normalizeKey(card.name), card);
+      }
+    }
+  }
+  return catalog;
+}
+
+function enrichBattlefieldCard(
+  card: ReplayCardState,
+  catalog: Map<string, ReplayCardState>,
+): ReplayCardState {
+  const key = normalizeKey(card.name);
+  const catalogCard = catalog.get(key);
+  const cardCode =
+    card.cardCode ||
+    catalogCard?.cardCode ||
+    cardCodeFromValue(card.name) ||
+    BATTLEFIELD_CARD_CODES[key];
+  return {
+    ...catalogCard,
+    ...card,
+    cardCode,
+    source: "battlefield",
+    fields: { ...(catalogCard?.fields ?? {}), ...card.fields },
+  };
+}
+
+function battlefieldIdentity(card: ReplayCardState): string {
+  return normalizeKey(card.cardCode || card.name || card.id);
+}
+
+function firstDefined(...values: Array<JsonValue | undefined>): JsonValue | undefined {
+  return values.find((value) => value !== undefined && value !== null);
 }
 
 function looseCards(value: JsonValue, idPrefix: string): ReplayCardState[] {
