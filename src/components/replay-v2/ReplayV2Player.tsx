@@ -30,6 +30,7 @@ import styles from "./ReplayV2Player.module.css";
 import {
   activeScene,
   battlefieldCards,
+  battlefieldZoneForPlayer,
   boardZones,
   cardImageUrl,
   cardName,
@@ -891,9 +892,12 @@ function PlayerHalf({
   const hand = handCards(player);
   const zones = boardZones(player);
   const handRow = (
-    <div className={`${styles.handRow} ${orientation === "top" ? styles.handRowTop : styles.handRowBottom}`}>
+    <div
+      className={`${styles.handRow} ${orientation === "top" ? styles.handRowTop : styles.handRowBottom}`}
+      data-hand-row
+    >
       <span className={styles.zoneLabel}>Hand · {hand.length}</span>
-      <div className={styles.handCards}>
+      <div className={styles.handCards} data-hand-cards>
         {hand.slice(0, 12).map((card, index) => (
           <CardTile
             card={card}
@@ -911,13 +915,25 @@ function PlayerHalf({
       </div>
     </div>
   );
+  const handAndRuneRow = (
+    <div className={styles.handAndRuneRow} data-hand-layout={orientation}>
+      {handRow}
+      <RuneRail
+        inspectedCard={inspectedCard}
+        onCardHover={onCardHover}
+        onCardSelect={onCardSelect}
+        orientation={orientation}
+        player={player}
+      />
+    </div>
+  );
 
   return (
     <div
       className={`${styles.playerHalf} ${orientation === "top" ? styles.playerHalfTop : styles.playerHalfBottom}`}
       data-player-id={player.id}
     >
-      {orientation === "top" ? handRow : null}
+      {orientation === "top" ? handAndRuneRow : null}
       <div className={styles.boardLine}>
         <div className={styles.boardLanes}>
           {zones.map((zone, zoneIndex) => (
@@ -941,14 +957,7 @@ function PlayerHalf({
           ))}
         </div>
       </div>
-      <RuneRail
-        inspectedCard={inspectedCard}
-        onCardHover={onCardHover}
-        onCardSelect={onCardSelect}
-        orientation={orientation}
-        player={player}
-      />
-      {orientation === "bottom" ? handRow : null}
+      {orientation === "bottom" ? handAndRuneRow : null}
     </div>
   );
 }
@@ -1090,6 +1099,7 @@ function CardTile({
       data-card-duplicate={duplicate ? "true" : undefined}
       data-card-exhausted={card.exhausted ? "true" : "false"}
       data-card-id={card.id}
+      data-card-size={size}
       data-rune-card={size === "rune" ? "true" : undefined}
       onBlur={() => onHover?.(null)}
       onClick={() => { if (!hidden) onSelect?.(card); }}
@@ -1133,16 +1143,40 @@ function CentralArena({
   onCardSelect: (card: ReplayCardState) => void;
   players: ReplayPlayerPair;
 }) {
+  const preferredTopZone = battlefieldZoneForPlayer(players.top, "battlefieldB");
+  const bottomZone = battlefieldZoneForPlayer(
+    players.bottom,
+    preferredTopZone === "battlefieldA" ? "battlefieldB" : "battlefieldA",
+  );
+  const topZone = preferredTopZone === bottomZone
+    ? (bottomZone === "battlefieldA" ? "battlefieldB" : "battlefieldA")
+    : preferredTopZone;
   const lanes = [
-    { key: "battlefieldA", label: "Battlefield A" },
-    { key: "battlefieldB", label: "Battlefield B" },
+    {
+      battlefield: battlefields[0],
+      flipped: false,
+      key: bottomZone,
+      label: "Battlefield",
+      owner: players.bottom,
+    },
+    {
+      battlefield: battlefields[1],
+      flipped: true,
+      key: topZone,
+      label: "Opponent's battlefield",
+      owner: players.top,
+    },
   ];
   return (
     <div className={styles.centralArena}>
-      {lanes.map((lane, index) => {
-        const battlefield = battlefields[index];
-        return (
-          <section className={styles.battlefieldZone} data-battlefield-zone={lane.key} key={lane.key}>
+      {lanes.map((lane) => (
+        <section
+          className={styles.battlefieldZone}
+          data-battlefield-name={lane.battlefield ? cardName(lane.battlefield) : undefined}
+          data-battlefield-owner={lane.owner.id}
+          data-battlefield-zone={lane.key}
+          key={lane.key}
+        >
             <span className={styles.centralLabel}>{lane.label}</span>
             <BattlefieldUnitRow
               cards={zoneCards(players.top, [lane.key])}
@@ -1151,13 +1185,13 @@ function CentralArena({
               orientation="top"
             />
             <div className={styles.battlefieldCardDock}>
-              {battlefield ? (
+              {lane.battlefield ? (
                 <BattlefieldTile
-                  card={battlefield}
-                  flipped={index === 1}
+                  card={lane.battlefield}
+                  flipped={lane.flipped}
                   onHover={onCardHover}
                   onSelect={onCardSelect}
-                  owner={index === 0 ? players.bottom.name : players.top.name}
+                  owner={lane.owner.name}
                 />
               ) : (
                 <div className={styles.emptyBattlefield}>
@@ -1172,9 +1206,8 @@ function CentralArena({
               onCardSelect={onCardSelect}
               orientation="bottom"
             />
-          </section>
-        );
-      })}
+        </section>
+      ))}
       {chain.length ? (
         <div className={styles.chainLane}>
           <span className={styles.centralLabel}>Chain</span>
@@ -1212,9 +1245,12 @@ function BattlefieldUnitRow({
   orientation: "top" | "bottom";
 }) {
   return (
-    <div className={`${styles.battlefieldUnitRow} ${
-      orientation === "top" ? styles.battlefieldUnitRowTop : styles.battlefieldUnitRowBottom
-    }`}>
+    <div
+      className={`${styles.battlefieldUnitRow} ${
+        orientation === "top" ? styles.battlefieldUnitRowTop : styles.battlefieldUnitRowBottom
+      }`}
+      data-battlefield-unit-row={orientation}
+    >
       {cards.slice(0, 7).map((card) => (
         <CardTile
           card={card}
@@ -1561,13 +1597,14 @@ function InspectorRail({
         <span>Turn {state.room.turnNumber ?? "—"}</span>
       </div>
 
-      <section className={styles.cardInspector} aria-live="polite">
+      <section className={styles.cardInspector} aria-live="polite" data-card-inspector>
         <div className={`${styles.inspectorArt} ${!cardImage ? styles.inspectorArtEmpty : ""}`}>
           {cardImage ? (
             <span
               className={`${styles.inspectorArtFrame} ${
                 inspectedBattlefield ? styles.inspectorArtFrameBattlefield : ""
               }`}
+              data-inspector-art-frame
               data-inspector-battlefield={inspectedBattlefield ? "true" : undefined}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1593,7 +1630,7 @@ function InspectorRail({
         </div>
       </section>
 
-      <section className={styles.activityPanel}>
+      <section className={styles.activityPanel} data-activity-panel>
         <header>
           <div className={styles.activityTabs} role="tablist" aria-label="Replay activity">
             <button

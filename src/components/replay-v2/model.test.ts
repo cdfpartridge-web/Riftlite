@@ -4,6 +4,7 @@ import type { ReplayCardState, ReplayPlayerState, ReplayState } from "@/lib/repl
 
 import {
   battlefieldCards,
+  battlefieldZoneForPlayer,
   boardZones,
   cardImageUrl,
   championCard,
@@ -47,6 +48,18 @@ describe("replay card image URLs", () => {
 });
 
 describe("replay board card interpretation", () => {
+  it("maps Atlas seat ownership to its authoritative battlefield zone", () => {
+    const seatZero = { ...replayPlayer("seat-zero", "Beer", {}), seat: 0 };
+    const seatOne = { ...replayPlayer("seat-one", "BMU", {}), seat: 1 };
+    const seatB = { ...replayPlayer("seat-b", "Player B", {}), seat: "B" };
+    const unknown = replayPlayer("unknown", "Unknown", {});
+
+    expect(battlefieldZoneForPlayer(seatZero, "battlefieldB")).toBe("battlefieldA");
+    expect(battlefieldZoneForPlayer(seatOne, "battlefieldA")).toBe("battlefieldB");
+    expect(battlefieldZoneForPlayer(seatB, "battlefieldA")).toBe("battlefieldB");
+    expect(battlefieldZoneForPlayer(unknown, "battlefieldA")).toBe("battlefieldA");
+  });
+
   it("recognizes only explicit duplicate markers", () => {
     expect(isDuplicateCard({ ...card("boolean", "Copy"), fields: { isDuplicate: true } })).toBe(true);
     expect(isDuplicateCard({ ...card("string", "Copy"), fields: { isDuplicate: " TRUE " } })).toBe(true);

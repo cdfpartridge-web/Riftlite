@@ -93,6 +93,24 @@ describe("ReplayV2Player presentation prelude", () => {
     ))).toEqual(["5", "7"]);
   });
 
+  it("keeps each rune rail adjacent to its hand instead of overlaying it", async () => {
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_test" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelectorAll("[data-hand-layout]")).toHaveLength(2);
+    });
+    for (const player of view.container.querySelectorAll<HTMLElement>("[data-player-id]")) {
+      const handRow = player.querySelector("[data-hand-row]");
+      const runeRail = player.querySelector("[data-rune-rail]");
+      expect(handRow).toBeInTheDocument();
+      expect(runeRail).toBeInTheDocument();
+      expect(handRow?.parentElement).toBe(runeRail?.parentElement);
+    }
+    expect(view.container.querySelectorAll('[data-card-size="hand"]')).toHaveLength(2);
+    expect(view.container.querySelectorAll('[data-card-size="board"]').length).toBeGreaterThanOrEqual(3);
+    expect(view.container.querySelectorAll('[data-card-size="rune"]')).toHaveLength(2);
+  });
+
   it("shows selected battlefield scans in a landscape inspector frame", async () => {
     const view = render(createElement(ReplayV2Player, { replayId: "rp_test" }));
 
@@ -109,6 +127,32 @@ describe("ReplayV2Player presentation prelude", () => {
     await waitFor(() => {
       expect(view.container.querySelector('[data-inspector-battlefield="true"]')).toBeInTheDocument();
     });
+    expect(view.container.querySelector("[data-card-inspector]")).toBeInTheDocument();
+    expect(view.container.querySelector("[data-inspector-art-frame]")).toBeInTheDocument();
+    expect(view.container.querySelector("[data-activity-panel]")).toBeInTheDocument();
+  });
+
+  it("pairs seat-one cards with the capture player's left battlefield", async () => {
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_test" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelectorAll("[data-battlefield-zone]")).toHaveLength(2);
+    });
+    const lanes = Array.from(
+      view.container.querySelectorAll<HTMLElement>("[data-battlefield-zone]"),
+    );
+
+    expect(lanes.map((lane) => ({
+      battlefield: lane.dataset.battlefieldName,
+      owner: lane.dataset.battlefieldOwner,
+      zone: lane.dataset.battlefieldZone,
+    }))).toEqual([
+      { battlefield: "Windswept Hillock", owner: "self", zone: "battlefieldB" },
+      { battlefield: "Sunken Temple", owner: "opponent", zone: "battlefieldA" },
+    ]);
+    expect(lanes[0].querySelector('[aria-label="Black Rose Dignitary"]')).toBeInTheDocument();
+    expect(lanes[1].querySelector('[aria-label="Eager Drakehound"]')).toBeInTheDocument();
+    expect(lanes[0].querySelector('[aria-label="Eager Drakehound"]')).not.toBeInTheDocument();
   });
 
   it("shows a truthful processing state for a 202 replay summary", async () => {
@@ -172,6 +216,7 @@ function sideboardingAtZeroReplay(): CanonicalReplayV2 {
       self: {
         id: "self",
         name: "LeBlanc",
+        seat: 1,
         score: 7,
         fields: { selectedBattlefield: "Windswept Hillock" },
         boardFields: {},
@@ -185,7 +230,14 @@ function sideboardingAtZeroReplay(): CanonicalReplayV2 {
               source: "mainDeck",
             },
           }],
+          battlefieldB: [replayCard(
+            "self-battlefield-unit",
+            "Black Rose Dignitary",
+            "UNL-152",
+            "mainDeck",
+          )],
           champion: [replayCard("self-champion", "LeBlanc, Fragmented", "UNL-172", "champion")],
+          hand: [replayCard("self-hand", "Harnessed Dragon", "OGN-015", "mainDeck")],
           legend: [replayCard("self-legend", "LeBlanc, Deceiver", "UNL-199", "legend")],
           runeArea: [{
             ...replayCard("self-rune", "Order Rune", "OGN-214", "rune"),
@@ -203,11 +255,19 @@ function sideboardingAtZeroReplay(): CanonicalReplayV2 {
       opponent: {
         id: "opponent",
         name: "Fiora",
+        seat: 0,
         score: 5,
         fields: { selectedBattlefield: "Sunken Temple" },
         boardFields: {},
         zones: {
+          battlefieldA: [replayCard(
+            "opponent-battlefield-unit",
+            "Eager Drakehound",
+            "SFD-006",
+            "mainDeck",
+          )],
           champion: [replayCard("opponent-champion", "Fiora, Victorious", "OGN-232", "champion")],
+          hand: [replayCard("opponent-hand", "Eager Apprentice", "OGN-031", "mainDeck")],
           legend: [replayCard("opponent-legend", "Fiora, Grand Duelist", "SFD-251", "legend")],
           runeArea: [replayCard("opponent-rune", "Body Rune", "OGN-126", "rune")],
           runeDeck: Array.from({ length: 11 }, (_, index) => hiddenRune(`opponent-rune-deck-${index}`)),

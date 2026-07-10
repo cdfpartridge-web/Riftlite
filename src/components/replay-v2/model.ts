@@ -103,6 +103,8 @@ export type ReplayPlayerPair = {
   top: ReplayPlayerState;
 };
 
+export type ReplayBattlefieldZoneKey = "battlefieldA" | "battlefieldB";
+
 export type ReplayBoardZone = {
   key: string;
   label: string;
@@ -329,6 +331,21 @@ export function championCard(player: ReplayPlayerState): ReplayCardState | undef
     ],
     kind: "champion",
   });
+}
+
+export function battlefieldZoneForPlayer(
+  player: ReplayPlayerState,
+  fallback: ReplayBattlefieldZoneKey,
+): ReplayBattlefieldZoneKey {
+  const seat = player.seat ?? player.fields.seat ?? player.boardFields.seat;
+  const seatNumber = numberValue(seat);
+  if (seatNumber === 0) return "battlefieldA";
+  if (seatNumber === 1) return "battlefieldB";
+
+  const seatLabel = typeof seat === "string" ? normalizeKey(seat) : "";
+  if (["a", "seata", "left"].includes(seatLabel)) return "battlefieldA";
+  if (["b", "seatb", "right"].includes(seatLabel)) return "battlefieldB";
+  return fallback;
 }
 
 export function battlefieldCards(
