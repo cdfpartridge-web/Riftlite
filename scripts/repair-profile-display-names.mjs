@@ -41,6 +41,8 @@ const stats = {
   aggregatesRepaired: 0,
   hubMembersRepaired: 0,
   hubMessagesRepaired: 0,
+  matchNamesRepaired: 0,
+  discordLinksRepaired: 0,
   invitesRepaired: 0,
   inboxItemsRepaired: 0,
 };
@@ -60,7 +62,7 @@ for (const userDoc of users.docs) {
   if (isGeneric(currentName) || currentName !== displayName) {
     writes.push({
       ref: userDoc.ref,
-      data: { displayName, updatedAt: Date.now() },
+      data: { displayName, profileComplete: Boolean(handle), onboardingVersion: handle ? 1 : 0, updatedAt: Date.now() },
       stat: "usersRepaired",
     });
   }
@@ -101,8 +103,10 @@ for (const userDoc of users.docs) {
 
   await collectCollectionGroupRepairs(writes, "members", "uid", uid, { displayName, handle, updatedAt: Date.now() }, "hubMembersRepaired");
   await collectCollectionGroupRepairs(writes, "messages", "uid", uid, { displayName, handle, updatedAt: Date.now() }, "hubMessagesRepaired");
+  await collectCollectionGroupRepairs(writes, "matches", "uid", uid, { username: displayName, owner_display_name: displayName, owner_handle: handle, updatedAt: Date.now() }, "matchNamesRepaired", "username");
   await collectCollectionGroupRepairs(writes, "inbox", "senderUid", uid, { senderDisplayName: displayName, senderHandle: handle, updatedAt: Date.now() }, "inboxItemsRepaired", "senderDisplayName");
   await collectQueryRepairs(writes, db.collection("hubInvites").where("senderUid", "==", uid).limit(200), { senderDisplayName: displayName, senderHandle: handle, updatedAt: Date.now() }, "invitesRepaired", "senderDisplayName");
+  await collectQueryRepairs(writes, db.collection("discordLinks").where("uid", "==", uid).limit(200), { displayName, handle, updatedAt: Date.now() }, "discordLinksRepaired");
 
   if (!writes.length) {
     continue;
@@ -218,7 +222,7 @@ function cleanHandle(value) {
 
 function isGeneric(value) {
   const cleaned = cleanName(value).toLowerCase();
-  return !cleaned || GENERIC_DISPLAY_NAMES.has(cleaned);
+  return !cleaned || GENERIC_DISPLAY_NAMES.has(cleaned) || /^player(?:[ #_-]|$)/.test(cleaned) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned);
 }
 
 function bestName(...values) {

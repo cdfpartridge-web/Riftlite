@@ -6,6 +6,7 @@ export const MAX_RAW_GZIP_BYTES = 4 * 1024 * 1024;
 export type RawCaptureUploadMetadata = {
   captureId: string;
   messageCount: number;
+  capturedAt?: string;
 };
 
 export type PreparedReplayUpload = RawCaptureUploadMetadata & {
@@ -46,9 +47,12 @@ export function validateRawCaptureEnvelope(value: unknown): RawCaptureUploadMeta
     throw new Error("The raw capture contains too many messages.");
   }
 
+  const identity = isRecord(value.capture.identity) ? value.capture.identity : {};
+  const capturedAt = normalizedCaptureTimestamp(identity.capturedAt ?? identity.firstSeenAt);
   return {
     captureId: captureId.trim(),
     messageCount: value.messages.length,
+    ...(capturedAt ? { capturedAt } : {}),
   };
 }
 
@@ -162,6 +166,23 @@ async function transformGzip(
 
 function isGzip(bytes: Uint8Array): boolean {
   return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
+
+function normalizedCaptureTimestamp(value: unknown): string {
+  let timestamp: number;
+  if (typeof value === "number") {
+    timestamp = value;
+  } else if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    timestamp = Number.isFinite(numeric) ? numeric : Date.parse(value);
+  } else {
+    return "";
+  }
+  if (timestamp > 0 && timestamp < 10_000_000_000) {
+    timestamp *= 1_000;
+  }
+  const date = new Date(timestamp);
+  return Number.isFinite(date.valueOf()) ? date.toISOString() : "";
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {

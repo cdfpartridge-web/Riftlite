@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 
-import { bestProfileDisplayName, ensureUserProfile, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
+import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
+import { bestProfileDisplayName, ensureUserProfile, identityUidsFor, profileIsComplete, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -8,6 +9,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if ("error" in auth) return auth.error;
+  if (!linkedReplayUid(auth.decoded)) return socialJson({ error: "Create or sign in to a recoverable RiftLite account first." }, 401);
   const body = await readBody(req);
   const inviteId = String(body.inviteId ?? "").trim();
   if (!inviteId) return socialJson({ error: "Missing inviteId" }, 400);
@@ -19,14 +21,18 @@ export async function POST(req: NextRequest) {
   if (Number(invite.expiresAt ?? 0) < Date.now()) return socialJson({ error: "Invite expired" }, 410);
 
   const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "");
+  if (!profileIsComplete(profile)) {
+    return socialJson({ error: "Choose your RiftLite display name and handle before joining this hub.", code: "profile_incomplete" }, 409);
+  }
   const displayName = bestProfileDisplayName(auth.decoded.uid, profile.displayName, profile.handle);
   await repairProfileReferences({ ...profile, displayName }).catch(() => undefined);
   const targetUid = String(invite.targetUid ?? "");
-  if (targetUid && targetUid !== auth.decoded.uid) {
+  const identityUids = await identityUidsFor(auth.decoded.uid);
+  if (targetUid && !identityUids.includes(targetUid)) {
     return socialJson({ error: "Invite was sent to another profile" }, 403);
   }
   const targetHandle = String(invite.targetHandle ?? "").toLowerCase();
-  if (targetHandle && targetHandle !== profile.handleLower) {
+  if (!targetUid && targetHandle && targetHandle !== profile.handleLower) {
     return socialJson({ error: "Invite was sent to another profile" }, 403);
   }
   const hubId = String(invite.hubId ?? "");

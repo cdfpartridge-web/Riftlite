@@ -60,6 +60,7 @@ export type CommunityMatch = {
 
 export type CommunityFilterParams = {
   range: string;
+  season: string;
   legend: string;
   result: string;
   seat: string;

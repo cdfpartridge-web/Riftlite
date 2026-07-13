@@ -14,6 +14,10 @@ export type ReplayCard = {
   type?: string;
   ownerId?: string;
   code?: string;
+  exhausted?: boolean;
+  tapped?: boolean;
+  isCopy?: boolean;
+  source?: string;
 };
 
 export type ReplayZone = {
@@ -31,6 +35,7 @@ export type ReplayPlayer = {
   seat?: number | string;
   score?: number;
   legend?: ReplayCard;
+  champions?: ReplayCard[];
   battlefield?: ReplayCard;
   selectedBattlefieldName?: string;
   battlefieldOptions?: ReplayCard[];
@@ -41,6 +46,8 @@ export type ReplayRoomState = {
   phase?: string;
   firstPlayerId?: string;
   activeTurnPlayerId?: string;
+  turnNumber?: number;
+  playerTurnCounts?: Record<string, number>;
   initiativeRolls?: Record<string, number>;
   mulliganPlaybackByPlayerId?: Record<string, unknown>;
 };

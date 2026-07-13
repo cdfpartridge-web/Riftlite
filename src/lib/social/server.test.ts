@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
+import type { DocumentSnapshot, Firestore } from "firebase-admin/firestore";
 
 import {
   buildSearchPrefixes,
   buildUserAggregate,
+  bestProfileDisplayName,
   cleanDisplayName,
   cleanHandle,
   decodeMatches,
   encodeMatches,
+  findMembershipDocuments,
   handleLower,
   normalizeAccountProfile,
   publicProfileFromAccount,
+  profileIsComplete,
   repairCachedProfileMatch,
   validHandle,
 } from "@/lib/social/server";
@@ -117,6 +121,53 @@ describe("social profile helpers", () => {
 
     expect(cleanDisplayName("RiftLite Player", "BMU", "uid-abcdef")).toBe("BMU");
     expect(profile.displayName).toBe("BMU");
+  });
+
+  it("requires a chosen name and valid handle before social onboarding is complete", () => {
+    expect(profileIsComplete({ handle: "BMU", displayName: "BMU" })).toBe(true);
+    expect(profileIsComplete({ handle: "", displayName: "BMU" })).toBe(false);
+    expect(profileIsComplete({ handle: "BMU", displayName: "Player#abc123" })).toBe(false);
+    expect(profileIsComplete({ handle: "BMU", displayName: "player@example.com" })).toBe(false);
+  });
+
+  it("never exposes an email address as the social display name", () => {
+    expect(bestProfileDisplayName("uid-abcdef", "player@example.com")).toBe("Player uidabc");
+    expect(bestProfileDisplayName("uid-abcdef", "player@example.com", "BMU")).toBe("BMU");
+  });
+
+  it("finds UID-keyed hub memberships when the collection-group index is unavailable", async () => {
+    const membershipRef = {
+      path: "hubs/teamuk/members/anonymous-uid",
+      parent: { parent: { parent: { id: "hubs" } } },
+    };
+    const membership = {
+      exists: true,
+      ref: membershipRef,
+      data: () => ({ uid: "anonymous-uid", role: "member" }),
+    } as unknown as DocumentSnapshot;
+    const missing = {
+      exists: false,
+      ref: { ...membershipRef, path: "hubs/other/members/anonymous-uid" },
+      data: () => undefined,
+    } as unknown as DocumentSnapshot;
+    const db = {
+      collectionGroup: () => ({
+        where: () => ({ get: async () => { throw new Error("missing collection-group index"); } }),
+      }),
+      collection: () => ({
+        get: async () => ({
+          docs: [
+            { ref: { collection: () => ({ doc: () => membershipRef }) } },
+            { ref: { collection: () => ({ doc: () => missing.ref }) } },
+          ],
+        }),
+      }),
+      getAll: async () => [membership, missing],
+    } as unknown as Firestore;
+
+    const result = await findMembershipDocuments(db, ["anonymous-uid"], "hubs");
+
+    expect(result).toEqual([membership]);
   });
 
   it("repairs cached profile game rows from match-level score context", () => {

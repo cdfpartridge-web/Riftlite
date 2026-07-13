@@ -9,6 +9,14 @@ export async function requireReplayUser(request: Request): Promise<string> {
   return requireFirebaseBearerUser(request);
 }
 
+export async function requireReplayViewerUser(request: Request): Promise<string> {
+  const uid = await optionalReplayUser(request);
+  if (!uid) {
+    throw new ReplayV2Error(401, "authentication_required", "A linked RiftLite account session is required.");
+  }
+  return uid;
+}
+
 export async function optionalReplayUser(request: Request): Promise<string> {
   const match = /^Bearer\s+(.+)$/i.exec(request.headers.get("authorization") ?? "");
   const token = match?.[1]?.trim() ?? "";

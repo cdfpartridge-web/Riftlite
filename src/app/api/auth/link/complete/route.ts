@@ -1,7 +1,9 @@
 import { type NextRequest } from "next/server";
 
 import { createFirebaseCustomToken, getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
-import { ensureUserProfile, socialJson } from "@/lib/social/server";
+import { desktopLinkAllowsIdentity } from "@/lib/account-link";
+import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
+import { associateLinkedIdentity, ensureUserProfile, repairHistoricalDesktopIdentityAssociations, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,6 +22,7 @@ export async function POST(req: NextRequest) {
 
   const decoded = await verifyFirebaseIdToken(idToken);
   if (!decoded) return socialJson({ error: "Invalid sign-in token" }, 401);
+  if (!linkedReplayUid(decoded)) return socialJson({ error: "Finish Google or email sign in before linking this desktop." }, 401);
 
   const ref = db.collection("desktopLinkSessions").doc(sessionId);
   const snap = await ref.get();
@@ -28,8 +31,15 @@ export async function POST(req: NextRequest) {
   if (String(data.status ?? "") !== "pending") return socialJson({ error: "Link session has already been used" }, 409);
   if (String(data.code ?? "").toUpperCase() !== code) return socialJson({ error: "Link code did not match" }, 403);
   if (Number(data.expiresAt ?? 0) < Date.now()) return socialJson({ error: "Link session expired" }, 410);
+  if (!desktopLinkAllowsIdentity(String(data.expectedUid ?? ""), decoded.uid)) {
+    return socialJson({
+      error: "This device must reconnect to the same RiftLite account. Use Switch account in the desktop app if you intend to change accounts.",
+    }, 409);
+  }
 
-  await ensureUserProfile(decoded.uid, decoded.name ?? decoded.email ?? "", decoded.email ?? "");
+  const profile = await ensureUserProfile(decoded.uid, decoded.name ?? "", decoded.email ?? "");
+  await associateLinkedIdentity(String(data.desktopUid ?? ""), decoded.uid);
+  await repairHistoricalDesktopIdentityAssociations(decoded.uid);
   const customToken = await createFirebaseCustomToken(decoded.uid);
   if (!customToken) return socialJson({ error: "Could not create desktop sign-in token" }, 500);
 
@@ -37,7 +47,7 @@ export async function POST(req: NextRequest) {
     status: "complete",
     linkedUid: decoded.uid,
     linkedEmail: decoded.email ?? "",
-    linkedName: decoded.name ?? "",
+    linkedName: profile.displayName,
     customToken,
     completedAt: Date.now(),
   }, { merge: true });

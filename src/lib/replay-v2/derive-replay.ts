@@ -28,6 +28,9 @@ import type {
   ReplayPhaseEvent,
   ReplaySnapshotEvent,
   ReplaySeriesFormat,
+  ReplaySeriesResult,
+  RawCaptureMatchGameV1,
+  RawCaptureMatchV1,
   ReplayUnknownEvent,
 } from "@/lib/replay-v2/types";
 
@@ -52,7 +55,9 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
   const diagnostics: ReplayDiagnostic[] = [...parsed.diagnostics];
   const participants = new Map<string, ReplayParticipant>();
   const games: ReplayGame[] = [];
-  const format = inferSeriesFormat(parsed);
+  const rawFormat = inferSeriesFormat(parsed);
+  const desktopMatch = parsed.source.capture?.match;
+  const format = rawFormat === "unknown" && desktopMatch ? desktopMatch.format : rawFormat;
   const perspectivePlayerId = inferPerspectivePlayerId(parsed);
   const packets = rebasePacketsForTimeline(parsed.packets);
   const intents = collectIntents(packets);
@@ -181,6 +186,7 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
       currentGame = finishGame(packet, "explicit_game_number");
     } else if (
       currentGame &&
+      observation.explicitGameNumber === undefined &&
       observation.phase &&
       startsFollowingGame(observation.phase, currentGame, format)
     ) {
@@ -454,6 +460,17 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
     });
   }
 
+  const seriesResult = applyDesktopMatchResults({
+    captureId: parsed.captureId,
+    desktopMatch,
+    diagnostics,
+    format,
+    games,
+    participants,
+    perspectivePlayerId,
+    rawFormat,
+  });
+
   const seriesStart = games[0]?.startedAt ?? parsed.startedAt;
   const seriesEnd = games.at(-1)?.endedAt ?? parsed.endedAt;
   const replayId = stableId("replay", parsed.captureId, parsed.seriesIdentity);
@@ -480,11 +497,168 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
       endedAt: seriesEnd,
       participants: [...participants.values()].sort(compareParticipants),
       games,
+      ...(seriesResult ? { result: seriesResult } : {}),
     },
     events,
     unknownEvents,
     diagnostics,
     checkpoints: [],
+  };
+}
+
+function applyDesktopMatchResults({
+  captureId,
+  desktopMatch,
+  diagnostics,
+  format,
+  games,
+  participants,
+  perspectivePlayerId,
+  rawFormat,
+}: {
+  captureId: string;
+  desktopMatch: RawCaptureMatchV1 | undefined;
+  diagnostics: ReplayDiagnostic[];
+  format: ReplaySeriesFormat;
+  games: ReplayGame[];
+  participants: Map<string, ReplayParticipant>;
+  perspectivePlayerId: string;
+  rawFormat: ReplaySeriesFormat;
+}): ReplaySeriesResult | undefined {
+  if (!desktopMatch) return;
+  if (rawFormat !== "unknown" && desktopMatch.format !== rawFormat) {
+    diagnostics.push({
+      id: stableId("diagnostic", captureId, "desktop_match_metadata_unmatched", desktopMatch.format, rawFormat),
+      severity: "warning",
+      code: "desktop_match_metadata_unmatched",
+      message: "Desktop match result metadata did not match the raw replay format and was ignored.",
+    });
+    return undefined;
+  }
+  if (format !== desktopMatch.format) return;
+
+  const perspectiveParticipant = participants.get(perspectivePlayerId);
+  const opponents = [...participants.values()].filter((participant) => participant.id !== perspectivePlayerId);
+  if (!perspectivePlayerId || !perspectiveParticipant || opponents.length !== 1) {
+    diagnostics.push({
+      id: stableId("diagnostic", captureId, "desktop_match_metadata_ambiguous", perspectivePlayerId, opponents.length),
+      severity: "warning",
+      code: "desktop_match_metadata_ambiguous",
+      message: "Desktop match result metadata could not be mapped to one replay perspective and one opponent.",
+    });
+    return undefined;
+  }
+  const opponentPlayerId = opponents[0].id;
+  const metadataByGameNumber = new Map<number, RawCaptureMatchGameV1[]>();
+  for (const metadata of desktopMatch.games) {
+    const entries = metadataByGameNumber.get(metadata.gameNumber) ?? [];
+    entries.push(metadata);
+    metadataByGameNumber.set(metadata.gameNumber, entries);
+  }
+
+  const appliedGameIds = new Set<string>();
+  for (const [gameNumber, metadataEntries] of metadataByGameNumber) {
+    const matchedGames = games.filter((game) => game.gameNumber === gameNumber);
+    if (metadataEntries.length !== 1 || matchedGames.length > 1) {
+      diagnostics.push({
+        id: stableId("diagnostic", captureId, "desktop_match_metadata_ambiguous", gameNumber),
+        severity: "warning",
+        code: "desktop_match_metadata_ambiguous",
+        message: `Desktop result metadata for Game ${gameNumber} was ambiguous and was ignored.`,
+      });
+      continue;
+    }
+    const game = matchedGames[0];
+    if (!game) {
+      diagnostics.push({
+        id: stableId("diagnostic", captureId, "desktop_match_game_unmatched", gameNumber),
+        severity: "warning",
+        code: "desktop_match_game_unmatched",
+        message: `Desktop result metadata for Game ${gameNumber} did not match a captured game.`,
+      });
+      continue;
+    }
+    const metadata = metadataEntries[0];
+    if (game.result) {
+      diagnostics.push({
+        id: stableId("diagnostic", captureId, "desktop_match_result_ignored", gameNumber),
+        severity: "info",
+        code: "desktop_match_result_ignored",
+        message: `Desktop result metadata for Game ${gameNumber} was not used because the raw replay already contained a result.`,
+      });
+      continue;
+    }
+    if (metadata.result === "incomplete") continue;
+
+    const finalScores: Record<string, number> = {};
+    if (metadata.perspectivePoints !== undefined) {
+      finalScores[perspectivePlayerId] = metadata.perspectivePoints;
+    }
+    if (metadata.opponentPoints !== undefined) {
+      finalScores[opponentPlayerId] = metadata.opponentPoints;
+    }
+    const resultEventId = stableId(
+      "result",
+      captureId,
+      "desktop_match_metadata",
+      gameNumber,
+      metadata.result,
+      metadata.perspectivePoints,
+      metadata.opponentPoints,
+    );
+    game.result = {
+      resultEventId,
+      ...(metadata.result === "win" ? {
+        winnerPlayerId: perspectivePlayerId,
+        loserPlayerId: opponentPlayerId,
+      } : {}),
+      ...(metadata.result === "loss" ? {
+        winnerPlayerId: opponentPlayerId,
+        loserPlayerId: perspectivePlayerId,
+      } : {}),
+      ...(Object.keys(finalScores).length ? { finalScores } : {}),
+    };
+    game.sourceIdentity.resultEventId = resultEventId;
+    appliedGameIds.add(game.id);
+    diagnostics.push({
+      id: stableId("diagnostic", captureId, "desktop_match_result_applied", gameNumber),
+      severity: "info",
+      code: "desktop_match_result_applied",
+      message: `Game ${gameNumber} result was restored from desktop match metadata.`,
+    });
+  }
+
+  if (appliedGameIds.has(games.at(-1)?.id ?? "")) {
+    for (let index = diagnostics.length - 1; index >= 0; index -= 1) {
+      if (diagnostics[index].code === "terminal_result_unknown") diagnostics.splice(index, 1);
+    }
+  }
+
+  if (desktopMatch.result === "incomplete") return undefined;
+  const seriesResultEventId = stableId(
+    "result",
+    captureId,
+    "desktop_match_series_metadata",
+    desktopMatch.result,
+    desktopMatch.score.perspective,
+    desktopMatch.score.opponent,
+  );
+  return {
+    resultEventId: seriesResultEventId,
+    source: "desktop_match_metadata",
+    outcome: desktopMatch.result,
+    ...(desktopMatch.result === "win" ? {
+      winnerPlayerId: perspectivePlayerId,
+      loserPlayerId: opponentPlayerId,
+    } : {}),
+    ...(desktopMatch.result === "loss" ? {
+      winnerPlayerId: opponentPlayerId,
+      loserPlayerId: perspectivePlayerId,
+    } : {}),
+    finalScores: {
+      [perspectivePlayerId]: desktopMatch.score.perspective,
+      [opponentPlayerId]: desktopMatch.score.opponent,
+    },
   };
 }
 
@@ -643,6 +817,8 @@ function correlateIntents(
 }
 
 function inferSeriesFormat(parsed: ParsedRawCapture): ReplaySeriesFormat {
+  let sawBo1 = false;
+  let sawLaterGame = false;
   for (const packet of parsed.packets) {
     const payload = packet.payload ?? {};
     const sessionDoc = isRecord(payload.sessionDoc) ? payload.sessionDoc : null;
@@ -650,12 +826,17 @@ function inferSeriesFormat(parsed: ParsedRawCapture): ReplaySeriesFormat {
     const values = [sessionDoc?.matchFormat, snapshot?.matchFormat, payload.matchFormat];
     for (const value of values) {
       const format = normalizeSeriesFormat(value);
-      if (format !== "unknown") return format;
+      if (format === "bo3") return "bo3";
+      sawBo1 ||= format === "bo1";
     }
+    sawLaterGame ||= (observeGamePacket(packet).explicitGameNumber ?? 1) > 1;
   }
   const capture = parsed.source.capture;
   const lifecycle = isRecord(capture?.lifecycle) ? capture.lifecycle : null;
-  return normalizeSeriesFormat(lifecycle?.matchFormat);
+  const lifecycleFormat = normalizeSeriesFormat(lifecycle?.matchFormat);
+  if (lifecycleFormat === "bo3" || capture?.match?.format === "bo3" || sawLaterGame) return "bo3";
+  if (lifecycleFormat === "bo1" || sawBo1 || capture?.match?.format === "bo1") return "bo1";
+  return "unknown";
 }
 
 function rebasePacketsForTimeline(packets: ParsedReplayPacket[]): ParsedReplayPacket[] {

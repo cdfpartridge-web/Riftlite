@@ -13,6 +13,25 @@ export type RawCaptureMessageV1 = {
   data?: unknown;
 };
 
+export type RawCaptureMatchResultV1 = "win" | "loss" | "draw" | "incomplete";
+
+export type RawCaptureMatchGameV1 = {
+  gameNumber: number;
+  result: RawCaptureMatchResultV1;
+  perspectivePoints?: number;
+  opponentPoints?: number;
+};
+
+export type RawCaptureMatchV1 = {
+  format: "bo1" | "bo3";
+  result: RawCaptureMatchResultV1;
+  score: {
+    perspective: number;
+    opponent: number;
+  };
+  games: RawCaptureMatchGameV1[];
+};
+
 export type RawCaptureV1 = {
   schema: "riftreplay-raw-capture";
   version: 1;
@@ -20,6 +39,7 @@ export type RawCaptureV1 = {
     captureSessionId?: string;
     identity?: Record<string, unknown>;
     lifecycle?: Record<string, unknown>;
+    match?: RawCaptureMatchV1;
   };
   messages: RawCaptureMessageV1[];
   meta?: Record<string, unknown>;
@@ -110,6 +130,15 @@ export type ReplayGame = {
   result?: ReplayGameResult;
 };
 
+export type ReplaySeriesResult = {
+  resultEventId: string;
+  source: "desktop_match_metadata";
+  outcome: "win" | "loss" | "draw";
+  winnerPlayerId?: string;
+  loserPlayerId?: string;
+  finalScores: Record<string, number>;
+};
+
 export type ReplaySeries = {
   id: string;
   perspectivePlayerId?: string;
@@ -120,6 +149,7 @@ export type ReplaySeries = {
   endedAt: number;
   participants: ReplayParticipant[];
   games: ReplayGame[];
+  result?: ReplaySeriesResult;
 };
 
 export type ReplayCardState = {
@@ -390,6 +420,30 @@ export type ReplayCheckpoint = {
   state: ReplayState;
 };
 
+export type ReplayCollaborationDiagnostics = {
+  primarySourceReplayId: string;
+  pairedSnapshotEvents: number;
+  pairedActionEvents: number;
+  unpairedPrimaryEvents: number;
+  unpairedSecondaryEvents: number;
+  enrichedCards: number;
+  enrichedFields: number;
+  coveragePercent: number;
+  warningCodes: string[];
+};
+
+export type ReplayCollaboration = {
+  schema: "riftlite-dual-perspective";
+  version: 1;
+  mode: "dual-perspective";
+  sourceReplayIds: [string, string];
+  sourceCanonicalSha256s: [string, string];
+  perspectivePlayerIds: [string, string];
+  informationPolicy: "consented_full_information";
+  confidence: "exact" | "strong" | "review";
+  diagnostics: ReplayCollaborationDiagnostics;
+};
+
 export type CanonicalReplayV2 = {
   schema: "riftlite-canonical-replay";
   version: 2;
@@ -408,6 +462,7 @@ export type CanonicalReplayV2 = {
   unknownEvents: ReplayUnknownEvent[];
   diagnostics: ReplayDiagnostic[];
   checkpoints: ReplayCheckpoint[];
+  collaboration?: ReplayCollaboration;
 };
 
 export type ReplaySeekResult = {

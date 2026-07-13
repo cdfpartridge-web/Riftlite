@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { LEGENDS } from "@/lib/constants";
+import { COMMUNITY_SEASONS, LEGENDS } from "@/lib/constants";
 import type { CommunityFilterParams } from "@/lib/types";
 
 type CommunityFilterBarProps = {
@@ -46,7 +46,24 @@ export function CommunityFilterBar({ filters }: CommunityFilterBarProps) {
 
   return (
     <Card className="rounded-[24px] p-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
+        <label className="space-y-2 text-sm text-slate-300">
+          <span className="block text-xs uppercase tracking-[0.2em] text-slate-500">
+            Season
+          </span>
+          <select
+            className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 text-sm text-white outline-none transition focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20"
+            onChange={(event) => update("season", event.target.value)}
+            value={form.season}
+          >
+            {COMMUNITY_SEASONS.map((season) => (
+              <option key={season.label} value={season.id}>
+                {season.shortLabel}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label className="space-y-2 text-sm text-slate-300">
           <span className="block text-xs uppercase tracking-[0.2em] text-slate-500">
             Window

@@ -5,6 +5,7 @@ import {
   syntheticTerminalScoreCapture,
 } from "@/lib/replay-v2/__fixtures__/synthetic-captures";
 import { normalizeRawCaptureV1 } from "@/lib/replay-v2/normalize-replay";
+import type { RawCaptureV1 } from "@/lib/replay-v2/types";
 
 describe("normalizeRawCaptureV1", () => {
   it("builds a deterministic, explicit BO3 series without collapsing equal results", () => {
@@ -205,4 +206,220 @@ describe("normalizeRawCaptureV1", () => {
     expect(unsafe.series.games[0].result).toBeUndefined();
     expect(unsafe.diagnostics.some((entry) => entry.code === "terminal_result_unknown")).toBe(true);
   });
+
+  it("fills a desktop-confirmed 0-2 BO3 without embedding player identifiers in the metadata", () => {
+    const replay = normalizeRawCaptureV1(desktopResultBo3Capture());
+
+    expect(replay.series.format).toBe("bo3");
+    expect(replay.series.games).toHaveLength(2);
+    expect(replay.series.games.map((game) => game.result)).toEqual([
+      expect.objectContaining({
+        winnerPlayerId: "player-opponent",
+        loserPlayerId: "player-local",
+        finalScores: { "player-local": 5, "player-opponent": 8 },
+      }),
+      expect.objectContaining({
+        winnerPlayerId: "player-opponent",
+        loserPlayerId: "player-local",
+        finalScores: { "player-local": 4, "player-opponent": 5 },
+      }),
+    ]);
+    expect(replay.series.games.every((game) => (
+      game.sourceIdentity.resultEventId === game.result?.resultEventId
+    ))).toBe(true);
+    expect(replay.series.result).toMatchObject({
+      source: "desktop_match_metadata",
+      outcome: "loss",
+      winnerPlayerId: "player-opponent",
+      loserPlayerId: "player-local",
+      finalScores: { "player-local": 0, "player-opponent": 2 },
+    });
+    expect(replay.diagnostics.filter((entry) => entry.code === "desktop_match_result_applied")).toHaveLength(2);
+    expect(replay.diagnostics.some((entry) => entry.code === "terminal_result_unknown")).toBe(false);
+  });
+
+  it("treats later game numbers and completed desktop metadata as BO3 evidence over per-game BO1 labels", () => {
+    const capture = desktopResultBo3Capture();
+    capture.messages = capture.messages.map((message) => {
+      const payload = JSON.parse(String(message.raw)) as Record<string, unknown>;
+      if (payload.sessionDoc && typeof payload.sessionDoc === "object") {
+        payload.sessionDoc = { ...(payload.sessionDoc as Record<string, unknown>), matchFormat: "bo1" };
+      }
+      if (payload.snapshot && typeof payload.snapshot === "object") {
+        payload.snapshot = { ...(payload.snapshot as Record<string, unknown>), matchFormat: "bo1" };
+      }
+      return { ...message, raw: JSON.stringify(payload) };
+    });
+
+    const replay = normalizeRawCaptureV1(capture);
+
+    expect(replay.series.format).toBe("bo3");
+    expect(replay.series.games.map((game) => game.gameNumber)).toEqual([1, 2]);
+    expect(replay.series.result?.finalScores).toEqual({
+      "player-local": 0,
+      "player-opponent": 2,
+    });
+    expect(replay.diagnostics.some((entry) => entry.code === "desktop_match_metadata_unmatched")).toBe(false);
+  });
+
+  it("does not create a duplicate game when postgame setup repeats the current explicit game number", () => {
+    const capture = desktopResultBo3Capture();
+    capture.messages.splice(capture.messages.length - 1, 0, rawMessage(4, 2_150, {
+      type: "room_shell_sync",
+      gameInstanceId: "GAME-2",
+      sessionDoc: matchSessionDoc(2, "sideboarding"),
+    }));
+
+    const replay = normalizeRawCaptureV1(capture);
+
+    expect(replay.series.games.map((game) => game.gameNumber)).toEqual([1, 2]);
+    expect(replay.diagnostics.some((entry) => entry.code === "desktop_match_metadata_ambiguous")).toBe(false);
+  });
+
+  it("keeps raw-derived results authoritative over conflicting desktop metadata", () => {
+    const capture = desktopResultBo3Capture();
+    capture.messages.splice(capture.messages.length - 1, 0, {
+      seq: 4,
+      ts: 2_190,
+      dir: "in",
+      raw: JSON.stringify({
+        type: "authoritative_patch_commit",
+        gameInstanceId: "GAME-2",
+        action: {
+          type: "game_result",
+          winnerPlayerId: "player-local",
+          loserPlayerId: "player-opponent",
+          finalScores: { "player-local": 8, "player-opponent": 5 },
+        },
+        patch: { operations: [] },
+      }),
+    });
+
+    const replay = normalizeRawCaptureV1(capture);
+
+    expect(replay.series.games[1].result).toMatchObject({
+      winnerPlayerId: "player-local",
+      loserPlayerId: "player-opponent",
+      finalScores: { "player-local": 8, "player-opponent": 5 },
+    });
+    expect(replay.diagnostics).toContainEqual(expect.objectContaining({
+      code: "desktop_match_result_ignored",
+      severity: "info",
+    }));
+  });
+
+  it("diagnoses duplicate and unmatched desktop game metadata instead of guessing", () => {
+    const capture = desktopResultBo3Capture();
+    if (!capture.capture?.match) throw new Error("Expected match metadata");
+    capture.capture.match.games = [
+      { gameNumber: 1, result: "loss", perspectivePoints: 5, opponentPoints: 8 },
+      { gameNumber: 1, result: "win", perspectivePoints: 8, opponentPoints: 5 },
+      { gameNumber: 3, result: "loss", perspectivePoints: 4, opponentPoints: 8 },
+    ];
+
+    const replay = normalizeRawCaptureV1(capture);
+
+    expect(replay.series.games.every((game) => game.result === undefined)).toBe(true);
+    expect(replay.diagnostics).toContainEqual(expect.objectContaining({
+      code: "desktop_match_metadata_ambiguous",
+      severity: "warning",
+    }));
+    expect(replay.diagnostics).toContainEqual(expect.objectContaining({
+      code: "desktop_match_game_unmatched",
+      severity: "warning",
+    }));
+  });
+
+  it("preserves the pre-metadata normalization behaviour for older captures", () => {
+    const capture = desktopResultBo3Capture();
+    if (capture.capture) delete capture.capture.match;
+
+    const replay = normalizeRawCaptureV1(capture);
+
+    expect(replay.series.games).toHaveLength(2);
+    expect(replay.series.games.every((game) => game.result === undefined)).toBe(true);
+    expect(replay.diagnostics.some((entry) => entry.code === "desktop_match_result_applied")).toBe(false);
+    expect(replay.diagnostics.some((entry) => entry.code === "terminal_result_unknown")).toBe(true);
+  });
 });
+
+function desktopResultBo3Capture(): RawCaptureV1 {
+  return {
+    schema: "riftreplay-raw-capture",
+    version: 1,
+    capture: {
+      captureSessionId: "desktop-result-capture",
+      identity: {
+        seriesId: "desktop-result-series",
+        firstSeenAt: 1_000,
+        lastSeenAt: 2_200,
+      },
+      lifecycle: {
+        boundaries: [{ at: 2_200, reason: "end-of-match" }],
+      },
+      match: {
+        format: "bo3",
+        result: "loss",
+        score: { perspective: 0, opponent: 2 },
+        games: [
+          { gameNumber: 1, result: "loss", perspectivePoints: 5, opponentPoints: 8 },
+          { gameNumber: 2, result: "loss", perspectivePoints: 4, opponentPoints: 5 },
+        ],
+      },
+    },
+    messages: [
+      rawMessage(0, 1_000, {
+        type: "room_shell_sync",
+        gameInstanceId: "GAME-1",
+        sessionDoc: matchSessionDoc(1, "battlefield_pick"),
+      }),
+      rawMessage(1, 1_100, {
+        type: "authoritative_snapshot",
+        gameInstanceId: "GAME-1",
+        snapshot: gameSnapshot(1, 5, 8),
+      }),
+      rawMessage(2, 2_000, {
+        type: "room_shell_sync",
+        gameInstanceId: "GAME-2",
+        sessionDoc: matchSessionDoc(2, "sideboarding"),
+      }),
+      rawMessage(3, 2_100, {
+        type: "authoritative_snapshot",
+        gameInstanceId: "GAME-2",
+        snapshot: gameSnapshot(2, 4, 5),
+      }),
+      rawMessage(5, 2_200, {
+        type: "room_shell_leave",
+        gameInstanceId: "GAME-2",
+      }),
+    ],
+  };
+}
+
+function rawMessage(seq: number, ts: number, payload: Record<string, unknown>) {
+  return { seq, ts, dir: "in", raw: JSON.stringify(payload) };
+}
+
+function matchSessionDoc(gameNumber: number, phase: string) {
+  return {
+    matchFormat: "bo3",
+    seriesId: "desktop-result-series",
+    gameNumber,
+    phase,
+    viewer: { role: "player", playerId: "player-local" },
+    selfPlayer: { id: "player-local", seat: 0, name: "Local" },
+    publicPlayers: [{ id: "player-opponent", seat: 1, name: "Opponent" }],
+  };
+}
+
+function gameSnapshot(gameNumber: number, perspectivePoints: number, opponentPoints: number) {
+  return {
+    matchFormat: "bo3",
+    gameNumber,
+    phase: "in_game",
+    players: [
+      { id: "player-local", seat: 0, name: "Local", board: { score: perspectivePoints } },
+      { id: "player-opponent", seat: 1, name: "Opponent", board: { score: opponentPoints } },
+    ],
+  };
+}

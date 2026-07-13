@@ -1,10 +1,28 @@
 .page {
+  --font-rift-body: "Segoe UI", Inter, Arial, sans-serif;
+  --font-rift-display: "Segoe UI", Inter, Arial, sans-serif;
   min-height: 100vh;
   padding: 48px clamp(20px, 4vw, 72px) 96px;
   color: #f7f9ff;
+  background-color: #05070b;
   background:
     radial-gradient(circle at 8% 10%, rgba(53, 90, 177, 0.18), transparent 30%),
-    radial-gradient(circle at 92% 22%, rgba(114, 215, 255, 0.1), transparent 28%);
+    radial-gradient(circle at 92% 22%, rgba(114, 215, 255, 0.1), transparent 28%),
+    linear-gradient(180deg, #090d1b, #05070b);
+  font-family: var(--font-rift-body);
+}
+
+.embeddedPage {
+  min-height: 100vh;
+  padding: 24px clamp(16px, 2.5vw, 38px) 48px;
+}
+
+.embeddedPage .hero {
+  display: none;
+}
+
+.embeddedPage .libraryShell {
+  margin-top: 0;
 }
 
 .hero,
@@ -148,6 +166,12 @@
 
 .toolbar {
   margin-bottom: 24px;
+}
+
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
 }
 
 .tabs {
@@ -443,6 +467,65 @@
   font-size: 0.79rem;
 }
 
+.filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.55fr) repeat(4, minmax(130px, 0.82fr)) auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 22px;
+  padding: 16px;
+  border: 1px solid rgba(132, 231, 255, 0.11);
+  border-radius: 18px;
+  background: rgba(10, 16, 37, 0.72);
+}
+
+.filters label > span {
+  display: block;
+  margin: 0 0 7px 2px;
+  color: #7f8dab;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.filters input,
+.filters select {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 11px;
+  outline: none;
+  color: #edf5ff;
+  background: #0e1732;
+  font: inherit;
+  font-size: 0.76rem;
+}
+
+.filters input:focus,
+.filters select:focus {
+  border-color: rgba(132, 231, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(89, 167, 255, 0.09);
+}
+
+.filters input::placeholder { color: #62708e; }
+
+.clearFilters {
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid rgba(132, 231, 255, 0.16);
+  border-radius: 11px;
+  color: #bcefff;
+  background: rgba(89, 167, 255, 0.08);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.clearFilters:hover { background: rgba(89, 167, 255, 0.15); }
+
 .replayGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -535,6 +618,20 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+
+.cardMatchup {
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid rgba(132, 231, 255, 0.09);
+  border-radius: 11px;
+  background: rgba(89, 167, 255, 0.045);
+}
+
+.cardMatchup strong,
+.cardMatchup small { display: block; }
+.cardMatchup strong { color: #dff8ff; font-size: 0.79rem; }
+.cardMatchup strong span { color: #667594; font-weight: 500; }
+.cardMatchup small { margin-top: 5px; color: #71809f; font-size: 0.66rem; line-height: 1.4; }
 
 .cardFacts {
   display: flex;
@@ -661,6 +758,8 @@
   .uploadIntro { grid-column: 1 / -1; }
   .uploadProgress { grid-column: 1 / 2; }
   .replayGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .searchFilter { grid-column: span 2; }
 }
 
 @media (max-width: 760px) {
@@ -676,7 +775,9 @@
   .toolbar,
   .resultsHeading { align-items: stretch; flex-direction: column; }
   .tabs { display: grid; width: 100%; grid-template-columns: 1fr 1fr; }
-  .refreshButton { align-self: flex-end; }
+  .toolbarActions { align-self: stretch; justify-content: flex-end; }
+  .filters { grid-template-columns: 1fr 1fr; }
+  .searchFilter { grid-column: 1 / -1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

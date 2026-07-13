@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { type NextRequest } from "next/server";
 
-import { assertHubRole, bestProfileDisplayName, cleanHandle, ensureUserProfile, handleLower, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
+import { assertHubCapability, bestProfileDisplayName, cleanHandle, ensureUserProfile, handleLower, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
   const { hubId } = await params;
   const body = await readBody(req);
   try {
-    await assertHubRole(hubId, auth.decoded.uid, ["owner", "admin"]);
+    await assertHubCapability(hubId, auth.decoded.uid, "manage_invites");
     const hubSnap = await auth.db.collection("hubs").doc(hubId).get();
     const hubData = hubSnap.data() ?? {};
     const hubName = String(hubData.name ?? hubId);

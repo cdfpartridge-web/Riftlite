@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 
-import { assertHubRole, requireUser, socialJson } from "@/lib/social/server";
+import { assertHubCapability, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,7 +10,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ h
   if ("error" in auth) return auth.error;
   const { hubId, messageId } = await params;
   try {
-    await assertHubRole(hubId, auth.decoded.uid, ["owner", "admin"]);
+    await assertHubCapability(hubId, auth.decoded.uid, "manage_content");
     await auth.db.collection("hubs").doc(hubId).collection("messages").doc(messageId).set({
       deleted: true,
       text: "",

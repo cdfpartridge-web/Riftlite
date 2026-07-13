@@ -2,7 +2,9 @@
 
 Replay v2 uses an authenticated, idempotent three-step upload:
 
-1. `POST /api/v2/replays/init` declares `captureId`, compressed byte size, SHA-256, and visibility.
+1. `POST /api/v2/replays/init` declares `captureId`, compressed byte size, SHA-256, visibility, and optionally the
+   ISO `capturedAt` time. `createdAt` remains the server-side upload audit time; replay libraries prefer `capturedAt`
+   for card dates and ordering, with `createdAt` retained as the fallback for older records.
 2. `PUT /api/v2/replays/:replayId/raw` sends gzip bytes with the returned declaration headers.
 3. `POST /api/v2/replays/:replayId/complete` normalizes the raw capture and atomically switches the canonical generation.
 

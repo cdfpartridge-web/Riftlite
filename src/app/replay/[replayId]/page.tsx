@@ -19,8 +19,8 @@ export async function generateMetadata({ params }: ReplayIdPageProps) {
 export default async function ReplayIdPage({ params }: ReplayIdPageProps) {
   const { replayId } = await params;
   return (
-    <div className="mx-auto max-w-screen-2xl space-y-8 px-6 py-12">
-      <RiftReplayViewer initialReplayId={replayId} />
+    <div className="h-screen overflow-hidden bg-[#05070b]">
+      <RiftReplayViewer fullScreen initialReplayId={replayId} />
     </div>
   );
 }

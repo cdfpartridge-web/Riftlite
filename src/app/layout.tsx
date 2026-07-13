@@ -3,8 +3,7 @@ import { Manrope, Space_Grotesk } from "next/font/google";
 import Script from "next/script";
 
 import { PageViewTracker } from "@/components/analytics/page-view-tracker";
-import { SiteFooter } from "@/components/site/site-footer";
-import { SiteHeader } from "@/components/site/site-header";
+import { SiteFrame } from "@/components/site/site-frame";
 import { getSiteSettings } from "@/lib/sanity/content";
 import {
   absoluteUrl,
@@ -117,11 +116,7 @@ export default async function RootLayout({
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-        <div className="surface-grid min-h-screen">
-          <SiteHeader discordUrl={settings.discordUrl} downloadUrl={settings.downloadUrl} />
-          <main>{children}</main>
-          <SiteFooter settings={settings} />
-        </div>
+        <SiteFrame settings={settings}>{children}</SiteFrame>
         <PageViewTracker />
         <Script
           async

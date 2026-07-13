@@ -1,0 +1,89 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsHub(hubId) {
+      return signedIn()
+             && (
+               get(/databases/$(database)/documents/hubs/$(hubId)).data.created_by == request.auth.uid ||
+               get(/databases/$(database)/documents/hubs/$(hubId)).data.owner_uid == request.auth.uid
+             );
+    }
+
+    function accountManagedHub(hubId) {
+      let hub = get(/databases/$(database)/documents/hubs/$(hubId));
+      return hub.data.keys().hasAny(['role_mode'])
+             && hub.data.role_mode == 'account';
+    }
+
+    function belongsToHub(hubId) {
+      return signedIn()
+             && (
+               // Legacy password-only hubs predate membership documents.
+               // Keep their existing signed-in behavior until they are claimed;
+               // account-managed hubs are membership-gated immediately.
+               !accountManagedHub(hubId) ||
+               ownsHub(hubId) ||
+               exists(/databases/$(database)/documents/hubs/$(hubId)/members/$(request.auth.uid))
+             );
+    }
+
+    match /matches/{matchId} {
+      allow read: if true;
+
+      allow create: if signedIn()
+                    && request.resource.data.uid == request.auth.uid;
+
+      allow update: if signedIn()
+                    && resource.data.uid == request.auth.uid
+                    && request.resource.data.uid == request.auth.uid;
+
+      allow delete: if signedIn()
+                    && resource.data.uid == request.auth.uid;
+    }
+
+    match /hubs/{hubId} {
+      allow get: if belongsToHub(hubId);
+      allow list: if false;
+
+      allow create: if signedIn()
+                    && request.resource.data.created_by == request.auth.uid
+                    && request.resource.data.password_hash is string
+                    && request.resource.data.name is string;
+
+      allow update, delete: if ownsHub(hubId);
+
+      // Membership roles, invitations, messages, and Discord configuration are
+      // server-authoritative. Firebase Admin-backed website routes enforce hub
+      // capabilities and bypass client rules; desktop/browser clients cannot
+      // promote themselves or alter ownership by writing these collections.
+      match /members/{uid} {
+        allow read, write: if false;
+      }
+
+      match /matches/{matchId} {
+        allow get, list: if belongsToHub(hubId);
+
+        allow create, update: if belongsToHub(hubId)
+                              && request.resource.data.uid == request.auth.uid;
+
+        allow delete: if belongsToHub(hubId)
+                      && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    match /accountSync/{uid}/{document=**} {
+      allow read, write: if signedIn()
+                         && request.auth.uid == uid;
+    }
+
+    // Everything else is server-only unless explicitly opened above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

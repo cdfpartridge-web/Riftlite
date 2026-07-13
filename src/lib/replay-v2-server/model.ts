@@ -1,4 +1,5 @@
 import type { ReplayStatus, ReplayVisibility } from "@/lib/replay-v2-server/contracts";
+import type { ReplayListingMetadata } from "@/lib/replay-v2/replay-listing";
 
 export type ReplayArtifactKind = "raw" | "canonical";
 
@@ -36,6 +37,7 @@ export type ReplayRecord = {
   seriesId: string;
   roomCode: string;
   messageCount: number | null;
+  listing?: ReplayListingMetadata;
   expectedRaw: {
     sha256: string;
     bytes: number;
@@ -47,6 +49,7 @@ export type ReplayRecord = {
     code: string;
     message: string;
   } | null;
+  capturedAt?: unknown;
   createdAt: unknown;
   updatedAt: unknown;
   rawUploadedAt?: unknown;
@@ -62,6 +65,8 @@ export type ReplaySummary = {
   platform: string;
   roomCode?: string;
   messageCount: number | null;
+  listing?: ReplayListingMetadata;
+  capturedAt?: string;
   createdAt: string;
   updatedAt: string;
   failure?: {

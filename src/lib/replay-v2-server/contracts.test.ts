@@ -4,6 +4,7 @@ import { MAX_RAW_GZIP_BYTES } from "@/lib/replay-v2-server/constants";
 import {
   InitReplaySchema,
   VisibilityUpdateSchema,
+  replayVisibilityAllowsViewer,
   normalizeListLimit,
 } from "@/lib/replay-v2-server/contracts";
 import { deterministicReplayId, isReplayId, sha256Hex } from "@/lib/replay-v2-server/ids";
@@ -52,6 +53,51 @@ describe("replay v2 init contract", () => {
   it("accepts only the three supported visibility values", () => {
     expect(VisibilityUpdateSchema.parse({ visibility: "unlisted" })).toEqual({ visibility: "unlisted" });
     expect(VisibilityUpdateSchema.safeParse({ visibility: "friends" }).success).toBe(false);
+  });
+
+  it("allows anonymous link viewing only for unlisted and public replays", () => {
+    expect(replayVisibilityAllowsViewer("private", "owner-1", "")).toBe(false);
+    expect(replayVisibilityAllowsViewer("private", "owner-1", "owner-1")).toBe(true);
+    expect(replayVisibilityAllowsViewer("unlisted", "owner-1", "")).toBe(true);
+    expect(replayVisibilityAllowsViewer("public", "owner-1", "")).toBe(true);
+  });
+
+  it("validates and canonicalizes optional capture time", () => {
+    const parsed = InitReplaySchema.parse({
+      captureId: "capture-timestamped",
+      sha256: "a".repeat(64),
+      bytes: 1,
+      capturedAt: "2026-07-09T19:00:12+01:00",
+    });
+
+    expect(parsed.capturedAt).toBe("2026-07-09T18:00:12.000Z");
+    expect(InitReplaySchema.safeParse({
+      captureId: "capture-invalid-time",
+      sha256: "a".repeat(64),
+      bytes: 1,
+      capturedAt: "9 July, sometime",
+    }).success).toBe(false);
+  });
+
+  it("rejects capture times before the RiftLite epoch or too far in the future", () => {
+    const declaration = {
+      captureId: "capture-bounded-time",
+      sha256: "a".repeat(64),
+      bytes: 1,
+    };
+
+    expect(InitReplaySchema.safeParse({
+      ...declaration,
+      capturedAt: "0000-01-01T00:00:00.000Z",
+    }).success).toBe(false);
+    expect(InitReplaySchema.safeParse({
+      ...declaration,
+      capturedAt: "2024-12-31T23:59:59.999Z",
+    }).success).toBe(false);
+    expect(InitReplaySchema.safeParse({
+      ...declaration,
+      capturedAt: new Date(Date.now() + 11 * 60 * 1_000).toISOString(),
+    }).success).toBe(false);
   });
 
   it("bounds replay listing limits", () => {

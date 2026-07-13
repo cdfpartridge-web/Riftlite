@@ -1,5 +1,5 @@
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
-import type { ReplayRecord } from "@/lib/replay-v2-server/model";
+import type { ReplayRecord, ReplaySummary } from "@/lib/replay-v2-server/model";
 
 const PRIVATE_ROOM_IDENTITY_KEY = /^(?:(?:previous[\s_-]?)?room[\s_-]?code|game[\s_-]?instance[\s_-]?ids?)$/i;
 
@@ -73,10 +73,30 @@ export function projectReplaySummaryRecord(record: ReplayRecord, ownerView: bool
     platform: record.platform,
     ...(ownerView ? { roomCode: record.roomCode } : {}),
     messageCount: record.messageCount,
+    ...(record.listing ? { listing: record.listing } : {}),
+    ...(record.capturedAt ? { capturedAt: record.capturedAt } : {}),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     ...(ownerView && record.failure ? { failure: record.failure } : {}),
   };
+}
+
+export function sortReplaySummariesByCapturedAt(summaries: ReplaySummary[]): ReplaySummary[] {
+  return [...summaries].sort((left, right) => (
+    replaySummaryTimestamp(right) - replaySummaryTimestamp(left) ||
+    timestampValue(right.createdAt) - timestampValue(left.createdAt) ||
+    left.replayId.localeCompare(right.replayId)
+  ));
+}
+
+function replaySummaryTimestamp(summary: ReplaySummary): number {
+  const capturedAt = timestampValue(summary.capturedAt);
+  return capturedAt || timestampValue(summary.createdAt);
+}
+
+function timestampValue(value: string | undefined): number {
+  const timestamp = Date.parse(value ?? "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function stripRoomCodeFields<T>(value: T): T {

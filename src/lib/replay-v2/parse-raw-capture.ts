@@ -11,6 +11,9 @@ import type {
   JsonObject,
   ParsedRawCapture,
   ParsedReplayPacket,
+  RawCaptureMatchGameV1,
+  RawCaptureMatchResultV1,
+  RawCaptureMatchV1,
   RawCaptureMessageV1,
   RawCaptureV1,
   RawReplayDirection,
@@ -18,6 +21,8 @@ import type {
 } from "@/lib/replay-v2/types";
 
 export const MAX_RAW_CAPTURE_MESSAGES = 50_000;
+const MAX_DESKTOP_MATCH_GAMES = 3;
+const MAX_DESKTOP_MATCH_POINTS = 99;
 
 export function parseRawCaptureV1(input: unknown): ParsedRawCapture {
   if (!isRecord(input)) {
@@ -49,6 +54,7 @@ export function parseRawCaptureV1(input: unknown): ParsedRawCapture {
     );
 
   const diagnostics: ReplayDiagnostic[] = [];
+  const match = normalizeCaptureMatch(capture.match, captureId, diagnostics);
   const pendingPackets = messages.map((message, sourceIndex) =>
     parseMessage(message, sourceIndex, captureId, diagnostics),
   );
@@ -84,6 +90,7 @@ export function parseRawCaptureV1(input: unknown): ParsedRawCapture {
       captureSessionId: explicitCaptureId || captureId,
       identity,
       lifecycle,
+      ...(match ? { match } : {}),
     },
     messages,
     ...(isRecord(input.meta) ? { meta: input.meta } : {}),
@@ -99,6 +106,131 @@ export function parseRawCaptureV1(input: unknown): ParsedRawCapture {
     diagnostics,
     source,
   };
+}
+
+function normalizeCaptureMatch(
+  value: unknown,
+  captureId: string,
+  diagnostics: ReplayDiagnostic[],
+): RawCaptureMatchV1 | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    appendInvalidCaptureMatchDiagnostic(captureId, diagnostics);
+    return undefined;
+  }
+
+  const format = value.format === "bo1" || value.format === "bo3" ? value.format : undefined;
+  const result = captureMatchResult(value.result);
+  const score = isRecord(value.score) ? value.score : null;
+  const perspectiveScore = boundedInteger(score?.perspective, 0, format === "bo1" ? 1 : 2);
+  const opponentScore = boundedInteger(score?.opponent, 0, format === "bo1" ? 1 : 2);
+  const rawGames = Array.isArray(value.games) ? value.games : null;
+  if (
+    !format ||
+    !result ||
+    perspectiveScore === undefined ||
+    opponentScore === undefined ||
+    !rawGames ||
+    rawGames.length < 1 ||
+    rawGames.length > MAX_DESKTOP_MATCH_GAMES
+  ) {
+    appendInvalidCaptureMatchDiagnostic(captureId, diagnostics);
+    return undefined;
+  }
+
+  const games: RawCaptureMatchGameV1[] = [];
+  for (const value of rawGames) {
+    if (!isRecord(value)) {
+      appendInvalidCaptureMatchDiagnostic(captureId, diagnostics);
+      return undefined;
+    }
+    const gameNumber = boundedInteger(value.gameNumber, 1, format === "bo1" ? 1 : 3);
+    const gameResult = captureMatchResult(value.result);
+    const perspectivePoints = optionalBoundedInteger(value.perspectivePoints, 0, MAX_DESKTOP_MATCH_POINTS);
+    const opponentPoints = optionalBoundedInteger(value.opponentPoints, 0, MAX_DESKTOP_MATCH_POINTS);
+    if (
+      gameNumber === undefined ||
+      !gameResult ||
+      perspectivePoints.invalid ||
+      opponentPoints.invalid
+    ) {
+      appendInvalidCaptureMatchDiagnostic(captureId, diagnostics);
+      return undefined;
+    }
+    games.push({
+      gameNumber,
+      result: gameResult,
+      ...(perspectivePoints.value !== undefined ? { perspectivePoints: perspectivePoints.value } : {}),
+      ...(opponentPoints.value !== undefined ? { opponentPoints: opponentPoints.value } : {}),
+    });
+  }
+
+  if (!captureMatchSummaryIsConsistent(format, result, perspectiveScore, opponentScore, games)) {
+    appendInvalidCaptureMatchDiagnostic(captureId, diagnostics);
+    return undefined;
+  }
+
+  return {
+    format,
+    result,
+    score: { perspective: perspectiveScore, opponent: opponentScore },
+    games,
+  };
+}
+
+function captureMatchSummaryIsConsistent(
+  format: "bo1" | "bo3",
+  result: RawCaptureMatchResultV1,
+  perspectiveScore: number,
+  opponentScore: number,
+  games: RawCaptureMatchGameV1[],
+): boolean {
+  if (result === "incomplete") return true;
+  const requiredWins = format === "bo1" ? 1 : 2;
+  const scoreMatchesResult = result === "draw"
+    ? perspectiveScore === opponentScore
+    : result === "win"
+    ? perspectiveScore === requiredWins && perspectiveScore > opponentScore
+    : opponentScore === requiredWins && opponentScore > perspectiveScore;
+  if (!scoreMatchesResult) return false;
+  if (new Set(games.map((game) => game.gameNumber)).size !== games.length) return true;
+  const perspectiveWins = games.filter((game) => game.result === "win").length;
+  const opponentWins = games.filter((game) => game.result === "loss").length;
+  return perspectiveWins === perspectiveScore && opponentWins === opponentScore;
+}
+
+function captureMatchResult(value: unknown): RawCaptureMatchResultV1 | undefined {
+  return value === "win" || value === "loss" || value === "draw" || value === "incomplete"
+    ? value
+    : undefined;
+}
+
+function boundedInteger(value: unknown, minimum: number, maximum: number): number | undefined {
+  const parsed = integerValue(value);
+  return parsed !== undefined && parsed >= minimum && parsed <= maximum ? parsed : undefined;
+}
+
+function optionalBoundedInteger(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+): { value?: number; invalid: boolean } {
+  if (value === undefined) return { invalid: false };
+  const parsed = boundedInteger(value, minimum, maximum);
+  return parsed === undefined ? { invalid: true } : { value: parsed, invalid: false };
+}
+
+function appendInvalidCaptureMatchDiagnostic(
+  captureId: string,
+  diagnostics: ReplayDiagnostic[],
+): void {
+  if (diagnostics.some((diagnostic) => diagnostic.code === "desktop_match_metadata_invalid")) return;
+  diagnostics.push({
+    id: stableId("diagnostic", captureId, "desktop_match_metadata_invalid"),
+    severity: "warning",
+    code: "desktop_match_metadata_invalid",
+    message: "Desktop match result metadata was invalid and was ignored.",
+  });
 }
 
 export function minimumPositiveTimestamp(values: Iterable<number>): number | undefined {

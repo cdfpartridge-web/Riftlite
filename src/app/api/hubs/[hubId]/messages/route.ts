@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 
-import { assertHubRole, bestProfileDisplayName, ensureUserProfile, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
+import { assertHubCapability, bestProfileDisplayName, ensureUserProfile, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ hubI
   if ("error" in auth) return auth.error;
   const { hubId } = await params;
   try {
-    await assertHubRole(hubId, auth.decoded.uid, ["owner", "admin", "member"]);
+    await assertHubCapability(hubId, auth.decoded.uid, "view");
     const limit = Math.max(1, Math.min(50, Number(req.nextUrl.searchParams.get("limit") ?? 25)));
     const snap = await auth.db
       .collection("hubs")
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
   const text = String(body.text ?? "").trim().slice(0, 2000);
   if (!text) return socialJson({ error: "Message is required" }, 400);
   try {
-    await assertHubRole(hubId, auth.decoded.uid, ["owner", "admin", "member"]);
+    await assertHubCapability(hubId, auth.decoded.uid, "participate");
     const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "");
     const displayName = bestProfileDisplayName(auth.decoded.uid, profile.displayName, profile.handle);
     await repairProfileReferences({ ...profile, displayName }).catch(() => undefined);

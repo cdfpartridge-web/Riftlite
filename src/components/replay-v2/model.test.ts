@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import type { ReplayCardState, ReplayPlayerState, ReplayState } from "@/lib/replay-v2";
 
 import {
+  attachedToCardId,
   battlefieldCards,
   battlefieldZoneForPlayer,
   boardZones,
+  cardCounterValue,
   cardImageUrl,
   championCard,
+  championZoneCard,
+  customCardLabels,
+  groupCardsWithAttachments,
   isBattlefieldCard,
   isDuplicateCard,
   legendCard,
@@ -45,6 +50,53 @@ describe("replay card image URLs", () => {
     expect(cardImageUrl(card("valley", "Valley of Idols")))
       .toBe("https://cdn.piltoverarchive.com/cards/UNL-218.webp");
   });
+
+  it.each([
+    ["Recruit", "/tokens/Recruit.webp", "Recruit.webp"],
+    ["Mech", "/tokens/Mech.webp", "Mech.webp"],
+    ["Gold", "/tokens/Gold.webp", "Gold.webp"],
+    ["Bird", "/tokens/Bird.webp", "Bird.webp"],
+    ["Sand Soldier", "/tokens/SandSoldier.webp", "SandSoldier.webp"],
+    ["Sprite", "/tokens/Sprite.webp", "Sprite.webp"],
+  ])("resolves the Atlas %s token to its public artwork", (name, imageUrl, fileName) => {
+    expect(cardImageUrl({
+      ...card(`token-${name}`, name),
+      source: "token",
+      fields: { imageUrl },
+    })).toBe(`https://play.riftatlas.com/tokens/${fileName}`);
+  });
+
+  it("uses the canonical token name when Atlas omits the image path", () => {
+    expect(cardImageUrl({
+      ...card("sand-soldier", "Sand Soldier"),
+      source: "token",
+      fields: {},
+    })).toBe("https://play.riftatlas.com/tokens/SandSoldier.webp");
+  });
+
+  it("canonicalizes casing in known Atlas token paths", () => {
+    expect(cardImageUrl({
+      ...card("recruit", "Recruit"),
+      source: "token",
+      fields: { imageUrl: "/tokens/recruit.WEBP" },
+    })).toBe("https://play.riftatlas.com/tokens/Recruit.webp");
+  });
+
+  it("resolves a future Atlas token from its strict token path", () => {
+    expect(cardImageUrl({
+      ...card("unknown-token", "Unknown token"),
+      source: "token",
+      fields: { imageUrl: "/tokens/Unknown.webp" },
+    })).toBe("https://play.riftatlas.com/tokens/Unknown.webp");
+  });
+
+  it("does not rewrite unsafe token paths to the Atlas host", () => {
+    expect(cardImageUrl({
+      ...card("unsafe-token", "Unknown token"),
+      source: "token",
+      fields: { imageUrl: "/tokens/../private.webp" },
+    })).toBe("/tokens/../private.webp");
+  });
 });
 
 describe("replay board card interpretation", () => {
@@ -71,6 +123,83 @@ describe("replay board card interpretation", () => {
     expect(isDuplicateCard(undefined)).toBe(false);
   });
 
+  it("reads added custom labels and removes them as soon as the projected field is absent", () => {
+    const labelled: ReplayCardState = {
+      ...card("labelled", "Akali"),
+      fields: { customLabels: [" Empowered ", "", "Marked", 7] },
+    };
+
+    expect(customCardLabels(labelled)).toEqual(["Empowered", "Marked"]);
+    delete labelled.fields.customLabels;
+    expect(customCardLabels(labelled)).toEqual([]);
+  });
+
+  it("preserves explicit zero and negative counter values", () => {
+    const counted: ReplayCardState = {
+      ...card("counted", "Akali"),
+      fields: { whiteCounter: 0, redCounter: -4 },
+    };
+
+    expect(cardCounterValue(counted, "whiteCounter")).toBe(0);
+    expect(cardCounterValue(counted, "redCounter")).toBe(-4);
+    delete counted.fields.whiteCounter;
+    expect(cardCounterValue(counted, "whiteCounter")).toBeUndefined();
+    expect(cardCounterValue(card("uncounted", "Akali"), "whiteCounter")).toBeUndefined();
+  });
+
+  it("groups reverse-order and non-adjacent attachments by their exact host ID", () => {
+    const host = card("card_host", "Akali");
+    const firstAttachment = {
+      ...card("card_first", "Guardian Angel"),
+      fields: { attachedToCardId: host.id },
+    };
+    const secondAttachment = {
+      ...card("card_second", "Long Sword"),
+      fields: { attachedToCardId: host.id },
+    };
+    const unrelated = card("card_other", "Stellacorn Herder");
+
+    expect(attachedToCardId(firstAttachment)).toBe(host.id);
+    expect(groupCardsWithAttachments([firstAttachment, host])).toEqual([
+      { host, attachments: [firstAttachment] },
+    ]);
+    expect(groupCardsWithAttachments([host, unrelated, firstAttachment, secondAttachment])).toEqual([
+      { host, attachments: [firstAttachment, secondAttachment] },
+      { host: unrelated, attachments: [] },
+    ]);
+  });
+
+  it("keeps an attachment with a missing host as a standalone card", () => {
+    const orphan = {
+      ...card("card_orphan", "Long Sword"),
+      fields: { attachedToCardId: "card_missing" },
+    };
+    expect(groupCardsWithAttachments([orphan])).toEqual([{ host: orphan, attachments: [] }]);
+  });
+
+  it("renders self-links and malformed cycles exactly once", () => {
+    const selfLinked = {
+      ...card("card_self", "Self-linked card"),
+      fields: { attachedToCardId: "card_self" },
+    };
+    const cycleA = {
+      ...card("card_cycle_a", "Cycle A"),
+      fields: { attachedToCardId: "card_cycle_b" },
+    };
+    const cycleB = {
+      ...card("card_cycle_b", "Cycle B"),
+      fields: { attachedToCardId: "card_cycle_a" },
+    };
+
+    const grouped = groupCardsWithAttachments([selfLinked, cycleA, cycleB]);
+    const renderedIds = grouped.flatMap((group) => [
+      group.host.id,
+      ...group.attachments.map((attachment) => attachment.id),
+    ]);
+    expect(renderedIds).toHaveLength(3);
+    expect(renderedIds.sort()).toEqual(["card_cycle_a", "card_cycle_b", "card_self"]);
+  });
+
   it("recognizes canonical, typed, and catalogued battlefield cards", () => {
     expect(isBattlefieldCard({ ...card("canonical", "Unknown field"), source: "battlefield" })).toBe(true);
     expect(isBattlefieldCard({ ...card("typed", "Unknown field"), fields: { type: "Battlefield Card" } })).toBe(true);
@@ -87,6 +216,25 @@ describe("replay board card interpretation", () => {
 
     expect(legendCard(player)?.cardCode).toBe("UNL-199");
     expect(championCard(player)?.cardCode).toBe("UNL-172");
+  });
+
+  it("does not keep a played champion in the live champion slot", () => {
+    const playedChampion = card(
+      "played-champion",
+      "LeBlanc, Fragmented",
+      "UNL-172",
+      "champion",
+    );
+    const player = replayPlayer("self", "LeBlanc", {
+      base: [playedChampion],
+      champion: [],
+      legend: [card("legend", "LeBlanc, Deceiver", "UNL-199", "legend")],
+    });
+
+    expect(championZoneCard(player)).toBeUndefined();
+    expect(championCard(player)?.id).toBe(playedChampion.id);
+    expect(boardZones(player).flatMap((zone) => zone.cards).map((entry) => entry.id))
+      .toEqual([playedChampion.id]);
   });
 
   it("keeps the two explicit battlefield selections in player order and ignores options", () => {

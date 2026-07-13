@@ -29,6 +29,19 @@ import styles from "./ReplayLibrary.module.css";
 type ReplayScope = "public" | "mine";
 type ReplayVisibility = "private" | "unlisted" | "public";
 type ReplayStatus = "uploading" | "processing" | "ready" | "failed";
+type ReplayFormat = "bo1" | "bo3" | "unknown";
+type ReplayResult = "win" | "loss" | "draw" | "unknown";
+type ReplaySort = "newest" | "oldest" | "player-legend" | "opponent-legend";
+
+type ReplayListingMetadata = {
+  version: 1;
+  playerName: string;
+  opponentName: string;
+  playerLegend: string;
+  opponentLegend: string;
+  format: ReplayFormat;
+  result: ReplayResult;
+};
 
 type ReplaySummary = {
   replayId: string;
@@ -37,6 +50,8 @@ type ReplaySummary = {
   title: string;
   platform: string;
   messageCount: number | null;
+  listing?: ReplayListingMetadata;
+  capturedAt?: string;
   createdAt: string;
   updatedAt: string;
   failure?: {
@@ -87,11 +102,11 @@ const visibilityCopy: Record<ReplayVisibility, string> = {
   public: "Listed here for everyone to discover.",
 };
 
-export function ReplayLibrary() {
+export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
   const auth = useMemo(() => getAuth(firebaseClientApp), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [scope, setScope] = useState<ReplayScope>("public");
-  const [authReady, setAuthReady] = useState(false);
+  const [scope, setScope] = useState<ReplayScope>(embedded ? "mine" : "public");
+  const [authReady, setAuthReady] = useState(embedded);
   const [user, setUser] = useState<User | null>(null);
   const [publicReplays, setPublicReplays] = useState<ReplaySummary[]>([]);
   const [myReplays, setMyReplays] = useState<ReplaySummary[]>([]);
@@ -99,11 +114,31 @@ export function ReplayLibrary() {
   const [mineLoading, setMineLoading] = useState(false);
   const [publicError, setPublicError] = useState("");
   const [mineError, setMineError] = useState("");
+  const [embeddedOwnerUnavailable, setEmbeddedOwnerUnavailable] = useState(false);
   const [prepared, setPrepared] = useState<PreparedReplayUpload | null>(null);
   const [visibility, setVisibility] = useState<ReplayVisibility>("private");
   const [uploadState, setUploadState] = useState<UploadState>(INITIAL_UPLOAD_STATE);
   const [busyReplayId, setBusyReplayId] = useState("");
   const [cardMessages, setCardMessages] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState("");
+  const [playerLegend, setPlayerLegend] = useState("");
+  const [opponentLegend, setOpponentLegend] = useState("");
+  const [format, setFormat] = useState<"" | ReplayFormat>("");
+  const [result, setResult] = useState<"" | ReplayResult>("");
+  const [status, setStatus] = useState<"" | ReplayStatus>("");
+  const [visibilityFilter, setVisibilityFilter] = useState<"" | ReplayVisibility>("");
+  const [sort, setSort] = useState<ReplaySort>("newest");
+
+  const resetFilters = useCallback(() => {
+    setSearch("");
+    setPlayerLegend("");
+    setOpponentLegend("");
+    setFormat("");
+    setResult("");
+    setStatus("");
+    setVisibilityFilter("");
+    setSort("newest");
+  }, []);
 
   useEffect(() => {
     return onIdTokenChanged(
@@ -139,36 +174,48 @@ export function ReplayLibrary() {
     }
   }, []);
 
-  const loadMyReplays = useCallback(async (activeUser: User) => {
+  const loadMyReplays = useCallback(async (activeUser: User | null) => {
     setMineLoading(true);
     setMineError("");
     try {
-      const response = await authenticatedFetch(activeUser, "/api/v2/replays?scope=mine", {
-        cache: "no-store",
-      });
+      const response = activeUser
+        ? await authenticatedFetch(activeUser, "/api/v2/replays?scope=mine", { cache: "no-store" })
+        : await fetch("/api/v2/replays?scope=mine", {
+            cache: "no-store",
+            credentials: "include",
+          });
       const payload = await readJson(response);
+      if (embedded && response.status === 401) {
+        setMyReplays([]);
+        setMineError("");
+        setEmbeddedOwnerUnavailable(true);
+        setScope("public");
+        resetFilters();
+        return;
+      }
       if (!response.ok) throw new Error(apiError(payload, "Your replays could not be loaded."));
+      setEmbeddedOwnerUnavailable(false);
       setMyReplays(readReplayItems(payload));
     } catch (error) {
       setMineError(errorMessage(error, "Your replays could not be loaded."));
     } finally {
       setMineLoading(false);
     }
-  }, []);
+  }, [embedded, resetFilters]);
 
   useEffect(() => {
     void loadPublicReplays();
   }, [loadPublicReplays]);
 
   useEffect(() => {
-    if (scope === "mine" && authReady && user) void loadMyReplays(user);
-  }, [authReady, loadMyReplays, scope, user]);
+    if (scope === "mine" && authReady && (user || embedded)) void loadMyReplays(user);
+  }, [authReady, embedded, loadMyReplays, scope, user]);
 
   useEffect(() => {
-    if (scope !== "mine" || !user || !myReplays.some((replay) => replay.status === "processing")) return;
+    if (scope !== "mine" || (!user && !embedded) || !myReplays.some((replay) => replay.status === "processing")) return;
     const timer = window.setInterval(() => void loadMyReplays(user), 5_000);
     return () => window.clearInterval(timer);
-  }, [loadMyReplays, myReplays, scope, user]);
+  }, [embedded, loadMyReplays, myReplays, scope, user]);
 
   async function selectFile(file: File | undefined) {
     if (!file) return;
@@ -212,6 +259,7 @@ export function ReplayLibrary() {
           visibility,
           platform: "atlas",
           messageCount: prepared.messageCount,
+          ...(prepared.capturedAt ? { capturedAt: prepared.capturedAt } : {}),
         }),
       });
       const initPayload = (await readJson(initResponse)) as InitReplayResponse & Record<string, unknown>;
@@ -359,13 +407,29 @@ export function ReplayLibrary() {
     }
   }
 
-  const displayedReplays = scope === "public" ? publicReplays : myReplays;
+  const sourceReplays = scope === "public" ? publicReplays : myReplays;
+  const playerLegends = useMemo(() => replayLegendOptions(sourceReplays, "playerLegend"), [sourceReplays]);
+  const opponentLegends = useMemo(() => replayLegendOptions(sourceReplays, "opponentLegend"), [sourceReplays]);
+  const displayedReplays = useMemo(() => filterAndSortReplays(sourceReplays, {
+    search,
+    playerLegend,
+    opponentLegend,
+    format,
+    result,
+    status,
+    visibility: visibilityFilter,
+    sort,
+  }), [format, opponentLegend, playerLegend, result, search, sort, sourceReplays, status, visibilityFilter]);
+  const filtersActive = Boolean(search || playerLegend || opponentLegend || format || result || status || visibilityFilter || sort !== "newest");
   const loading = scope === "public" ? publicLoading : mineLoading;
   const listError = scope === "public" ? publicError : mineError;
   const uploadBusy = ["preparing", "initializing", "uploading", "processing"].includes(uploadState.stage);
 
   return (
-    <main className={styles.page}>
+    <main
+      className={`${styles.page} ${embedded ? styles.embeddedPage : ""}`}
+      data-replay-library-embedded={embedded ? "true" : undefined}
+    >
       <section className={styles.hero}>
         <div className={styles.heroGlow} aria-hidden="true" />
         <div className={styles.eyebrow}><span /> RiftLite Replay</div>
@@ -393,7 +457,7 @@ export function ReplayLibrary() {
             <button
               aria-selected={scope === "public"}
               className={scope === "public" ? styles.activeTab : undefined}
-              onClick={() => setScope("public")}
+              onClick={() => { setScope("public"); resetFilters(); }}
               role="tab"
               type="button"
             >
@@ -402,25 +466,28 @@ export function ReplayLibrary() {
             <button
               aria-selected={scope === "mine"}
               className={scope === "mine" ? styles.activeTab : undefined}
-              onClick={() => setScope("mine")}
+              disabled={embedded && embeddedOwnerUnavailable}
+              onClick={() => { setScope("mine"); resetFilters(); }}
               role="tab"
               type="button"
             >
               <LockKeyhole aria-hidden="true" size={17} /> My replays
             </button>
           </div>
-          <button
-            className={styles.refreshButton}
-            disabled={loading || (scope === "mine" && !user)}
-            onClick={() => void (scope === "public" ? loadPublicReplays() : user && loadMyReplays(user))}
-            type="button"
-          >
-            <RefreshCw aria-hidden="true" className={loading ? styles.spinning : undefined} size={16} />
-            Refresh
-          </button>
+          <div className={styles.toolbarActions}>
+            <button
+              className={styles.refreshButton}
+              disabled={loading || (scope === "mine" && !user && !embedded)}
+              onClick={() => void (scope === "public" ? loadPublicReplays() : loadMyReplays(user))}
+              type="button"
+            >
+              <RefreshCw aria-hidden="true" className={loading ? styles.spinning : undefined} size={16} />
+              Refresh
+            </button>
+          </div>
         </div>
 
-        {scope === "mine" ? (
+        {scope === "mine" && !embedded ? (
           <UploadPanel
             authReady={authReady}
             busy={uploadBusy}
@@ -437,7 +504,7 @@ export function ReplayLibrary() {
 
         {!authReady && scope === "mine" ? <LoadingPanel label="Checking your RiftLite account…" /> : null}
 
-        {authReady && scope === "mine" && !user ? (
+        {authReady && scope === "mine" && !user && !embedded ? (
           <section className={styles.accountPanel}>
             <LockKeyhole aria-hidden="true" size={25} />
             <div>
@@ -447,31 +514,72 @@ export function ReplayLibrary() {
           </section>
         ) : null}
 
-        {scope === "public" || (authReady && user) ? (
+        {embedded && embeddedOwnerUnavailable ? (
+          <section className={styles.accountPanel}>
+            <LockKeyhole aria-hidden="true" size={25} />
+            <div>
+              <h2>Showing public replays</h2>
+              <p>Reconnect your account in RiftLite, then refresh this tab to open your private replay library.</p>
+            </div>
+          </section>
+        ) : null}
+
+        {scope === "public" || (authReady && (user || embedded)) ? (
           <section aria-live="polite" className={styles.results}>
             <div className={styles.resultsHeading}>
               <div>
                 <span>{scope === "public" ? "Discover" : "Your collection"}</span>
                 <h2>{scope === "public" ? "Public match replays" : "Uploaded replays"}</h2>
               </div>
-              {!loading && !listError ? <p>{displayedReplays.length} replay{displayedReplays.length === 1 ? "" : "s"}</p> : null}
+              {!loading && !listError ? (
+                <p>{displayedReplays.length === sourceReplays.length ? displayedReplays.length : `${displayedReplays.length} of ${sourceReplays.length}`} replay{displayedReplays.length === sourceReplays.length && displayedReplays.length === 1 ? "" : "s"}</p>
+              ) : null}
             </div>
+
+            {!loading && !listError && sourceReplays.length > 0 ? (
+              <ReplayFilters
+                filters={{ search, playerLegend, opponentLegend, format, result, status, visibility: visibilityFilter, sort }}
+                mine={scope === "mine"}
+                opponentLegends={opponentLegends}
+                playerLegends={playerLegends}
+                onChange={(field, value) => {
+                  if (field === "search") setSearch(value);
+                  if (field === "playerLegend") setPlayerLegend(value);
+                  if (field === "opponentLegend") setOpponentLegend(value);
+                  if (field === "format") setFormat(value as "" | ReplayFormat);
+                  if (field === "result") setResult(value as "" | ReplayResult);
+                  if (field === "status") setStatus(value as "" | ReplayStatus);
+                  if (field === "visibility") setVisibilityFilter(value as "" | ReplayVisibility);
+                  if (field === "sort") setSort(value as ReplaySort);
+                }}
+                onClear={resetFilters}
+                showClear={filtersActive}
+              />
+            ) : null}
 
             {loading ? <ReplayGridSkeleton /> : null}
             {!loading && listError ? (
               <NoticePanel icon="error" message={listError} />
             ) : null}
-            {!loading && !listError && displayedReplays.length === 0 ? (
-              <EmptyLibrary scope={scope} />
+            {!loading && !listError && sourceReplays.length === 0 ? (
+              <EmptyLibrary embedded={embedded} scope={scope} />
+            ) : null}
+            {!loading && !listError && sourceReplays.length > 0 && displayedReplays.length === 0 ? (
+              <div className={styles.emptyPanel}>
+                <h3>No replays match these filters</h3>
+                <p>Try a different legend, opponent, or search term.</p>
+                <button className={styles.clearFilters} onClick={resetFilters} type="button">Clear filters</button>
+              </div>
             ) : null}
             {!loading && !listError && displayedReplays.length > 0 ? (
               <div className={styles.replayGrid}>
                 {displayedReplays.map((replay) => (
                   <ReplayCard
                     busy={busyReplayId === replay.replayId}
+                    embedded={embedded}
                     key={replay.replayId}
                     message={cardMessages[replay.replayId]}
-                    mine={scope === "mine"}
+                    mine={scope === "mine" && Boolean(user)}
                     onCopy={() => void copyLink(replay)}
                     onRetry={() => void retryProcessing(replay.replayId)}
                     onShare={() => void shareReplay(replay)}
@@ -486,6 +594,73 @@ export function ReplayLibrary() {
       </section>
     </main>
   );
+}
+
+type FilterValues = {
+  search: string;
+  playerLegend: string;
+  opponentLegend: string;
+  format: "" | ReplayFormat;
+  result: "" | ReplayResult;
+  status: "" | ReplayStatus;
+  visibility: "" | ReplayVisibility;
+  sort: ReplaySort;
+};
+
+function ReplayFilters({ filters, mine, onChange, onClear, opponentLegends, playerLegends, showClear }: {
+  filters: FilterValues;
+  mine: boolean;
+  onChange: (field: keyof FilterValues, value: string) => void;
+  onClear: () => void;
+  opponentLegends: string[];
+  playerLegends: string[];
+  showClear: boolean;
+}) {
+  return (
+    <div className={styles.filters} aria-label="Replay filters">
+      <label className={styles.searchFilter}>
+        <span>Search</span>
+        <input onChange={(event) => onChange("search", event.target.value)} placeholder="Player, opponent, or replay" type="search" value={filters.search} />
+      </label>
+      <FilterSelect label="Player legend" onChange={(value) => onChange("playerLegend", value)} value={filters.playerLegend}>
+        <option value="">All legends</option>
+        {playerLegends.map((legend) => <option key={legend} value={legend}>{legend}</option>)}
+      </FilterSelect>
+      <FilterSelect label="Opponent legend" onChange={(value) => onChange("opponentLegend", value)} value={filters.opponentLegend}>
+        <option value="">All opponents</option>
+        {opponentLegends.map((legend) => <option key={legend} value={legend}>{legend}</option>)}
+      </FilterSelect>
+      <FilterSelect label="Format" onChange={(value) => onChange("format", value)} value={filters.format}>
+        <option value="">All formats</option><option value="bo1">BO1</option><option value="bo3">BO3</option>
+      </FilterSelect>
+      <FilterSelect label="Result" onChange={(value) => onChange("result", value)} value={filters.result}>
+        <option value="">All results</option><option value="win">Win</option><option value="loss">Loss</option><option value="draw">Draw</option>
+      </FilterSelect>
+      {mine ? (
+        <>
+          <FilterSelect label="Status" onChange={(value) => onChange("status", value)} value={filters.status}>
+            <option value="">All statuses</option><option value="ready">Ready</option><option value="processing">Processing</option><option value="uploading">Uploading</option><option value="failed">Failed</option>
+          </FilterSelect>
+          <FilterSelect label="Visibility" onChange={(value) => onChange("visibility", value)} value={filters.visibility}>
+            <option value="">All visibility</option><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option>
+          </FilterSelect>
+        </>
+      ) : null}
+      <FilterSelect label="Sort" onChange={(value) => onChange("sort", value)} value={filters.sort}>
+        <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="player-legend">Player legend A-Z</option><option value="opponent-legend">Opponent legend A-Z</option>
+      </FilterSelect>
+      {showClear ? <button className={styles.clearFilters} onClick={onClear} type="button">Clear</button> : null}
+    </div>
+  );
+}
+
+function FilterSelect({ children, label, onChange, value }: {
+  children: React.ReactNode;
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return <label><span>{label}</span><select onChange={(event) => onChange(event.target.value)} value={value}>{children}</select></label>;
 }
 
 function UploadPanel({
@@ -595,6 +770,7 @@ function UploadPanel({
 
 function ReplayCard({
   busy,
+  embedded,
   message,
   mine,
   onCopy,
@@ -604,6 +780,7 @@ function ReplayCard({
   replay,
 }: {
   busy: boolean;
+  embedded: boolean;
   message?: string;
   mine: boolean;
   onCopy: () => void;
@@ -612,7 +789,7 @@ function ReplayCard({
   onVisibility: (visibility: ReplayVisibility) => void;
   replay: ReplaySummary;
 }) {
-  const path = `/replays/${encodeURIComponent(replay.replayId)}`;
+  const path = `/replays/${encodeURIComponent(replay.replayId)}${embedded ? "?embed=1" : ""}`;
   return (
     <article className={styles.replayCard}>
       <div className={styles.cardAccent} aria-hidden="true" />
@@ -622,8 +799,14 @@ function ReplayCard({
       </header>
 
       <div className={styles.cardBody}>
-        <p className={styles.cardMeta}>{formatReplayDate(replay.createdAt)} · {replay.platform || "Atlas"}</p>
+        <p className={styles.cardMeta}>{formatReplayDate(replay.capturedAt || replay.createdAt)} · {replay.platform || "Atlas"}</p>
         <h3>{replay.title || "RiftLite Atlas replay"}</h3>
+        {replay.listing ? (
+          <div className={styles.cardMatchup}>
+            <strong>{replay.listing.playerLegend} <span>vs</span> {replay.listing.opponentLegend}</strong>
+            <small>{replay.listing.playerName} vs {replay.listing.opponentName} · {formatLabel(replay.listing.format)} · {resultLabel(replay.listing.result)}</small>
+          </div>
+        ) : null}
         <div className={styles.cardFacts}>
           <span><strong>{replay.messageCount?.toLocaleString("en-GB") ?? "—"}</strong> messages</span>
           <span><strong>{visibilityLabel(replay.visibility)}</strong> visibility</span>
@@ -698,12 +881,22 @@ function NoticePanel({ icon, message }: { icon: "error"; message: string }) {
   return <div className={styles.noticePanel}>{icon === "error" ? <AlertCircle aria-hidden="true" size={21} /> : null}<p>{message}</p></div>;
 }
 
-function EmptyLibrary({ scope }: { scope: ReplayScope }) {
+function EmptyLibrary({ embedded, scope }: { embedded: boolean; scope: ReplayScope }) {
+  const heading = scope === "public"
+    ? "No public replays yet"
+    : embedded
+      ? "No uploaded replays yet"
+      : "Your replay library is empty";
+  const message = scope === "public"
+    ? "Public, processed RiftLite replays will appear here."
+    : embedded
+      ? "Enable automatic upload in RiftLite Settings and complete an Atlas game."
+      : "Upload your first raw capture above. It starts private by default.";
   return (
     <div className={styles.emptyPanel}>
       {scope === "public" ? <Globe2 aria-hidden="true" size={28} /> : <CloudUpload aria-hidden="true" size={28} />}
-      <h3>{scope === "public" ? "The public stage is waiting" : "Your replay library is empty"}</h3>
-      <p>{scope === "public" ? "Public, processed RiftLite replays will appear here." : "Upload your first raw capture above. It starts private by default."}</p>
+      <h3>{heading}</h3>
+      <p>{message}</p>
     </div>
   );
 }
@@ -725,6 +918,54 @@ function visibilityIcon(visibility: ReplayVisibility) {
 
 function visibilityLabel(visibility: ReplayVisibility): string {
   return visibility.charAt(0).toUpperCase() + visibility.slice(1);
+}
+
+function formatLabel(format: ReplayFormat): string {
+  return format === "bo1" ? "BO1" : format === "bo3" ? "BO3" : "Match";
+}
+
+function resultLabel(result: ReplayResult): string {
+  return result === "win" ? "Win" : result === "loss" ? "Loss" : result === "draw" ? "Draw" : "Result pending";
+}
+
+export function filterAndSortReplays(replays: ReplaySummary[], filters: FilterValues): ReplaySummary[] {
+  const query = filters.search.trim().toLowerCase();
+  return replays.filter((replay) => {
+    const listing = replay.listing;
+    if (query && ![
+      replay.title,
+      listing?.playerName,
+      listing?.opponentName,
+      listing?.playerLegend,
+      listing?.opponentLegend,
+    ].some((value) => value?.toLowerCase().includes(query))) return false;
+    if (filters.playerLegend && listing?.playerLegend !== filters.playerLegend) return false;
+    if (filters.opponentLegend && listing?.opponentLegend !== filters.opponentLegend) return false;
+    if (filters.format && listing?.format !== filters.format) return false;
+    if (filters.result && listing?.result !== filters.result) return false;
+    if (filters.status && replay.status !== filters.status) return false;
+    if (filters.visibility && replay.visibility !== filters.visibility) return false;
+    return true;
+  }).sort((left, right) => {
+    if (filters.sort === "player-legend") return replayListingText(left, "playerLegend").localeCompare(replayListingText(right, "playerLegend"));
+    if (filters.sort === "opponent-legend") return replayListingText(left, "opponentLegend").localeCompare(replayListingText(right, "opponentLegend"));
+    const difference = replayTimestamp(left) - replayTimestamp(right);
+    return filters.sort === "oldest" ? difference : -difference;
+  });
+}
+
+function replayLegendOptions(replays: ReplaySummary[], key: "playerLegend" | "opponentLegend"): string[] {
+  return [...new Set(replays.map((replay) => replay.listing?.[key]).filter((value): value is string => Boolean(value && value !== "Unknown legend")))]
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function replayListingText(replay: ReplaySummary, key: "playerLegend" | "opponentLegend"): string {
+  return replay.listing?.[key] || "\uffff";
+}
+
+function replayTimestamp(replay: ReplaySummary): number {
+  const value = Date.parse(replay.capturedAt || replay.createdAt);
+  return Number.isFinite(value) ? value : 0;
 }
 
 function formatReplayDate(value: string): string {
@@ -776,6 +1017,7 @@ function readReplayItems(payload: Record<string, unknown>): ReplaySummary[] {
   return payload.items.flatMap((value) => {
     if (!isRecord(value) || typeof value.replayId !== "string" || !value.replayId) return [];
     if (!isReplayStatus(value.status) || !isReplayVisibility(value.visibility)) return [];
+    const listing = readListingMetadata(value.listing);
     return [{
       replayId: value.replayId,
       visibility: value.visibility,
@@ -783,6 +1025,8 @@ function readReplayItems(payload: Record<string, unknown>): ReplaySummary[] {
       title: typeof value.title === "string" ? value.title : "RiftLite Atlas replay",
       platform: typeof value.platform === "string" ? value.platform : "atlas",
       messageCount: typeof value.messageCount === "number" ? value.messageCount : null,
+      ...(listing ? { listing } : {}),
+      ...(typeof value.capturedAt === "string" && value.capturedAt ? { capturedAt: value.capturedAt } : {}),
       createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
       updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
       ...(isRecord(value.failure) && typeof value.failure.message === "string" && typeof value.failure.code === "string"
@@ -790,6 +1034,25 @@ function readReplayItems(payload: Record<string, unknown>): ReplaySummary[] {
         : {}),
     }];
   });
+}
+
+function readListingMetadata(value: unknown): ReplayListingMetadata | undefined {
+  if (!isRecord(value) || value.version !== 1) return undefined;
+  if (
+    typeof value.playerName !== "string" || typeof value.opponentName !== "string" ||
+    typeof value.playerLegend !== "string" || typeof value.opponentLegend !== "string" ||
+    (value.format !== "bo1" && value.format !== "bo3" && value.format !== "unknown") ||
+    (value.result !== "win" && value.result !== "loss" && value.result !== "draw" && value.result !== "unknown")
+  ) return undefined;
+  return {
+    version: 1,
+    playerName: value.playerName,
+    opponentName: value.opponentName,
+    playerLegend: value.playerLegend,
+    opponentLegend: value.opponentLegend,
+    format: value.format,
+    result: value.result,
+  };
 }
 
 function readReplayId(payload: InitReplayResponse): string {

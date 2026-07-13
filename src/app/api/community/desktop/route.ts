@@ -1,4 +1,10 @@
 import {
+  DEFAULT_FILTERS,
+} from "@/lib/constants";
+import {
+  applyCommunitySeasonFilter,
+} from "@/lib/community/filters";
+import {
   filterCommunityMatchesByDays,
   getCommunityMatchWindow,
   getCommunityRangeMatchWindow,
@@ -61,12 +67,14 @@ function toDesktopMatch(match: CommunityMatch): DesktopMatch {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const range = url.searchParams.get("range") ?? "";
-  const matches =
+  const season = url.searchParams.get("season") ?? "";
+  const baseMatches =
     range === "1d"
       ? filterCommunityMatchesByDays(await getCommunityMatchWindow(), 1)
       : range === "7d" || range === "14d" || range === "30d"
         ? await getCommunityRangeMatchWindow(Number.parseInt(range, 10) as 7 | 14 | 30)
         : await getCommunityMatchWindow();
+  const matches = applyCommunitySeasonFilter(baseMatches, { ...DEFAULT_FILTERS, season });
   const desktopMatches = matches.map(toDesktopMatch);
   return communityJson({
     matches: desktopMatches,

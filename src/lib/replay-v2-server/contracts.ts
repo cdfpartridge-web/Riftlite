@@ -10,6 +10,14 @@ import {
 export const ReplayVisibilitySchema = z.enum(["private", "unlisted", "public"]);
 export type ReplayVisibility = z.infer<typeof ReplayVisibilitySchema>;
 
+export function replayVisibilityAllowsViewer(
+  visibility: ReplayVisibility,
+  ownerUid: string,
+  viewerUid: string,
+): boolean {
+  return visibility !== "private" || Boolean(ownerUid && ownerUid === viewerUid);
+}
+
 export const ReplayStatusSchema = z.enum(["uploading", "processing", "ready", "failed"]);
 export type ReplayStatus = z.infer<typeof ReplayStatusSchema>;
 
@@ -33,6 +41,20 @@ const OptionalIdentifierSchema = z
   .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "identifier contains control characters")
   .optional();
 
+// Atlas capture support predates Replay V2, so retain a generous product epoch
+// while rejecting Firestore-invalid dates and future-dated discovery abuse.
+export const REPLAY_CAPTURED_AT_EPOCH_MS = Date.UTC(2025, 0, 1);
+export const REPLAY_CAPTURED_AT_FUTURE_TOLERANCE_MS = 10 * 60 * 1_000;
+
+export const ReplayCapturedAtSchema = z.iso
+  .datetime({ offset: true })
+  .refine((value) => {
+    const capturedAt = Date.parse(value);
+    return capturedAt >= REPLAY_CAPTURED_AT_EPOCH_MS &&
+      capturedAt <= Date.now() + REPLAY_CAPTURED_AT_FUTURE_TOLERANCE_MS;
+  }, "capturedAt is outside the supported RiftLite capture window")
+  .transform((value) => new Date(value).toISOString());
+
 export const InitReplaySchema = z
   .object({
     captureId: IdentifierSchema,
@@ -46,6 +68,7 @@ export const InitReplaySchema = z
     seriesId: OptionalIdentifierSchema,
     roomCode: z.string().trim().max(80).optional(),
     messageCount: z.number().int().min(0).max(MAX_RAW_CAPTURE_MESSAGES).optional(),
+    capturedAt: ReplayCapturedAtSchema.optional(),
   })
   .strict();
 

@@ -1,5 +1,7 @@
 import { type NextRequest } from "next/server";
 
+import { createFirebaseCustomToken } from "@/lib/firebase/admin";
+import { desktopLinkCanReissueToken } from "@/lib/account-link";
 import { requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +24,20 @@ export async function GET(req: NextRequest) {
   }
 
   if (String(data.status ?? "") === "complete") {
-    const customToken = String(data.customToken ?? "");
-    await ref.set({ customToken: "", consumedAt: Date.now() }, { merge: true });
+    const linkedUid = String(data.linkedUid ?? "");
+    const storedCustomToken = String(data.customToken ?? "");
+    let customToken = storedCustomToken;
+    if (!customToken && desktopLinkCanReissueToken(data.status, linkedUid, data.expiresAt)) {
+      customToken = await createFirebaseCustomToken(linkedUid) ?? "";
+      if (!customToken) return socialJson({ error: "Could not recover desktop sign-in token" }, 500);
+      await ref.set({ tokenReissuedAt: Date.now() }, { merge: true });
+    }
+    if (storedCustomToken) {
+      await ref.set({ customToken: "", consumedAt: Date.now() }, { merge: true });
+    }
     return socialJson({
       status: "complete",
-      uid: String(data.linkedUid ?? ""),
+      uid: linkedUid,
       email: String(data.linkedEmail ?? ""),
       displayName: String(data.linkedName ?? ""),
       customToken,

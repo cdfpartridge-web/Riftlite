@@ -124,6 +124,25 @@ Action intent supplies animation meaning. Authoritative patch commits and snapsh
 
 Unknown packets and unsupported patch operations are retained with source references and diagnostics. They must not abort normalization or be silently treated as understood.
 
+## Dual-perspective test workflow
+
+The manual Replay Combiner at `/replays/combine` accepts two accessible Replay V2 links from opposite players in the same Atlas match and creates a third, separate replay.
+
+- The creator must be signed in and explicitly attest that both players agreed to reveal their captured private information.
+- A creator-owned Private source is accepted. A source owned by someone else must be Unlisted or Public under the normal replay access rules.
+- The server reads only the processed canonical artifacts. It never opens another account's raw capture.
+- Pairing requires the same two Atlas player IDs, opposite `perspectivePlayerId` values, compatible BO1/BO3 structure, and shared match evidence. Room-based pairing also requires a compatible capture window and an authoritative event fingerprint.
+- Authoritative action pairing uses game ordinal, patch sequence/client action identity, and action type. Optional actor identity and perspective-redacted patch shape are enrichment data, not fingerprint requirements.
+- One deterministic authoritative timeline is retained. Matching sequence-keyed snapshots and commits enrich hidden cards and choice fields; secondary commits are never appended or applied twice.
+- Owner-only operations and known hidden cards may enrich the retained timeline, including across an unpaired masked snapshot, while conflicting values supplied by both perspectives still stop the merge.
+- Public-state disagreement stops the merge. Missing or unpaired evidence is reported in diagnostics rather than guessed.
+- The output is immutable, retry-safe, Unlisted by default, and owned by the signed-in creator. Anyone with its link can view it, it is excluded from public listings, and it can later use the existing visibility controls.
+- The player shows a **Hidden** badge only while a card is physically at a battlefield with Atlas `hidden: true` and without `revealedToOpponent: true`. Ordinary open-hand/deck secrecy is not labeled.
+- Combination generation 2 makes upgraded pairs Unlisted by default without rewriting their generation-1 links.
+- The combined player marks the artifact as `Combined replay · Open hands`, reveals both known hands/openings/mulligans and both captured sideboard submissions, but keeps unresolved placeholders and deck order hidden.
+
+For the first real validation pair, both players should begin capture before matchmaking, finish the same short BO1, wait for both uploads to become Ready, make the non-creator's source Unlisted, and paste both permanent links into the combiner. Automation and stronger account-to-account consent grants are a later layer and must not change the immutable source replays.
+
 ## BO3 identity
 
 One `SeriesCapture` owns one or more explicit game segments. A new `matchId`, game instance ID, or room code does not end the series when explicit series continuity exists.

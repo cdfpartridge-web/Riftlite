@@ -32,6 +32,24 @@ describe("replay upload helpers", () => {
     expect(Object.keys(metadata)).toEqual(["captureId", "messageCount"]);
   });
 
+  it("derives a canonical capture time from raw identity metadata", () => {
+    const metadata = validateRawCaptureEnvelope({
+      schema: "riftreplay-raw-capture",
+      version: 1,
+      capture: {
+        captureSessionId: "capture-timestamped",
+        identity: { firstSeenAt: Date.parse("2026-07-09T18:00:12.345Z") },
+      },
+      messages: [],
+    });
+
+    expect(metadata).toEqual({
+      captureId: "capture-timestamped",
+      messageCount: 0,
+      capturedAt: "2026-07-09T18:00:12.345Z",
+    });
+  });
+
   it.each([
     null,
     {},

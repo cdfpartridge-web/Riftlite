@@ -1,10 +1,48 @@
 import { createHash } from "node:crypto";
 import { type NextRequest } from "next/server";
 
-import { hubIdFromName, requireUser, socialJson } from "@/lib/social/server";
+import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
+import { bestProfileDisplayName, ensureUserProfile, findMembershipDocuments, hubIdFromName, identityUidsFor, profileIsComplete, repairHistoricalDesktopIdentityAssociations, requireUser, socialJson, type AccountProfile } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+export async function GET(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("error" in auth) return auth.error;
+  if (!linkedReplayUid(auth.decoded)) return socialJson({ error: "Create or sign in to a recoverable RiftLite account first." }, 401);
+  const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? "", auth.decoded.email ?? "");
+  if (!profileIsComplete(profile)) {
+    return socialJson({ error: "Finish your RiftLite profile to open My Hubs.", code: "profile_incomplete" }, 409);
+  }
+  await repairHistoricalDesktopIdentityAssociations(auth.decoded.uid);
+  const uids = await identityUidsFor(auth.decoded.uid);
+  const memberDocs = await findMembershipDocuments(auth.db, uids, "hubs");
+  const byHub = new Map<string, { ref: FirebaseFirestore.DocumentReference; role: string; joinedAt: number }>();
+  for (const member of memberDocs) {
+    const hubRef = member.ref.parent.parent;
+    if (!hubRef || hubRef.parent.id !== "hubs") continue;
+    const data = member.data() ?? {};
+    const existing = byHub.get(hubRef.id);
+    const role = strongerHubRole(String(existing?.role ?? ""), String(data.role ?? "member"));
+    byHub.set(hubRef.id, { ref: hubRef, role, joinedAt: Math.min(existing?.joinedAt || Date.now(), Number(data.joinedAt ?? Date.now())) });
+  }
+  const hubRows = Array.from(byHub.values());
+  const hubSnaps = hubRows.length ? await auth.db.getAll(...hubRows.map((item) => item.ref)) : [];
+  return socialJson({
+    ok: true,
+    profile,
+    hubs: hubSnaps.filter((item) => item.exists).map((item) => {
+      const membership = byHub.get(item.id);
+      return {
+        id: item.id,
+        name: String(item.data()?.name ?? item.id),
+        role: membership?.role ?? "member",
+        joinedAt: membership?.joinedAt ? new Date(membership.joinedAt).toISOString() : "",
+      };
+    }),
+  });
+}
 
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
@@ -24,7 +62,13 @@ export async function POST(req: NextRequest) {
   }
 
   const hubRef = auth.db.collection("hubs").doc(hubId);
+  const memberRef = hubRef.collection("members").doc(auth.decoded.uid);
   const now = Date.now();
+  const profile = await ensureUserProfile(
+    auth.decoded.uid,
+    auth.decoded.name ?? auth.decoded.email ?? "",
+    auth.decoded.email ?? "",
+  );
   try {
     if (action === "create") {
       await auth.db.runTransaction(async (tx) => {
@@ -37,11 +81,15 @@ export async function POST(req: NextRequest) {
           name,
           password_hash: passwordHash,
           created_by: auth.decoded.uid,
+          owner_uid: auth.decoded.uid,
+          role_mode: "account",
+          invite_policy: "admins",
           created_at: Math.floor(now / 1000),
           createdAt: now,
           hidden: true,
           updated_at: now,
         }, { merge: true });
+        tx.set(memberRef, hubMemberPayload(auth.decoded.uid, profile, "owner", now), { merge: true });
       });
       return socialJson({ ok: true, hub: hubPayload(hubId, name, "owner", now) });
     }
@@ -53,7 +101,14 @@ export async function POST(req: NextRequest) {
     if (!remoteHash || remoteHash !== passwordHash) {
       throw new Error("Private hub name or password did not match");
     }
-    return socialJson({ ok: true, hub: hubPayload(hubId, String(data.name ?? name), "member", now) });
+    const memberSnap = await memberRef.get();
+    const existingRole = String(memberSnap.data()?.role ?? "").trim();
+    const role = existingRole === "owner" || existingRole === "admin" || existingRole === "member" ? existingRole : "member";
+    await memberRef.set({
+      ...hubMemberPayload(auth.decoded.uid, profile, role, now),
+      joinedAt: Number(memberSnap.data()?.joinedAt ?? now) || now,
+    }, { merge: true });
+    return socialJson({ ok: true, hub: hubPayload(hubId, String(data.name ?? name), role, now) });
   } catch (error) {
     return socialJson({ error: error instanceof Error ? error.message : "Hub action failed" }, action === "create" ? 409 : 400);
   }
@@ -72,7 +127,12 @@ function hashPassword(password: string) {
   return password ? createHash("sha256").update(password).digest("hex") : "";
 }
 
-function hubPayload(id: string, name: string, role: "owner" | "member", now: number) {
+function strongerHubRole(left: string, right: string) {
+  const rank: Record<string, number> = { member: 1, admin: 2, owner: 3 };
+  return (rank[left] ?? 0) >= (rank[right] ?? 0) ? left || "member" : right || "member";
+}
+
+function hubPayload(id: string, name: string, role: "owner" | "admin" | "member", now: number) {
   return {
     id,
     name,
@@ -80,5 +140,16 @@ function hubPayload(id: string, name: string, role: "owner" | "member", now: num
     role,
     claimed: false,
     joinedAt: new Date(now).toISOString(),
+  };
+}
+
+function hubMemberPayload(uid: string, profile: AccountProfile, role: "owner" | "admin" | "member", now: number) {
+  return {
+    uid,
+    role,
+    handle: profile.handle,
+    displayName: bestProfileDisplayName(uid, profile.displayName, profile.handle),
+    joinedAt: now,
+    updatedAt: now,
   };
 }

@@ -6,7 +6,7 @@ import {
   listPublicReplays,
   normalizeListLimit,
   replayApiError,
-  requireReplayUser,
+  requireReplayViewerUser,
 } from "@/lib/replay-v2-server";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,9 @@ export async function GET(request: Request) {
       throw new ReplayV2Error(400, "invalid_scope", "Replay list scope must be public or mine.");
     }
     if (scope === "mine") {
-      const ownerUid = await requireReplayUser(request);
+      // Listing is read-only and may use the short-lived HttpOnly desktop embed
+      // session. Uploads and mutations continue to require a Firebase bearer token.
+      const ownerUid = await requireReplayViewerUser(request);
       const items = await listOwnerReplays(ownerUid, limit);
       return NextResponse.json(
         { items, count: items.length, scope },

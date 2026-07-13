@@ -46,6 +46,9 @@ const nextConfig = {
       { protocol: "https", hostname: "piltoverarchive.com" },
       { protocol: "https", hostname: "tcg-arena.fr" },
       { protocol: "https", hostname: "ddragon.leagueoflegends.com" },
+      { protocol: "https", hostname: "assets.riftatlas-workers.com" },
+      { protocol: "https", hostname: "cdn.rgpub.io" },
+      { protocol: "https", hostname: "cmsassets.rgpub.io" },
     ],
   },
   ...(isVercelBuild ? {} : {

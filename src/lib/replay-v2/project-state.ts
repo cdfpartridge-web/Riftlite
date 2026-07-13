@@ -11,6 +11,15 @@ import type {
   ReplayState,
 } from "@/lib/replay-v2/types";
 
+const PLAYER_BATTLEFIELD_SELECTION_FIELDS = [
+  "selectedBattlefield",
+  "battlefieldCard",
+  "battlefield",
+  "battlefieldOptions",
+] as const;
+const ROOM_BATTLEFIELD_SELECTION_FIELDS = ["selectedBattlefields", "battlefieldCards", "battlefields"] as const;
+const PLAYER_BATTLEFIELD_ZONE_KEYS = new Set(["battlefielda", "battlefieldb", "battlefieldtoken"]);
+
 export function createInitialReplayState(replay: Pick<CanonicalReplayV2, "series"> | ReplaySeries): ReplayState {
   const series = "series" in replay ? replay.series : replay;
   const players = Object.fromEntries(
@@ -56,6 +65,7 @@ export function reduceReplayEvent(previous: ReplayState, event: ReplayEvent): Re
         state.room.phase = "unknown";
         state.room.rawPhase = "";
         state.room.gameNumber = event.gameNumber;
+        resetGameScopedBattlefieldSelections(state, new Set(), false, true);
       }
       break;
     case "phase":
@@ -64,6 +74,12 @@ export function reduceReplayEvent(previous: ReplayState, event: ReplayEvent): Re
       state.room.phase = event.phase;
       state.room.rawPhase = event.rawPhase;
       state.room.gameNumber = event.gameNumber;
+      if (
+        (state.gameOrdinal ?? 1) > 1 &&
+        (event.phase === "sideboarding" || event.phase === "battlefield_pick")
+      ) {
+        resetGameScopedBattlefieldSelections(state, new Set(), false, true);
+      }
       break;
     case "snapshot":
       state.gameId = event.gameId;
@@ -72,6 +88,9 @@ export function reduceReplayEvent(previous: ReplayState, event: ReplayEvent): Re
       state.players = mergeSnapshotPlayers(state.players, event.snapshot.players);
       state.chain = event.snapshot.chain.map((entry) => ({ id: entry.id, fields: cloneJson(entry.fields) }));
       state.log = event.snapshot.log.map((entry) => ({ ...entry, fields: cloneJson(entry.fields) }));
+      if ((state.gameOrdinal ?? 1) > 1 && event.snapshot.room.phase === "sideboarding") {
+        resetGameScopedBattlefieldSelections(state, new Set(), false, true);
+      }
       break;
     case "action":
       event.patch.operations.forEach((operation) => applyPatchOperation(state, operation));
@@ -93,6 +112,32 @@ export function reduceReplayEvent(previous: ReplayState, event: ReplayEvent): Re
   }
   state.appliedEventIndex = event.index;
   return state;
+}
+
+export function resetGameScopedBattlefieldSelections(
+  state: ReplayState,
+  preservePlayerIds: ReadonlySet<string> = new Set(),
+  preserveRoomSelection = false,
+  clearBattlefieldZones = false,
+): void {
+  for (const [playerId, player] of Object.entries(state.players)) {
+    if (!preservePlayerIds.has(playerId)) {
+      for (const field of PLAYER_BATTLEFIELD_SELECTION_FIELDS) {
+        delete player.fields[field];
+        delete player.boardFields[field];
+      }
+    }
+    if (clearBattlefieldZones) {
+      for (const zone of Object.keys(player.zones)) {
+        if (PLAYER_BATTLEFIELD_ZONE_KEYS.has(zone.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
+          delete player.zones[zone];
+        }
+      }
+    }
+  }
+  if (!preserveRoomSelection) {
+    for (const field of ROOM_BATTLEFIELD_SELECTION_FIELDS) delete state.room.fields[field];
+  }
 }
 
 export function projectReplayState(

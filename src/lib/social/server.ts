@@ -3,10 +3,26 @@ import "server-only";
 import { randomBytes, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
-import { FieldValue, type DocumentReference, type Query } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  type DocumentReference,
+  type DocumentSnapshot,
+  type Firestore,
+  type Query,
+} from "firebase-admin/firestore";
 import { type NextRequest, NextResponse } from "next/server";
 
+import {
+  DESKTOP_IDENTITY_BACKFILL_VERSION,
+  historicalDesktopIdentitySources,
+} from "@/lib/account-connection";
 import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
+import {
+  hubRoleHasCapability,
+  normalizeHubMemberRole,
+  type HubCapability,
+  type HubMemberRole,
+} from "@/lib/social/hub-permissions";
 import type { CommunityMatch, DeckSnapshot, MatchGame } from "@/lib/types";
 
 export type AccountProfile = {
@@ -26,6 +42,8 @@ export type AccountProfile = {
   marketingConsentUpdatedAt: number;
   marketingConsentVersion: string;
   marketingConsentSource: string;
+  profileComplete: boolean;
+  onboardingVersion: number;
   createdAt: number;
   updatedAt: number;
 };
@@ -90,6 +108,7 @@ const USER_MATCH_WINDOW = 500;
 const PROFILE_PAGE_MATCH_WINDOW = 250;
 const USER_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const LINK_SESSION_TTL_MS = 15 * 60 * 1000;
+const CURRENT_ONBOARDING_VERSION = 1;
 
 export function socialJson(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status });
@@ -129,6 +148,10 @@ function compactDisplayName(value: unknown): string {
   return String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
 }
 
+function isEmailDisplayName(value: unknown): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(compactDisplayName(value));
+}
+
 export function isGenericDisplayName(value: unknown): boolean {
   const cleaned = compactDisplayName(value).toLowerCase();
   return !cleaned || GENERIC_DISPLAY_NAMES.has(cleaned) || /^player(?:[ #_-]|$)/i.test(cleaned);
@@ -154,11 +177,15 @@ export function cleanDisplayName(value: unknown, fallback = DEFAULT_DISPLAY_NAME
 export function bestProfileDisplayName(uid: string, ...candidates: unknown[]): string {
   for (const candidate of candidates) {
     const cleaned = compactDisplayName(candidate);
-    if (!isGenericDisplayName(cleaned)) {
+    if (!isGenericDisplayName(cleaned) && !isEmailDisplayName(cleaned)) {
       return cleaned;
     }
   }
   return fallbackPlayerName(uid);
+}
+
+export function profileIsComplete(profile: Pick<AccountProfile, "handle" | "displayName">): boolean {
+  return validHandle(profile.handle) && !isGenericDisplayName(profile.displayName) && !isEmailDisplayName(profile.displayName);
 }
 
 function cleanDeckName(value: unknown): string {
@@ -233,6 +260,15 @@ export async function ensureUserProfile(uid: string, displayName = "", email = "
     if (profileNeedsDisplayNameRepair(raw.displayName, nextDisplayName)) {
       patch.displayName = nextDisplayName;
     }
+    if (isEmailDisplayName(raw.displayName)) {
+      patch.displayName = "";
+    }
+    const nextProfile = { ...profile, ...patch } as AccountProfile;
+    const profileComplete = profileIsComplete(nextProfile);
+    if (raw.profileComplete !== profileComplete || Number(raw.onboardingVersion ?? 0) !== (profileComplete ? CURRENT_ONBOARDING_VERSION : 0)) {
+      patch.profileComplete = profileComplete;
+      patch.onboardingVersion = profileComplete ? CURRENT_ONBOARDING_VERSION : 0;
+    }
     if (Object.keys(patch).length) {
       patch.updatedAt = now;
       await ref.set(patch, { merge: true });
@@ -254,6 +290,8 @@ export async function ensureUserProfile(uid: string, displayName = "", email = "
     marketingConsentUpdatedAt: 0,
     marketingConsentVersion: "",
     marketingConsentSource: "",
+    profileComplete: false,
+    onboardingVersion: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -264,7 +302,7 @@ export async function ensureUserProfile(uid: string, displayName = "", email = "
 export function normalizeAccountProfile(uid: string, data: Record<string, unknown>): AccountProfile {
   const handle = cleanHandle(data.handle);
   const now = Date.now();
-  return {
+  const profile = {
     uid,
     email: String(data.email ?? "").trim(),
     handle,
@@ -281,9 +319,14 @@ export function normalizeAccountProfile(uid: string, data: Record<string, unknow
     marketingConsentUpdatedAt: Number(data.marketingConsentUpdatedAt ?? 0),
     marketingConsentVersion: String(data.marketingConsentVersion ?? ""),
     marketingConsentSource: String(data.marketingConsentSource ?? ""),
+    profileComplete: false,
+    onboardingVersion: Number(data.onboardingVersion ?? 0),
     createdAt: Number(data.createdAt ?? now),
     updatedAt: Number(data.updatedAt ?? now),
   };
+  profile.profileComplete = profileIsComplete(profile);
+  profile.onboardingVersion = profile.profileComplete ? Math.max(CURRENT_ONBOARDING_VERSION, profile.onboardingVersion) : 0;
+  return profile;
 }
 
 export async function saveAccountProfile(uid: string, patch: Partial<AccountProfile>, context: { email?: string; consentSource?: string } = {}): Promise<AccountProfile> {
@@ -337,8 +380,12 @@ export async function saveAccountProfile(uid: string, patch: Partial<AccountProf
       marketingConsentUpdatedAt: marketingChanged ? now : current.marketingConsentUpdatedAt,
       marketingConsentVersion: marketingChanged ? MARKETING_CONSENT_VERSION : current.marketingConsentVersion,
       marketingConsentSource: marketingChanged ? (context.consentSource || MARKETING_CONSENT_SOURCE) : current.marketingConsentSource,
+      profileComplete: false,
+      onboardingVersion: 0,
       updatedAt: now,
     };
+    next.profileComplete = profileIsComplete(next);
+    next.onboardingVersion = next.profileComplete ? CURRENT_ONBOARDING_VERSION : 0;
     tx.set(userRef, next, { merge: true });
     if (next.publicProfile && next.handleLower) {
       tx.set(db.collection("publicProfiles").doc(next.handleLower), publicProfileFromAccount(next), { merge: true });
@@ -370,6 +417,8 @@ async function defaultProfile(uid: string): Promise<AccountProfile> {
     marketingConsentUpdatedAt: 0,
     marketingConsentVersion: "",
     marketingConsentSource: "",
+    profileComplete: false,
+    onboardingVersion: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -402,6 +451,357 @@ export function decodeMatches(encoded: string): CommunityMatch[] {
   } catch {
     return [];
   }
+}
+
+export async function associateLinkedIdentity(sourceUid: string, canonicalUid: string): Promise<void> {
+  const source = String(sourceUid ?? "").trim();
+  const canonical = String(canonicalUid ?? "").trim();
+  if (!source || !canonical) return;
+  const db = getFirestoreAdmin();
+  if (!db) throw new Error("Firebase admin is not configured");
+  const now = Date.now();
+  const association = {
+    canonicalUid: canonical,
+    sourceUid: source,
+    linkedAt: now,
+    migrationVersion: 1,
+  };
+
+  if (source !== canonical) {
+    await db.runTransaction(async (tx) => {
+      const sourceRef = db.collection("users").doc(source);
+      const canonicalRef = db.collection("users").doc(canonical);
+      const [sourceSnap, canonicalSnap] = await Promise.all([tx.get(sourceRef), tx.get(canonicalRef)]);
+      if (!sourceSnap.exists) return;
+      const sourceProfile = normalizeAccountProfile(source, sourceSnap.data() ?? {});
+      const canonicalProfile = normalizeAccountProfile(canonical, canonicalSnap.data() ?? {});
+      if (!profileIsComplete(sourceProfile) || profileIsComplete(canonicalProfile)) return;
+      const handleRef = db.collection("handles").doc(sourceProfile.handleLower);
+      const handleSnap = await tx.get(handleRef);
+      const handleOwner = String(handleSnap.data()?.uid ?? "");
+      if (handleSnap.exists && handleOwner !== source && handleOwner !== canonical) return;
+      tx.set(handleRef, { uid: canonical, handle: sourceProfile.handle, updatedAt: now }, { merge: true });
+      tx.set(canonicalRef, {
+        handle: sourceProfile.handle,
+        handleLower: sourceProfile.handleLower,
+        displayName: sourceProfile.displayName,
+        profileComplete: true,
+        onboardingVersion: CURRENT_ONBOARDING_VERSION,
+        identityPromotedFromUid: source,
+        updatedAt: now,
+      }, { merge: true });
+      if (sourceProfile.publicProfile) {
+        tx.set(db.collection("publicProfiles").doc(sourceProfile.handleLower), {
+          ...publicProfileFromAccount({ ...sourceProfile, uid: canonical }),
+          uid: canonical,
+          updatedAt: now,
+        }, { merge: true });
+      }
+    });
+  }
+
+  const identityBatch = db.batch();
+  identityBatch.set(db.collection("identityAliases").doc(source), association, { merge: true });
+  identityBatch.set(db.collection("identityAliases").doc(canonical), { ...association, sourceUid: canonical }, { merge: true });
+  identityBatch.set(db.collection("users").doc(canonical), {
+    canonicalUid: canonical,
+    identityAliases: FieldValue.arrayUnion(source, canonical),
+    identityUpdatedAt: now,
+  }, { merge: true });
+  identityBatch.set(db.collection("users").doc(source), {
+    canonicalUid: canonical,
+    identityAliases: FieldValue.arrayUnion(source, canonical),
+    identityUpdatedAt: now,
+  }, { merge: true });
+  await identityBatch.commit();
+
+  if (source === canonical) return;
+  await migrateLinkedIdentityReferences(source, canonical, now).catch(async (error) => {
+    await db.collection("identityAliases").doc(source).set({
+      migrationError: error instanceof Error ? error.message : "Identity migration needs retry",
+      migrationAttemptAt: Date.now(),
+    }, { merge: true });
+  });
+}
+
+export async function identityUidsFor(uid: string): Promise<string[]> {
+  const cleanUid = String(uid ?? "").trim();
+  if (!cleanUid) return [];
+  const db = getFirestoreAdmin();
+  if (!db) return [cleanUid];
+  const snap = await db.collection("users").doc(cleanUid).get().catch(() => null);
+  const aliases = Array.isArray(snap?.data()?.identityAliases)
+    ? snap.data()?.identityAliases.map((value: unknown) => String(value ?? "").trim()).filter(Boolean)
+    : [];
+  return Array.from(new Set([cleanUid, ...aliases]));
+}
+
+export async function repairHistoricalDesktopIdentityAssociations(canonicalUid: string): Promise<string[]> {
+  const canonical = String(canonicalUid ?? "").trim();
+  if (!canonical) return [];
+  const db = getFirestoreAdmin();
+  if (!db) return [];
+  const userRef = db.collection("users").doc(canonical);
+  const userSnap = await userRef.get();
+  if (Number(userSnap.data()?.desktopIdentityBackfillVersion ?? 0) >= DESKTOP_IDENTITY_BACKFILL_VERSION) {
+    return [];
+  }
+
+  const sessions = await db.collection("desktopLinkSessions")
+    .where("linkedUid", "==", canonical)
+    .limit(100)
+    .get();
+  const sources = historicalDesktopIdentitySources(
+    sessions.docs.map((doc) => doc.data()),
+    canonical,
+  );
+  for (const source of sources) {
+    await associateLinkedIdentity(source, canonical);
+  }
+  await userRef.set({
+    desktopIdentityBackfillVersion: DESKTOP_IDENTITY_BACKFILL_VERSION,
+    desktopIdentityBackfilledAt: Date.now(),
+    desktopIdentityBackfilledSources: sources.length,
+  }, { merge: true });
+  return sources;
+}
+
+type MembershipParentCollection = "hubs" | "teams";
+
+/**
+ * Finds memberships through the fast collection-group index when it is
+ * available, then falls back to direct member document reads. Member IDs are
+ * the Firebase UID throughout RiftLite, so the fallback is deterministic and
+ * does not require scanning private match or message data.
+ */
+export async function findMembershipDocuments(
+  db: Firestore,
+  uids: string[],
+  parentCollection: MembershipParentCollection,
+): Promise<DocumentSnapshot[]> {
+  const identityUids = Array.from(new Set(uids.map((value) => String(value ?? "").trim()).filter(Boolean)));
+  if (!identityUids.length) return [];
+
+  try {
+    const indexed = await Promise.all(identityUids.map((uid) => (
+      db.collectionGroup("members").where("uid", "==", uid).get()
+    )));
+    return dedupeDocumentSnapshots(indexed.flatMap((snapshot) => snapshot.docs)
+      .filter((doc) => doc.ref.parent.parent?.parent.id === parentCollection));
+  } catch {
+    const parents = await db.collection(parentCollection).get();
+    const refs = parents.docs.flatMap((parent) => identityUids.map((uid) => parent.ref.collection("members").doc(uid)));
+    const members: DocumentSnapshot[] = [];
+    for (let offset = 0; offset < refs.length; offset += 250) {
+      members.push(...await db.getAll(...refs.slice(offset, offset + 250)));
+    }
+    return dedupeDocumentSnapshots(members.filter((member) => member.exists));
+  }
+}
+
+function dedupeDocumentSnapshots(documents: DocumentSnapshot[]): DocumentSnapshot[] {
+  return Array.from(new Map(documents.map((document) => [document.ref.path, document])).values());
+}
+
+async function findNestedDocumentsByField(
+  db: Firestore,
+  collectionId: string,
+  field: string,
+  value: string,
+  parentCollections: MembershipParentCollection[],
+  limit = Number.POSITIVE_INFINITY,
+): Promise<DocumentSnapshot[]> {
+  try {
+    let query: Query = db.collectionGroup(collectionId).where(field, "==", value);
+    if (Number.isFinite(limit)) query = query.limit(limit);
+    return (await query.get()).docs;
+  } catch {
+    const documents: DocumentSnapshot[] = [];
+    for (const parentCollection of parentCollections) {
+      const parents = await db.collection(parentCollection).get();
+      for (let offset = 0; offset < parents.docs.length && documents.length < limit; offset += 25) {
+        const remaining = Number.isFinite(limit) ? Math.max(1, limit - documents.length) : 200;
+        const snapshots = await Promise.all(parents.docs.slice(offset, offset + 25).map((parent) => (
+          parent.ref.collection(collectionId).where(field, "==", value).limit(remaining).get()
+        )));
+        documents.push(...snapshots.flatMap((snapshot) => snapshot.docs));
+      }
+    }
+    return dedupeDocumentSnapshots(documents).slice(0, Number.isFinite(limit) ? limit : undefined);
+  }
+}
+
+async function migrateLinkedIdentityReferences(sourceUid: string, canonicalUid: string, now: number): Promise<void> {
+  const db = getFirestoreAdmin();
+  if (!db) return;
+  const profile = await ensureUserProfile(canonicalUid);
+  const updates: Array<{ ref: DocumentReference; data: Record<string, unknown> }> = [];
+  const queueSet = (ref: DocumentReference, value: Record<string, unknown>) => {
+    updates.push({ ref, data: value });
+  };
+
+  const sourceMembers = [
+    ...await findMembershipDocuments(db, [sourceUid], "hubs"),
+    ...await findMembershipDocuments(db, [sourceUid], "teams"),
+  ];
+  for (const memberDoc of sourceMembers) {
+    const ownerRef = memberDoc.ref.parent.parent;
+    if (!ownerRef) continue;
+    const canonicalRef = ownerRef.collection("members").doc(canonicalUid);
+    const canonicalSnap = await canonicalRef.get().catch(() => null);
+    const sourceData = memberDoc.data() ?? {};
+    const canonicalData = canonicalSnap?.data() ?? {};
+    const role = strongerRole(String(sourceData.role ?? "member"), String(canonicalData.role ?? ""));
+    const joinedAt = Math.min(
+      positiveNumber(sourceData.joinedAt, now),
+      positiveNumber(canonicalData.joinedAt, now),
+    );
+    queueSet(canonicalRef, {
+      ...sourceData,
+      uid: canonicalUid,
+      role,
+      handle: profile.handle,
+      displayName: bestProfileDisplayName(canonicalUid, profile.displayName, profile.handle),
+      joinedAt,
+      migratedFromUid: sourceUid,
+      updatedAt: now,
+    });
+    queueSet(memberDoc.ref, { canonicalUid, migratedToUid: canonicalUid, updatedAt: now });
+  }
+
+  for (const field of ["owner_uid", "created_by"] as const) {
+    const hubs = await db.collection("hubs").where(field, "==", sourceUid).get();
+    for (const hub of hubs.docs) {
+      queueSet(hub.ref, { [field]: canonicalUid, owner_uid: canonicalUid, identityMigratedAt: now });
+    }
+  }
+  const teams = await db.collection("teams").where("ownerUid", "==", sourceUid).get();
+  for (const team of teams.docs) {
+    queueSet(team.ref, { ownerUid: canonicalUid, identityMigratedAt: now });
+  }
+
+  const inbox = await db.collection("users").doc(sourceUid).collection("inbox").get();
+  for (const item of inbox.docs) {
+    queueSet(db.collection("users").doc(canonicalUid).collection("inbox").doc(item.id), {
+      ...item.data(),
+      migratedFromUid: sourceUid,
+      updatedAt: now,
+    });
+  }
+
+  const discordLinks = await db.collection("discordLinks").where("uid", "==", sourceUid).get();
+  for (const link of discordLinks.docs) {
+    queueSet(link.ref, {
+      uid: canonicalUid,
+      previousUid: sourceUid,
+      handle: profile.handle,
+      displayName: bestProfileDisplayName(canonicalUid, profile.displayName, profile.handle),
+      updatedAt: now,
+    });
+  }
+
+  const replays = await db.collection("replayV2").where("ownerUid", "==", sourceUid).get();
+  for (const replay of replays.docs) {
+    const replayData = replay.data();
+    queueSet(replay.ref, { ownerUid: canonicalUid, previousOwnerUid: sourceUid, identityMigratedAt: now });
+    queueSet(db.collection("replayV2Owners").doc(canonicalUid).collection("items").doc(replay.id), {
+      ...replayData,
+      ownerUid: canonicalUid,
+      previousOwnerUid: sourceUid,
+      identityMigratedAt: now,
+    });
+  }
+
+  await commitMigrationUpdates(updates);
+  await migrateIdentitySnapshots(sourceUid, canonicalUid, profile, now);
+  await migrateAccountCloudBackup(sourceUid, canonicalUid, now);
+  await db.collection("identityAliases").doc(sourceUid).set({
+    migrationCompletedAt: now,
+    migrationError: FieldValue.delete(),
+  }, { merge: true });
+}
+
+async function migrateIdentitySnapshots(sourceUid: string, canonicalUid: string, profile: AccountProfile, now: number): Promise<void> {
+  const db = getFirestoreAdmin();
+  if (!db) return;
+  const displayName = bestProfileDisplayName(canonicalUid, profile.displayName, profile.handle);
+  for (const collectionId of ["matches", "messages"] as const) {
+    const documents = await findNestedDocumentsByField(db, collectionId, "uid", sourceUid, ["hubs", "teams"]);
+    const updates = documents.map((doc) => ({
+      ref: doc.ref,
+      data: {
+        uid: canonicalUid,
+        owner_uid: collectionId === "matches" ? canonicalUid : undefined,
+        previousUid: sourceUid,
+        owner_display_name: collectionId === "matches" ? displayName : undefined,
+        username: collectionId === "matches" ? displayName : undefined,
+        displayName,
+        handle: profile.handle,
+        identityMigratedAt: now,
+      },
+    }));
+    await commitMigrationUpdates(updates);
+  }
+}
+
+async function migrateAccountCloudBackup(sourceUid: string, canonicalUid: string, now: number): Promise<void> {
+  const db = getFirestoreAdmin();
+  if (!db) return;
+  const sourceRoot = db.collection("accountSync").doc(sourceUid);
+  const canonicalRoot = db.collection("accountSync").doc(canonicalUid);
+  const [sourceManifest, canonicalManifest] = await Promise.all([
+    sourceRoot.collection("manifest").doc("current").get().catch(() => null),
+    canonicalRoot.collection("manifest").doc("current").get().catch(() => null),
+  ]);
+  if (!sourceManifest?.exists) return;
+  if (canonicalManifest?.exists) {
+    await db.collection("identityAliases").doc(sourceUid).set({
+      cloudSyncConflict: true,
+      cloudSyncSourceUid: sourceUid,
+      cloudSyncCanonicalUid: canonicalUid,
+      cloudSyncCheckedAt: now,
+    }, { merge: true });
+    await db.collection("users").doc(canonicalUid).set({
+      accountCloudSyncLegacySources: FieldValue.arrayUnion(sourceUid),
+      accountCloudSyncIdentityUpdatedAt: now,
+    }, { merge: true });
+    return;
+  }
+  const sourceChunks = await sourceRoot.collection("chunks").get();
+  await commitMigrationUpdates(sourceChunks.docs.map((doc) => ({
+    ref: canonicalRoot.collection("chunks").doc(doc.id),
+    data: { ...doc.data(), identityMigratedFromUid: sourceUid },
+  })));
+  await canonicalRoot.collection("manifest").doc("current").set({
+    ...(sourceManifest.data() ?? {}),
+    identityMigratedFromUid: sourceUid,
+    identityMigratedAt: now,
+  }, { merge: true });
+  await db.collection("identityAliases").doc(sourceUid).set({ cloudSyncMigratedAt: now }, { merge: true });
+}
+
+async function commitMigrationUpdates(updates: Array<{ ref: DocumentReference; data: Record<string, unknown> }>): Promise<void> {
+  const db = getFirestoreAdmin();
+  if (!db) return;
+  for (let offset = 0; offset < updates.length; offset += 400) {
+    const batch = db.batch();
+    for (const update of updates.slice(offset, offset + 400)) {
+      const data = Object.fromEntries(Object.entries(update.data).filter(([, value]) => value !== undefined));
+      batch.set(update.ref, data, { merge: true });
+    }
+    await batch.commit();
+  }
+}
+
+function strongerRole(left: string, right: string): "owner" | "admin" | "member" {
+  const rank: Record<string, number> = { member: 1, admin: 2, owner: 3 };
+  const selected = (rank[left] ?? 0) >= (rank[right] ?? 0) ? left : right;
+  return selected === "owner" || selected === "admin" ? selected : "member";
+}
+
+function positiveNumber(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
 }
 
 function safeJsonParse(value: string) {
@@ -776,19 +1176,34 @@ export async function repairProfileReferences(profile: AccountProfile): Promise<
   });
 
   const updateCollectionGroup = async (collectionId: string, field: string, value: string, data: Record<string, unknown>) => {
-    const snap = await db.collectionGroup(collectionId).where(field, "==", value).limit(150).get().catch(() => null);
-    for (const doc of snap?.docs ?? []) {
+    const documents = collectionId === "members" && field === "uid"
+      ? [
+          ...await findMembershipDocuments(db, [value], "hubs"),
+          ...await findMembershipDocuments(db, [value], "teams"),
+        ].slice(0, 150)
+      : await findNestedDocumentsByField(db, collectionId, field, value, ["hubs", "teams"], 150).catch(() => []);
+    for (const doc of documents) {
       queueSet(doc.ref, data);
     }
   };
 
   await updateCollectionGroup("members", "uid", profile.uid, { displayName, handle, updatedAt: now });
   await updateCollectionGroup("messages", "uid", profile.uid, { displayName, handle, updatedAt: now });
+  await updateCollectionGroup("matches", "uid", profile.uid, {
+    username: displayName,
+    owner_display_name: displayName,
+    owner_handle: handle,
+    updatedAt: now,
+  });
   await updateCollectionGroup("inbox", "senderUid", profile.uid, { senderDisplayName: displayName, senderHandle: handle, updatedAt: now });
 
   const inviteSnap = await db.collection("hubInvites").where("senderUid", "==", profile.uid).limit(150).get().catch(() => null);
   for (const doc of inviteSnap?.docs ?? []) {
     queueSet(doc.ref, { senderDisplayName: displayName, senderHandle: handle, updatedAt: now });
+  }
+  const discordSnap = await db.collection("discordLinks").where("uid", "==", profile.uid).limit(150).get().catch(() => null);
+  for (const doc of discordSnap?.docs ?? []) {
+    queueSet(doc.ref, { displayName, handle, updatedAt: now });
   }
 
   if (writes) {
@@ -796,12 +1211,42 @@ export async function repairProfileReferences(profile: AccountProfile): Promise<
   }
 }
 
-export async function assertHubRole(hubId: string, uid: string, roles: string[]) {
+export async function resolveHubRole(hubId: string, uid: string): Promise<HubMemberRole | ""> {
   const db = getFirestoreAdmin();
   if (!db) throw new Error("Firebase admin is not configured");
-  const member = await db.collection("hubs").doc(hubId).collection("members").doc(uid).get();
-  const role = String(member.data()?.role ?? "");
-  if (!member.exists || !roles.includes(role)) {
+  const hubRef = db.collection("hubs").doc(hubId);
+  const identityUids = await identityUidsFor(uid);
+  const memberRefs = identityUids.map((identityUid) => hubRef.collection("members").doc(identityUid));
+  const members = memberRefs.length ? await db.getAll(...memberRefs) : [];
+  const memberRole = members.reduce(
+    (selected, member) => {
+      const candidate = member.exists ? String(member.data()?.role ?? "") : "";
+      if (!candidate || !["owner", "admin", "member"].includes(candidate)) return selected;
+      return selected ? strongerRole(selected, candidate) : candidate;
+    },
+    "",
+  );
+  const hubSnap = await hubRef.get();
+  const hub = hubSnap.data() ?? {};
+  const ownerUid = String(hub.owner_uid ?? hub.ownerUid ?? "");
+  const createdBy = String(hub.created_by ?? hub.createdBy ?? "");
+  if (identityUids.some((identityUid) => ownerUid === identityUid || createdBy === identityUid)) {
+    return "owner";
+  }
+  return memberRole ? normalizeHubMemberRole(memberRole) : "";
+}
+
+export async function assertHubRole(hubId: string, uid: string, roles: string[]) {
+  const role = await resolveHubRole(hubId, uid);
+  if (!role || !roles.includes(role)) {
+    throw new Error("You do not have permission for this hub action.");
+  }
+  return role;
+}
+
+export async function assertHubCapability(hubId: string, uid: string, capability: HubCapability): Promise<HubMemberRole> {
+  const role = await resolveHubRole(hubId, uid);
+  if (!role || !hubRoleHasCapability(role, capability)) {
     throw new Error("You do not have permission for this hub action.");
   }
   return role;

@@ -12,8 +12,8 @@ export const metadata = createPageMetadata({
 
 export default function RiftReplayPage() {
   return (
-    <div className="mx-auto max-w-[1900px] space-y-4 px-2 py-2 sm:px-3">
-      <RiftReplayViewer />
+    <div className="h-screen overflow-hidden bg-[#05070b]">
+      <RiftReplayViewer fullScreen />
     </div>
   );
 }

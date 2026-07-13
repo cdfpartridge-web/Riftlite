@@ -11,6 +11,7 @@ const primaryLinks = [
   { href: SITE_PATHS.meta, label: "Meta" },
   { href: SITE_PATHS.matrix, label: "Matrix" },
   { href: SITE_PATHS.decks, label: "Decks" },
+  { href: SITE_PATHS.replays, label: "Replays" },
   { href: SITE_PATHS.scorepad, label: "Scorepad" },
   { href: SITE_PATHS.news, label: "News" },
   { href: SITE_PATHS.teams, label: "Teams" },
@@ -55,6 +56,8 @@ export function SiteHeader({ discordUrl }: SiteHeaderProps = {}) {
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <Link className="hidden text-sm font-semibold text-slate-300 hover:text-white sm:inline" href="/hubs">My Hubs</Link>
+          <Link className="hidden text-sm font-semibold text-slate-300 hover:text-white sm:inline" href="/account">Account</Link>
           {discordUrl ? (
             <Link
               aria-label="Join the RiftLite Discord"
@@ -76,16 +79,18 @@ export function SiteHeader({ discordUrl }: SiteHeaderProps = {}) {
         </div>
       </div>
       <nav aria-label="Mobile primary navigation" className="border-t border-white/[0.06] lg:hidden">
-        <div className="mx-auto grid max-w-7xl grid-cols-3 gap-2 px-4 py-2.5 sm:flex sm:flex-wrap sm:px-6">
+        <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto px-4 py-2.5 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden">
           {primaryLinks.map((link) => (
             <Link
-              className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-center text-xs font-semibold text-slate-300 transition-colors duration-200 hover:border-sky-300/40 hover:bg-sky-300/10 hover:text-white"
+              className="shrink-0 rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-center text-xs font-semibold text-slate-300 transition-colors duration-200 hover:border-sky-300/40 hover:bg-sky-300/10 hover:text-white"
               href={link.href}
               key={link.href}
             >
               {link.label}
             </Link>
           ))}
+          <Link className="shrink-0 rounded-full border border-cyan-300/20 bg-cyan-300/8 px-3 py-2 text-center text-xs font-semibold text-cyan-100 sm:hidden" href="/hubs">My Hubs</Link>
+          <Link className="shrink-0 rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-center text-xs font-semibold text-slate-300 sm:hidden" href="/account">Account</Link>
         </div>
       </nav>
     </header>

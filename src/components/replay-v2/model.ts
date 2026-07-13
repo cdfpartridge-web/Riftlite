@@ -17,6 +17,14 @@ const TRUSTED_CARD_IMAGE_HOSTS = new Set([
   "piltoverarchive.com",
   "www.piltoverarchive.com",
 ]);
+const RIFT_ATLAS_TOKEN_IMAGE_URLS: Record<string, string> = {
+  bird: "https://play.riftatlas.com/tokens/Bird.webp",
+  gold: "https://play.riftatlas.com/tokens/Gold.webp",
+  mech: "https://play.riftatlas.com/tokens/Mech.webp",
+  recruit: "https://play.riftatlas.com/tokens/Recruit.webp",
+  sandsoldier: "https://play.riftatlas.com/tokens/SandSoldier.webp",
+  sprite: "https://play.riftatlas.com/tokens/Sprite.webp",
+};
 const NON_BOARD_ZONE_ALIASES = [
   ...HAND_ZONE_ALIASES,
   ...DECK_ZONE_ALIASES,
@@ -111,6 +119,13 @@ export type ReplayBoardZone = {
   cards: ReplayCardState[];
 };
 
+export type ReplayAttachedCardGroup = {
+  host: ReplayCardState;
+  attachments: ReplayCardState[];
+};
+
+export type ReplayCounterField = "whiteCounter" | "redCounter";
+
 export type ReplayTurnMarker = {
   turn: number;
   atMs: number;
@@ -121,6 +136,7 @@ export type ReplaySceneKind =
   | "matchup"
   | "battlefields"
   | "initiative"
+  | "first_player"
   | "mulligan"
   | "opening"
   | "game_start"
@@ -233,6 +249,84 @@ export function isDuplicateCard(card: ReplayCardState | undefined): boolean {
   );
 }
 
+export function customCardLabels(card: ReplayCardState | undefined): string[] {
+  const labels = card?.fields.customLabels;
+  if (!Array.isArray(labels)) return [];
+  return labels.flatMap((label) => {
+    if (typeof label !== "string") return [];
+    const trimmed = label.trim();
+    return trimmed ? [trimmed] : [];
+  });
+}
+
+/**
+ * Reads the two explicit Atlas counter fields without inferring a counter from
+ * action text or any other card value. `null` means the field was present but
+ * malformed, allowing the UI to keep a visible diagnostic badge instead of
+ * accidentally hiding an explicit zero-like value.
+ */
+export function cardCounterValue(
+  card: ReplayCardState | undefined,
+  field: ReplayCounterField,
+): number | null | undefined {
+  if (!card || !Object.prototype.hasOwnProperty.call(card.fields, field)) return undefined;
+  return numberValue(card.fields[field]) ?? null;
+}
+
+export function attachedToCardId(card: ReplayCardState | undefined): string | undefined {
+  const value = card?.fields.attachedToCardId;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * Keeps attached cards in the same projected row as their host while ensuring
+ * every card is rendered exactly once. The normal Atlas shape is one direct
+ * child, but the traversal also handles multiple children, nested attachments,
+ * or malformed cycles without losing a card.
+ */
+export function groupCardsWithAttachments(cards: ReplayCardState[]): ReplayAttachedCardGroup[] {
+  const cardsById = new Map(cards.map((card) => [card.id, card]));
+  const childrenByHost = new Map<string, ReplayCardState[]>();
+  const parentIdByCard = new Map<string, string>();
+
+  for (const card of cards) {
+    const parentId = attachedToCardId(card);
+    if (!parentId || parentId === card.id || !cardsById.has(parentId)) continue;
+    parentIdByCard.set(card.id, parentId);
+    const children = childrenByHost.get(parentId) ?? [];
+    children.push(card);
+    childrenByHost.set(parentId, children);
+  }
+
+  const visited = new Set<string>();
+  const buildGroup = (host: ReplayCardState): ReplayAttachedCardGroup => {
+    visited.add(host.id);
+    const attachments: ReplayCardState[] = [];
+    const collectChildren = (hostId: string) => {
+      for (const child of childrenByHost.get(hostId) ?? []) {
+        if (visited.has(child.id)) continue;
+        visited.add(child.id);
+        attachments.push(child);
+        collectChildren(child.id);
+      }
+    };
+    collectChildren(host.id);
+    return { host, attachments };
+  };
+
+  const groups = cards
+    .filter((card) => !parentIdByCard.has(card.id))
+    .map(buildGroup);
+
+  // Malformed cycles have no root. Keep their first unseen card as a host so a
+  // bad relationship cannot make otherwise valid projected cards disappear.
+  for (const card of cards) {
+    if (!visited.has(card.id)) groups.push(buildGroup(card));
+  }
+
+  return groups;
+}
+
 export function isBattlefieldCard(card: ReplayCardState | undefined): boolean {
   if (!card) return false;
 
@@ -271,6 +365,8 @@ export function cardImageUrl(card: ReplayCardState | undefined): string | undefi
     fields.art_url,
     fields.src,
   );
+  const tokenImage = riftAtlasTokenImageUrl(card, direct);
+  if (tokenImage) return tokenImage;
   const safeDirect = safeCardImageUrl(direct);
   if (safeDirect) return safeDirect;
   const code =
@@ -279,6 +375,30 @@ export function cardImageUrl(card: ReplayCardState | undefined): string | undefi
     cardCodeFromValue(card.name) ||
     BATTLEFIELD_CARD_CODES[normalizeKey(card.name)];
   return code ? `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp` : undefined;
+}
+
+function riftAtlasTokenImageUrl(
+  card: ReplayCardState,
+  direct: string | undefined,
+): string | undefined {
+  const source = normalizeKey(firstString(
+    card.source,
+    card.fields.source,
+    card.fields.type,
+    card.fields.cardType,
+  ) ?? "");
+  const directTokenFile = direct?.match(/^\/tokens\/([a-z0-9_-]+\.webp)$/i)?.[1];
+  const directTokenName = directTokenFile?.slice(0, -".webp".length);
+  const canonicalDirect = directTokenName
+    ? RIFT_ATLAS_TOKEN_IMAGE_URLS[normalizeKey(directTokenName)]
+    : undefined;
+  if (canonicalDirect) return canonicalDirect;
+  if (source === "token" && directTokenFile) {
+    return `https://play.riftatlas.com/tokens/${directTokenFile}`;
+  }
+
+  const tokenName = source === "token" ? card.name : undefined;
+  return tokenName ? RIFT_ATLAS_TOKEN_IMAGE_URLS[normalizeKey(tokenName)] : undefined;
 }
 
 export function safeCardImageUrl(value: string | undefined): string | undefined {
@@ -331,6 +451,18 @@ export function championCard(player: ReplayPlayerState): ReplayCardState | undef
     ],
     kind: "champion",
   });
+}
+
+/**
+ * The card physically occupying the live champion zone.
+ *
+ * `championCard` is intentionally broader because matchup/opening scenes still
+ * need identity art after a champion has moved elsewhere. Board rendering must
+ * not use that fallback: `source: "champion"` describes where a card originated,
+ * not where it currently is.
+ */
+export function championZoneCard(player: ReplayPlayerState): ReplayCardState | undefined {
+  return zoneCards(player, ["champion"]).find((card) => !card.isPlaceholder);
 }
 
 export function battlefieldZoneForPlayer(
@@ -387,6 +519,11 @@ export function battlefieldCards(
     if (selected.every(Boolean)) return selected;
   }
 
+  // During sideboarding and battlefield selection, option lists are not
+  // evidence that a battlefield was chosen. Keep unresolved ownership slots
+  // empty until a per-player or room selection is actually observed.
+  if (state.phase === "sideboarding" || state.phase === "battlefield_pick") return selected;
+
   // Option lists are diagnostic fallbacks only. Fill the corresponding
   // player's missing slot without moving the other player's selection.
   for (const [index, player] of playerOrder.entries()) {
@@ -431,8 +568,9 @@ export function activeScene(
     case "battlefield_pick":
       return "battlefields";
     case "initiative_roll":
-    case "first_player_choice":
       return "initiative";
+    case "first_player_choice":
+      return "first_player";
     case "mulligan":
       return "mulligan";
     case "sideboarding":

@@ -37,6 +37,36 @@ export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
 export const MATCH_CACHE_MS = 60_000;
 export const TWITCH_STATUS_CACHE_MS = 60_000;
+export const VENDETTA_PREVIEW_START_MS = Date.UTC(2026, 6, 6);
+export const VENDETTA_LAUNCH_START_MS = Date.UTC(2026, 6, 31);
+
+export const COMMUNITY_SEASONS = [
+  {
+    id: "vendetta-preview",
+    label: "Vendetta Preview season",
+    shortLabel: "Vendetta Preview",
+    description: "Preview testing from 6 July 2026 until the set launches.",
+  },
+  {
+    id: "vendetta-launch",
+    label: "Vendetta launch season",
+    shortLabel: "Vendetta Launch",
+    description: "Official Vendetta season from 31 July 2026 onward.",
+  },
+  {
+    id: "pre-vendetta",
+    label: "Pre-Vendetta archive",
+    shortLabel: "Pre-Vendetta",
+    description: "The previous public meta before Vendetta previews started.",
+  },
+  {
+    id: "",
+    label: "All tracked seasons",
+    shortLabel: "All seasons",
+    description: "The full cached public community window.",
+  },
+] as const;
+export const COMMUNITY_SEASON_IDS = COMMUNITY_SEASONS.map((season) => season.id);
 
 export const SITE_PATHS = {
   home: "/",
@@ -44,6 +74,7 @@ export const SITE_PATHS = {
   matrix: "/community/matrix",
   matches: "/community/matches",
   decks: "/community/decks",
+  replays: "/replays",
   riftreplay: "/riftreplay",
   news: "/news",
   guide: "/guide",
@@ -58,6 +89,7 @@ export const SITE_PATHS = {
 
 export const DEFAULT_FILTERS: CommunityFilterParams = {
   range: "",
+  season: "vendetta-preview",
   legend: "",
   result: "",
   seat: "",
@@ -69,6 +101,8 @@ export const DEFAULT_FILTERS: CommunityFilterParams = {
 
 export const LEGENDS = [
   "Ahri",
+  "Akali",
+  "Ambessa",
   "Annie",
   "Azir",
   "Darius",
@@ -90,6 +124,9 @@ export const LEGENDS = [
   "Lillia",
   "Lucian",
   "Lux",
+  "Jayce",
+  "Kennen",
+  "Mel",
   "Master Yi",
   "Master Yi, Wuju Bladesman",
   "Master Yi, Wuju Master",
@@ -99,9 +136,12 @@ export const LEGENDS = [
   "Pyke",
   "Rek'Sai",
   "Renata Glasc",
+  "Renekton",
   "Rengar",
   "Rumble",
+  "Nasus",
   "Sett",
+  "Shen",
   "Sivir",
   "Teemo",
   "Vex",
@@ -109,11 +149,27 @@ export const LEGENDS = [
   "Viktor",
   "Volibear",
   "Yasuo",
+  "Zed",
 ] as const;
 
 export const LEGEND_ALIASES = {
   victor: "Viktor",
   viktor: "Viktor",
+  hiddenweapon: "Akali",
+  fistofshadow: "Akali",
+  unseenblade: "Akali",
+  matriarchofwar: "Ambessa",
+  chosenofthewolf: "Ambessa",
+  defenderoftomorrow: "Jayce",
+  defenderoftomorrows: "Jayce",
+  heartofthetempest: "Kennen",
+  newlyawakened: "Mel",
+  aspectofthejackal: "Nasus",
+  curatorsandsoftheburiedsun: "Nasus",
+  curatorofthesands: "Nasus",
+  butcherofthedesert: "Renekton",
+  eyeoftwilight: "Shen",
+  masterofshadows: "Zed",
   renata: "Renata Glasc",
   masteryi: "Master Yi",
   masteryiwujubladesman: "Master Yi, Wuju Bladesman",
@@ -152,6 +208,7 @@ export const BATTLEFIELDS = [
   "Navori Fighting Pit",
   "Obelisk of Power",
   "Ornn's Forge",
+  "Piltovan Forge",
   "Power Nexus",
   "Ravenbloom Conservatory",
   "Reaver's Row",
@@ -159,6 +216,7 @@ export const BATTLEFIELDS = [
   "Rockfall Path",
   "Seat of Power",
   "Sigil of the Storm",
+  "Sandswept Tomb",
   "Startipped Peak",
   "Sunken Temple",
   "Targon's Peak",
@@ -201,4 +259,7 @@ export const BATTLEFIELD_ALIASES = {
   theacedemy: "The Academy",
   acedemy: "The Academy",
   academy: "The Academy",
+  piltovanforge: "Piltovan Forge",
+  piltoverforge: "Piltovan Forge",
+  sandswepttomb: "Sandswept Tomb",
 } as const;
