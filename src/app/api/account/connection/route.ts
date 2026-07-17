@@ -53,6 +53,8 @@ async function connectionResponse(auth: Exclude<Awaited<ReturnType<typeof requir
     connection: {
       verified: true,
       uid,
+      authenticatedUid: auth.authenticatedUid,
+      identityUids: aliases,
       email: profile.email || auth.decoded.email || "",
       displayName: profile.displayName,
       handle: profile.handle,

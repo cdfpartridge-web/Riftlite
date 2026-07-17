@@ -1,6 +1,7 @@
 import "server-only";
 
 import { verifyFirebaseIdToken } from "@/lib/firebase/admin";
+import { canonicalIdentityUid } from "@/lib/identity-server";
 import { ReplayV2Error } from "@/lib/replay-v2-server/errors";
 import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
 import { replayEmbedUidFromCookie } from "@/lib/replay-v2-server/session";
@@ -23,9 +24,10 @@ export async function optionalReplayUser(request: Request): Promise<string> {
   if (token) {
     const decoded = await verifyFirebaseIdToken(token);
     const uid = linkedReplayUid(decoded);
-    if (uid) return uid;
+    if (uid) return canonicalIdentityUid(uid);
   }
-  return replayEmbedUidFromCookie(request);
+  const cookieUid = replayEmbedUidFromCookie(request);
+  return cookieUid ? canonicalIdentityUid(cookieUid) : "";
 }
 
 export async function requireFirebaseBearerUser(request: Request): Promise<string> {
@@ -36,5 +38,5 @@ export async function requireFirebaseBearerUser(request: Request): Promise<strin
   if (!uid) {
     throw new ReplayV2Error(401, "authentication_required", "A linked RiftLite account token is required.");
   }
-  return uid;
+  return canonicalIdentityUid(uid);
 }

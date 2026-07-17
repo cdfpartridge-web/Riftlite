@@ -51,3 +51,14 @@ export function summarizeAccountMigration(records: AccountMigrationRecord[]): {
 export function accountConnectionUidMatches(expectedUid: string, observedUid: string): boolean {
   return Boolean(expectedUid.trim() && expectedUid.trim() === observedUid.trim());
 }
+
+export function canonicalUidFromIdentityRecords(
+  sourceUid: unknown,
+  userRecord: Record<string, unknown> | null | undefined,
+  aliasRecord: Record<string, unknown> | null | undefined,
+): string {
+  const source = String(sourceUid ?? "").trim();
+  const aliasCanonical = String(aliasRecord?.canonicalUid ?? "").trim();
+  const userCanonical = String(userRecord?.canonicalUid ?? "").trim();
+  return aliasCanonical || userCanonical || source;
+}

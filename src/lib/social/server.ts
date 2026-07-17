@@ -17,6 +17,7 @@ import {
   historicalDesktopIdentitySources,
 } from "@/lib/account-connection";
 import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
+import { canonicalIdentityUid } from "@/lib/identity-server";
 import {
   hubRoleHasCapability,
   normalizeHubMemberRole,
@@ -128,7 +129,14 @@ export async function requireUser(req: NextRequest) {
   if (!decoded) {
     return { error: socialJson({ error: "Invalid or expired ID token" }, 401) };
   }
-  return { db, decoded, token };
+  const authenticatedUid = decoded.uid;
+  const canonicalUid = await canonicalIdentityUid(authenticatedUid, db);
+  return {
+    db,
+    decoded: canonicalUid && canonicalUid !== authenticatedUid ? { ...decoded, uid: canonicalUid } : decoded,
+    authenticatedUid,
+    token,
+  };
 }
 
 export function cleanHandle(value: unknown): string {
@@ -529,11 +537,17 @@ export async function identityUidsFor(uid: string): Promise<string[]> {
   if (!cleanUid) return [];
   const db = getFirestoreAdmin();
   if (!db) return [cleanUid];
-  const snap = await db.collection("users").doc(cleanUid).get().catch(() => null);
-  const aliases = Array.isArray(snap?.data()?.identityAliases)
+  const canonicalUid = await canonicalIdentityUid(cleanUid, db);
+  const [sourceSnap, canonicalSnap] = await Promise.all([
+    db.collection("users").doc(cleanUid).get().catch(() => null),
+    canonicalUid === cleanUid
+      ? Promise.resolve(null)
+      : db.collection("users").doc(canonicalUid).get().catch(() => null),
+  ]);
+  const aliases = [sourceSnap, canonicalSnap].flatMap((snap) => Array.isArray(snap?.data()?.identityAliases)
     ? snap.data()?.identityAliases.map((value: unknown) => String(value ?? "").trim()).filter(Boolean)
-    : [];
-  return Array.from(new Set([cleanUid, ...aliases]));
+    : []);
+  return Array.from(new Set([cleanUid, canonicalUid, ...aliases].filter(Boolean)));
 }
 
 export async function repairHistoricalDesktopIdentityAssociations(canonicalUid: string): Promise<string[]> {
