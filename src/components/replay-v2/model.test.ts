@@ -7,8 +7,10 @@ import {
   battlefieldCards,
   battlefieldZoneForPlayer,
   boardZones,
+  cardCodeFromValue,
   cardCounterValue,
   cardImageUrl,
+  cardsShareCanonicalIdentity,
   championCard,
   championZoneCard,
   customCardLabels,
@@ -40,6 +42,39 @@ describe("replay card image URLs", () => {
       fields: { imageUrl: "https://tracker.example/pixel.gif" },
     };
     expect(cardImageUrl(card)).toBe("https://cdn.piltoverarchive.com/cards/OGN-001.webp");
+  });
+
+  it("uses the base printing for signed alternate-art card codes", () => {
+    expect(cardImageUrl({
+      ...card("signed-jhin", "Jhin, Meticulous Killer", "UNL-089A"),
+      fields: { imageUrl: "/cards/UNL-089A.webp" },
+    })).toBe("https://cdn.piltoverarchive.com/cards/UNL-089.webp");
+  });
+
+  it("keeps an overnumbered card code when that printing has public art", () => {
+    expect(cardImageUrl(card("overnumbered-jhin", "Jhin, Virtuoso", "UNL-226")))
+      .toBe("https://cdn.piltoverarchive.com/cards/UNL-226.webp");
+  });
+
+  it.each([
+    ["Mind Rune", "UNL-R03A", "OGN-089"],
+    ["Fury Rune", "UNL-R01A", "OGN-007"],
+    ["Unknown Rune", "SFD-R06B", "OGN-214"],
+  ])("maps the signed %s printing to canonical rune artwork", (name, printCode, artCode) => {
+    expect(cardCodeFromValue(`https://cards.example/${printCode}.webp`)).toBe(printCode);
+    expect(cardImageUrl(card(`signed-${name}`, name, printCode)))
+      .toBe(`https://cdn.piltoverarchive.com/cards/${artCode}.webp`);
+  });
+
+  it("treats signed and overnumbered alternate arts as the same card identity", () => {
+    expect(cardsShareCanonicalIdentity(
+      card("signed", "Jhin, Meticulous Killer", "UNL-089A"),
+      card("base", "Jhin, Meticulous Killer", "UNL-089"),
+    )).toBe(true);
+    expect(cardsShareCanonicalIdentity(
+      card("overnumbered", "Jhin, Virtuoso", "UNL-226"),
+      card("standard", "Jhin, Virtuoso", "UNL-181"),
+    )).toBe(true);
   });
 
   it("resolves name-only battlefield artwork from the public card catalog", () => {

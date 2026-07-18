@@ -37,6 +37,7 @@ import {
   cardImageUrl,
   cardName,
   cardCounterValue,
+  cardsShareCanonicalIdentity,
   championCard,
   championZoneCard,
   customCardLabels,
@@ -2539,10 +2540,7 @@ function enrichSideboardDeltas(
 }
 
 function sideboardCardsMatch(left: ReplayCardState, right: ReplayCardState): boolean {
-  const leftCode = left.cardCode?.trim().toLowerCase();
-  const rightCode = right.cardCode?.trim().toLowerCase();
-  if (leftCode && rightCode) return leftCode === rightCode;
-  return normalizeSideboardKey(left.name) === normalizeSideboardKey(right.name);
+  return cardsShareCanonicalIdentity(left, right);
 }
 
 function jsonObjectValueByNormalizedKey(

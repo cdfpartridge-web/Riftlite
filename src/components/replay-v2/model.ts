@@ -25,6 +25,22 @@ const RIFT_ATLAS_TOKEN_IMAGE_URLS: Record<string, string> = {
   sandsoldier: "https://play.riftatlas.com/tokens/SandSoldier.webp",
   sprite: "https://play.riftatlas.com/tokens/Sprite.webp",
 };
+const CANONICAL_RUNE_CARD_CODES: Record<string, string> = {
+  bodyrune: "OGN-126",
+  calmrune: "OGN-042",
+  chaosrune: "OGN-166",
+  furyrune: "OGN-007",
+  mindrune: "OGN-089",
+  orderrune: "OGN-214",
+};
+const CANONICAL_RUNE_CARD_CODES_BY_PRINT_NUMBER: Record<string, string> = {
+  "01": "OGN-007",
+  "02": "OGN-042",
+  "03": "OGN-089",
+  "04": "OGN-126",
+  "05": "OGN-166",
+  "06": "OGN-214",
+};
 const NON_BOARD_ZONE_ALIASES = [
   ...HAND_ZONE_ALIASES,
   ...DECK_ZONE_ALIASES,
@@ -367,14 +383,38 @@ export function cardImageUrl(card: ReplayCardState | undefined): string | undefi
   );
   const tokenImage = riftAtlasTokenImageUrl(card, direct);
   if (tokenImage) return tokenImage;
+  const sourceCode =
+    cardCodeFromValue(card.cardCode) ||
+    cardCodeFromValue(direct) ||
+    cardCodeFromValue(card.id) ||
+    cardCodeFromValue(card.name);
+  const canonicalCode = canonicalCardArtCode(card, sourceCode);
+  if (canonicalCode && canonicalCode !== sourceCode) {
+    return publicCardImageUrl(canonicalCode);
+  }
   const safeDirect = safeCardImageUrl(direct);
   if (safeDirect) return safeDirect;
-  const code =
-    card.cardCode ||
-    cardCodeFromValue(card.id) ||
-    cardCodeFromValue(card.name) ||
-    BATTLEFIELD_CARD_CODES[normalizeKey(card.name)];
-  return code ? `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp` : undefined;
+  const code = canonicalCode || BATTLEFIELD_CARD_CODES[normalizeKey(card.name)];
+  return code ? publicCardImageUrl(code) : undefined;
+}
+
+function canonicalCardArtCode(
+  card: ReplayCardState,
+  sourceCode: string | undefined,
+): string | undefined {
+  const runeCode = CANONICAL_RUNE_CARD_CODES[normalizeKey(card.name)];
+  if (runeCode) return runeCode;
+  const runePrintNumber = sourceCode
+    ?.match(/^[A-Z]{2,5}-R(\d{1,3})[A-Z]?$/)?.[1]
+    ?.padStart(2, "0");
+  if (runePrintNumber && CANONICAL_RUNE_CARD_CODES_BY_PRINT_NUMBER[runePrintNumber]) {
+    return CANONICAL_RUNE_CARD_CODES_BY_PRINT_NUMBER[runePrintNumber];
+  }
+  return canonicalCardPrintCode(sourceCode);
+}
+
+function publicCardImageUrl(code: string): string {
+  return `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp`;
 }
 
 function riftAtlasTokenImageUrl(
@@ -423,9 +463,28 @@ export function safeCardImageUrl(value: string | undefined): string | undefined 
 
 export function cardCodeFromValue(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  const match = value.match(/\b([A-Z]{3}-\d{3}[a-z]?)\b/i);
+  const match = value.match(/\b([A-Z]{2,5}-(?:R\d{1,3}|\d{1,4})[A-Z]?)\b/i);
   if (!match) return undefined;
-  return `${match[1].slice(0, 3).toUpperCase()}-${match[1].slice(4)}`;
+  return match[1].toUpperCase();
+}
+
+export function canonicalCardPrintCode(value: string | undefined): string | undefined {
+  return cardCodeFromValue(value)?.replace(
+    /^([A-Z]{2,5}-(?:R\d{1,3}|\d{1,4}))[A-Z]$/,
+    "$1",
+  );
+}
+
+export function cardsShareCanonicalIdentity(
+  left: ReplayCardState,
+  right: ReplayCardState,
+): boolean {
+  const leftCode = canonicalCardPrintCode(left.cardCode);
+  const rightCode = canonicalCardPrintCode(right.cardCode);
+  if (leftCode && rightCode && leftCode === rightCode) return true;
+  const leftName = normalizeKey(left.name);
+  const rightName = normalizeKey(right.name);
+  return Boolean(leftName && rightName && leftName === rightName);
 }
 
 export function legendCard(player: ReplayPlayerState): ReplayCardState | undefined {
