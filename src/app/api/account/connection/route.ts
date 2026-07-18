@@ -81,8 +81,18 @@ async function connectionResponse(
     ...sourceAliases.map((alias) => auth.db.collection("identityAliases").doc(alias).get()),
   ]);
 
+  const canonicalUser = canonicalUserSnapshot.data() ?? {};
   const migration = summarizeAccountMigration([
-    canonicalUserSnapshot.data() ?? {},
+    // Only source-alias documents have an identity migration lifecycle. The
+    // canonical profile still owns durable repair/conflict signals, but the
+    // absence of migrationCompletedAt on a normal profile must not leave every
+    // newly linked account permanently pending.
+    {
+      migrationCompletedAt: true,
+      migrationError: canonicalUser.migrationError,
+      cloudSyncConflict: canonicalUser.cloudSyncConflict,
+      desktopIdentityBackfillConflicts: canonicalUser.desktopIdentityBackfillConflicts,
+    },
     ...aliasSnapshots.map((snapshot) => snapshot.data() ?? {}),
   ]);
   let customToken = "";

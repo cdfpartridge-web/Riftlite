@@ -101,6 +101,47 @@ describe("account connection credential repair", () => {
     expect(mocks.createFirebaseCustomToken).not.toHaveBeenCalled();
   });
 
+  it("does not treat a normal canonical profile as an unfinished alias migration", async () => {
+    mocks.identityUidsFor.mockResolvedValue(["account-canonical"]);
+    mocks.requireUser.mockResolvedValue(authResult(
+      "account-canonical",
+      "account-canonical",
+      "google.com",
+      {},
+    ));
+
+    const response = await GET({} as never);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      connection: {
+        migrationState: "ready",
+        migrationMessage: "",
+      },
+    });
+  });
+
+  it("keeps a source alias pending until that alias migration completes", async () => {
+    mocks.identityUidsFor.mockResolvedValue(["account-canonical", "desktop-alias"]);
+    mocks.requireUser.mockResolvedValue(authResult(
+      "account-canonical",
+      "account-canonical",
+      "google.com",
+      {},
+      {},
+    ));
+
+    const response = await GET({} as never);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      connection: {
+        migrationState: "pending",
+        migrationMessage: "Older account records are still being linked.",
+      },
+    });
+  });
+
   it("accepts a canonical custom-token session only with its server-owned association", async () => {
     mocks.linkedReplayUid.mockReturnValue("");
     mocks.identityUidsFor.mockResolvedValue(["account-canonical"]);
@@ -175,7 +216,7 @@ describe("account connection credential repair", () => {
       "account-canonical",
       "account-canonical",
       "google.com",
-      { migrationCompletedAt: 123, desktopIdentityBackfillConflicts: [{ repairRequired: true }] },
+      { desktopIdentityBackfillConflicts: [{ repairRequired: true }] },
     ));
 
     const response = await GET({} as never);
@@ -217,7 +258,8 @@ function authResult(
   authenticatedUid: string,
   canonicalUid: string,
   signInProvider = "google.com",
-  userData: Record<string, unknown> = { migrationCompletedAt: 123 },
+  userData: Record<string, unknown> = {},
+  aliasData: Record<string, unknown> = { migrationCompletedAt: 123 },
 ) {
   return {
     authenticatedUid,
@@ -230,20 +272,23 @@ function authResult(
         sign_in_provider: signInProvider,
       },
     },
-    db: fakeConnectionDatabase(userData),
+    db: fakeConnectionDatabase(userData, aliasData),
   };
 }
 
-function fakeConnectionDatabase(userData: Record<string, unknown>) {
+function fakeConnectionDatabase(
+  userData: Record<string, unknown>,
+  aliasData: Record<string, unknown>,
+) {
   return {
     collection: vi.fn((collectionName: string) => ({
       doc: vi.fn(() => ({
         get: vi.fn(async () => ({
           data: () => collectionName === "identityAliases"
             ? {
-                migrationCompletedAt: 123,
                 canonicalUid: "account-canonical",
                 sourceUid: "account-canonical",
+                ...aliasData,
               }
             : userData,
         })),
