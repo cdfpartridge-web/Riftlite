@@ -97,7 +97,10 @@ export async function createFirebaseCustomToken(uid: string) {
   if (!app) return null;
 
   try {
-    return await getAuth(app).createCustomToken(uid);
+    // This claim is issued only after RiftLite's server has completed or
+    // repaired a proven account link. It lets later ID tokens remain usable
+    // when Firebase's custom-token refresh omits provider identity metadata.
+    return await getAuth(app).createCustomToken(uid, { riftlite_linked_account: true });
   } catch {
     return null;
   }

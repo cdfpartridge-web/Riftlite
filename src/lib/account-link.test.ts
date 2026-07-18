@@ -3,8 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   accountIdHint,
   accountIdentityLabel,
+  conflictingLinkedIdentityCanonicalUid,
   desktopLinkAllowsIdentity,
   desktopLinkCanReissueToken,
+  desktopLinkPinnedExpectedUid,
+  desktopLinkSessionOwnedBy,
+  desktopLinkSignInIsVerified,
   shouldAutomaticallyFinishAccountAction,
 } from "@/lib/account-link";
 import {
@@ -37,6 +41,61 @@ describe("desktop account linking", () => {
     expect(desktopLinkAllowsIdentity("", "account-1")).toBe(true);
     expect(desktopLinkAllowsIdentity("account-1", "account-1")).toBe(true);
     expect(desktopLinkAllowsIdentity("account-1", "account-2")).toBe(false);
+  });
+
+  it("requires verified email for password desktop sign-in without delaying Google", () => {
+    expect(desktopLinkSignInIsVerified({
+      email_verified: false,
+      firebase: { sign_in_provider: "password" },
+    })).toBe(false);
+    expect(desktopLinkSignInIsVerified({
+      email_verified: true,
+      firebase: { sign_in_provider: "password" },
+    })).toBe(true);
+    expect(desktopLinkSignInIsVerified({
+      email_verified: false,
+      firebase: { sign_in_provider: "google.com" },
+    })).toBe(true);
+  });
+
+  it("pins an aliased anonymous desktop token to its canonical account", () => {
+    expect(desktopLinkPinnedExpectedUid(
+      "desktop-raw",
+      "account-canonical",
+      "",
+      "",
+    )).toBe("account-canonical");
+    expect(desktopLinkPinnedExpectedUid(
+      "desktop-raw",
+      "desktop-raw",
+      "durable-account",
+      "remembered-account",
+    )).toBe("durable-account");
+    expect(desktopLinkPinnedExpectedUid(
+      "desktop-raw",
+      "desktop-raw",
+      "",
+      "remembered-account",
+    )).toBe("remembered-account");
+  });
+
+  it("allows only idempotent source-to-canonical identity bindings", () => {
+    expect(conflictingLinkedIdentityCanonicalUid("account-1", "", "")).toBe("");
+    expect(conflictingLinkedIdentityCanonicalUid("account-1", "account-1", "account-1")).toBe("");
+    expect(conflictingLinkedIdentityCanonicalUid("account-2", "account-1", "")).toBe("account-1");
+    expect(conflictingLinkedIdentityCanonicalUid("account-2", "account-2", "account-1")).toBe("account-1");
+  });
+
+  it("binds new sessions to the raw authenticated device identity", () => {
+    expect(desktopLinkSessionOwnedBy("desktop-raw", "desktop-raw", "account-1", 2)).toBe(true);
+    expect(desktopLinkSessionOwnedBy("another-desktop", "desktop-raw", "account-1", 2)).toBe(false);
+    expect(desktopLinkSessionOwnedBy("account-1", "another-alias", "account-1", 2)).toBe(false);
+  });
+
+  it("accepts the canonical owner shape only for unversioned legacy sessions", () => {
+    expect(desktopLinkSessionOwnedBy("account-1", "desktop-raw", "account-1")).toBe(true);
+    expect(desktopLinkSessionOwnedBy("historical-alias", "desktop-raw", "account-1")).toBe(false);
+    expect(desktopLinkSessionOwnedBy("", "desktop-raw", "account-1")).toBe(false);
   });
 
   it("allows the same authenticated device to recover a consumed token only inside its link window", () => {

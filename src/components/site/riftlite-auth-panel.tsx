@@ -3,14 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createUserWithEmailAndPassword,
-  EmailAuthProvider,
   getAuth,
   GoogleAuthProvider,
-  linkWithCredential,
-  linkWithPopup,
   onAuthStateChanged,
+  sendEmailVerification,
   sendPasswordResetEmail,
-  signInWithCustomToken,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -34,6 +31,7 @@ type Profile = {
 };
 
 type DesktopLink = { sessionId: string; code: string };
+export type AuthProviderHint = "google" | "email";
 
 export type RiftLiteReadyResult = { message?: string } | void;
 
@@ -44,6 +42,7 @@ export function RiftLiteAuthPanel({
   readyTitle = "Your account is ready",
   description = "Use one RiftLite account for the app, private hubs, Discord, and web replays.",
   manageAccount = false,
+  preferredProvider,
 }: {
   desktopLink?: DesktopLink;
   onReady?: (user: User) => Promise<RiftLiteReadyResult>;
@@ -51,11 +50,12 @@ export function RiftLiteAuthPanel({
   readyTitle?: string;
   description?: string;
   manageAccount?: boolean;
+  preferredProvider?: AuthProviderHint;
 }) {
   const auth = useMemo(() => getAuth(firebaseClientApp), []);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [emailExpanded, setEmailExpanded] = useState(false);
+  const [emailExpanded, setEmailExpanded] = useState(preferredProvider === "email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -64,7 +64,24 @@ export function RiftLiteAuthPanel({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [finished, setFinished] = useState(false);
+  const [verificationUser, setVerificationUser] = useState<User | null>(null);
   const actionUid = useRef("");
+  const explicitAuthPending = useRef(false);
+  const explicitAuthProvider = useRef<AuthProviderHint | null>(null);
+  const explicitlySelectedUid = useRef("");
+  const observedAuthKey = useRef("");
+
+  const requiresDesktopEmailVerification = useCallback((activeUser: User) => {
+    if (!desktopLink || activeUser.emailVerified) return false;
+    if (
+      explicitlySelectedUid.current === activeUser.uid ||
+      explicitAuthPending.current
+    ) {
+      return explicitAuthProvider.current === "email";
+    }
+    const providers = new Set(activeUser.providerData.map((provider) => provider.providerId));
+    return providers.has("password") && !providers.has("google.com");
+  }, [desktopLink]);
 
   const loadProfile = useCallback(async (activeUser: User) => {
     if (activeUser.isAnonymous) return null;
@@ -85,6 +102,11 @@ export function RiftLiteAuthPanel({
   const finishAction = useCallback(async (activeUser: User, activeProfile: Profile) => {
     if (!activeProfile.profileComplete || actionUid.current === activeUser.uid) return;
     if (manageAccount) return;
+    if (requiresDesktopEmailVerification(activeUser)) {
+      setVerificationUser(activeUser);
+      setMessage("Verify your email before linking this desktop.");
+      return;
+    }
     actionUid.current = activeUser.uid;
     if (!onReady) {
       setFinished(true);
@@ -102,7 +124,21 @@ export function RiftLiteAuthPanel({
     } finally {
       setBusy(false);
     }
-  }, [actionLabel, manageAccount, onReady]);
+  }, [actionLabel, manageAccount, onReady, requiresDesktopEmailVerification]);
+
+  const shouldFinishProfile = useCallback((activeUser: User, activeProfile: Profile) => !requiresDesktopEmailVerification(activeUser) && (
+    shouldAutomaticallyFinishAccountAction(
+      Boolean(desktopLink),
+      activeProfile.profileComplete,
+      activeUser.uid,
+      actionUid.current,
+    ) || (
+      Boolean(desktopLink) &&
+      activeProfile.profileComplete &&
+      explicitlySelectedUid.current === activeUser.uid &&
+      actionUid.current !== activeUser.uid
+    )
+  ), [desktopLink, requiresDesktopEmailVerification]);
 
   useEffect(() => onAuthStateChanged(auth, (nextUser) => {
     if (nextUser?.isAnonymous && !desktopLink) {
@@ -111,64 +147,63 @@ export function RiftLiteAuthPanel({
       setProfile(null);
       return;
     }
+    const nextAuthKey = nextUser
+      ? `${nextUser.isAnonymous ? "anonymous" : "account"}:${nextUser.uid}`
+      : "signed-out";
+    if (observedAuthKey.current !== nextAuthKey) {
+      observedAuthKey.current = nextAuthKey;
+      setProfile(null);
+      setFinished(false);
+      setVerificationUser(null);
+      if (actionUid.current && actionUid.current !== nextUser?.uid) actionUid.current = "";
+    }
     setUser(nextUser);
-    setProfile(null);
-    setFinished(false);
-    actionUid.current = "";
     if (nextUser && !nextUser.isAnonymous) {
+      if (explicitAuthPending.current) {
+        explicitlySelectedUid.current = nextUser.uid;
+        explicitAuthPending.current = false;
+      }
+      if (requiresDesktopEmailVerification(nextUser)) {
+        setVerificationUser(nextUser);
+        setMessage("Verify your email before linking this desktop.");
+        return;
+      }
       void loadProfile(nextUser)
         .then((nextProfile) => (
-          nextProfile && shouldAutomaticallyFinishAccountAction(
-            Boolean(desktopLink),
-            nextProfile.profileComplete,
-            nextUser.uid,
-            actionUid.current,
-          )
+          nextProfile && shouldFinishProfile(nextUser, nextProfile)
             ? finishAction(nextUser, nextProfile)
             : undefined
         ))
         .catch((error) => setMessage(friendlyAuthError(error)));
     }
-  }), [auth, desktopLink, finishAction, loadProfile]);
-
-  async function bootstrapDesktopUser() {
-    if (!desktopLink) return null;
-    const response = await fetch("/api/auth/link/bootstrap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(desktopLink),
-    });
-    const payload = await response.json() as { customToken?: string; error?: string };
-    if (!response.ok || !payload.customToken) throw new Error(payload.error ?? "Could not prepare the desktop link.");
-    return (await signInWithCustomToken(auth, payload.customToken)).user;
-  }
+  }), [auth, desktopLink, finishAction, loadProfile, requiresDesktopEmailVerification, shouldFinishProfile]);
 
   async function googleSignIn() {
+    explicitAuthPending.current = true;
+    explicitAuthProvider.current = "google";
+    explicitlySelectedUid.current = "";
     setBusy(true);
     setMessage("Opening Google sign in...");
     try {
-      if (desktopLink) {
-        const desktopUser = await bootstrapDesktopUser();
-        if (!desktopUser) throw new Error("Could not prepare the desktop link.");
-        try {
-          await linkWithPopup(desktopUser, new GoogleAuthProvider());
-        } catch (error) {
-          if (!isCredentialConflict(error)) throw error;
-          await signInWithPopup(auth, new GoogleAuthProvider());
-        }
-      } else {
-        await signInWithPopup(auth, new GoogleAuthProvider());
-      }
+      await signInWithPopup(auth, new GoogleAuthProvider());
       const activeUser = auth.currentUser;
       if (!activeUser || activeUser.isAnonymous) throw new Error("Google sign in did not finish.");
+      explicitlySelectedUid.current = activeUser.uid;
+      explicitAuthPending.current = false;
       const nextProfile = await loadProfile(activeUser);
-      if (nextProfile && !desktopLink) await finishAction(activeUser, nextProfile);
-      setMessage(nextProfile?.profileComplete
-        ? desktopLink
-          ? "Confirm this is the account you want to link to the desktop."
-          : "Signed in."
-        : "Almost done — choose the name other players will see.");
+      if (nextProfile && shouldFinishProfile(activeUser, nextProfile)) {
+        await finishAction(activeUser, nextProfile);
+      } else {
+        setMessage(nextProfile?.profileComplete
+          ? "Signed in."
+          : "Almost done — choose the name other players will see.");
+      }
     } catch (error) {
+      explicitAuthPending.current = false;
+      if (!auth.currentUser || auth.currentUser.isAnonymous) {
+        explicitlySelectedUid.current = "";
+        explicitAuthProvider.current = null;
+      }
       setMessage(friendlyAuthError(error));
     } finally {
       setBusy(false);
@@ -176,35 +211,41 @@ export function RiftLiteAuthPanel({
   }
 
   async function emailAuth(create: boolean) {
+    explicitAuthPending.current = true;
+    explicitAuthProvider.current = "email";
+    explicitlySelectedUid.current = "";
     setBusy(true);
     setMessage(create ? "Creating your account..." : "Signing in...");
     try {
-      if (desktopLink) {
-        const desktopUser = await bootstrapDesktopUser();
-        if (!desktopUser) throw new Error("Could not prepare the desktop link.");
-        const credential = EmailAuthProvider.credential(email, password);
-        try {
-          await linkWithCredential(desktopUser, credential);
-        } catch (error) {
-          if (!isCredentialConflict(error)) throw error;
-          if (create) throw new Error("That email already has an account. Choose Sign in with email.");
-          await signInWithEmailAndPassword(auth, email, password);
-        }
-      } else if (create) {
+      if (create) {
         await createUserWithEmailAndPassword(auth, email, password);
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
       const activeUser = auth.currentUser;
       if (!activeUser || activeUser.isAnonymous) throw new Error("Email sign in did not finish.");
+      explicitlySelectedUid.current = activeUser.uid;
+      explicitAuthPending.current = false;
+      if (requiresDesktopEmailVerification(activeUser)) {
+        setVerificationUser(activeUser);
+        await sendEmailVerification(activeUser);
+        setMessage(`Verification email sent to ${activeUser.email || email}. Open it, then return here.`);
+        return;
+      }
       const nextProfile = await loadProfile(activeUser);
-      if (nextProfile && !desktopLink) await finishAction(activeUser, nextProfile);
-      setMessage(nextProfile?.profileComplete
-        ? desktopLink
-          ? "Confirm this is the account you want to link to the desktop."
-          : "Signed in."
-        : "Almost done — choose the name other players will see.");
+      if (nextProfile && shouldFinishProfile(activeUser, nextProfile)) {
+        await finishAction(activeUser, nextProfile);
+      } else {
+        setMessage(nextProfile?.profileComplete
+          ? "Signed in."
+          : "Almost done — choose the name other players will see.");
+      }
     } catch (error) {
+      explicitAuthPending.current = false;
+      if (!auth.currentUser || auth.currentUser.isAnonymous) {
+        explicitlySelectedUid.current = "";
+        explicitAuthProvider.current = null;
+      }
       setMessage(friendlyAuthError(error));
     } finally {
       setBusy(false);
@@ -235,12 +276,7 @@ export function RiftLiteAuthPanel({
       const payload = await response.json() as { profile?: Profile; error?: string };
       if (!response.ok || !payload.profile) throw new Error(payload.error ?? "Could not save your profile.");
       setProfile(payload.profile);
-      const shouldFinish = shouldAutomaticallyFinishAccountAction(
-        Boolean(desktopLink),
-        payload.profile.profileComplete,
-        user.uid,
-        actionUid.current,
-      );
+      const shouldFinish = shouldFinishProfile(user, payload.profile);
       setMessage(shouldFinish ? "Profile ready." : "Profile saved. Confirm this is the account you want to link.");
       if (shouldFinish) await finishAction(user, payload.profile);
     } catch (error) {
@@ -271,12 +307,78 @@ export function RiftLiteAuthPanel({
     }
   }
 
+  async function resendVerificationEmail() {
+    if (!verificationUser) return;
+    setBusy(true);
+    try {
+      await sendEmailVerification(verificationUser);
+      setMessage(`Verification email sent to ${verificationUser.email || "your email address"}.`);
+    } catch (error) {
+      setMessage(friendlyAuthError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function checkEmailVerification() {
+    if (!verificationUser) return;
+    setBusy(true);
+    setMessage("Checking your email verification...");
+    try {
+      await verificationUser.reload();
+      await verificationUser.getIdToken(true);
+      if (!verificationUser.emailVerified) {
+        setMessage("That email is not verified yet. Open the verification email, then try again.");
+        return;
+      }
+      setVerificationUser(null);
+      const nextProfile = await loadProfile(verificationUser);
+      if (nextProfile && shouldFinishProfile(verificationUser, nextProfile)) {
+        await finishAction(verificationUser, nextProfile);
+      } else {
+        setMessage(nextProfile?.profileComplete ? "Email verified." : "Email verified. Now choose your RiftLite name.");
+      }
+    } catch (error) {
+      setMessage(friendlyAuthError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signOutForAccountSwitch() {
+    explicitAuthPending.current = false;
+    explicitAuthProvider.current = null;
+    explicitlySelectedUid.current = "";
+    actionUid.current = "";
+    setVerificationUser(null);
+    await signOut(auth);
+  }
+
   if (finished) {
     return (
       <Card className="mx-auto max-w-xl space-y-4 p-6">
         <CardTitle>{readyTitle}</CardTitle>
         <CardDescription>{message || `Signed in as ${profile?.displayName || user?.displayName || "RiftLite user"}.`}</CardDescription>
         <Button asChild><a href="/hubs">Open My Hubs</a></Button>
+      </Card>
+    );
+  }
+
+  if (verificationUser && user?.uid === verificationUser.uid) {
+    return (
+      <Card className="mx-auto max-w-xl space-y-4 p-6">
+        <div>
+          <CardTitle>Verify your email</CardTitle>
+          <CardDescription className="mt-2">
+            For account security, email/password accounts must verify {verificationUser.email || "their email address"} before linking a desktop.
+          </CardDescription>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={busy} onClick={() => void checkEmailVerification()}>{busy ? "Checking..." : "I've verified my email"}</Button>
+          <Button disabled={busy} variant="secondary" onClick={() => void resendVerificationEmail()}>Send verification email again</Button>
+          <Button disabled={busy} variant="secondary" onClick={() => void signOutForAccountSwitch()}>Use a different account</Button>
+        </div>
+        {message ? <p className="text-sm text-cyan-200">{message}</p> : null}
       </Card>
     );
   }
@@ -311,7 +413,7 @@ export function RiftLiteAuthPanel({
           <div><CardTitle>Your RiftLite account</CardTitle><CardDescription className="mt-2">Update the name used by private hubs, Discord, and web tools.</CardDescription></div>
           <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.04] p-4 text-sm text-slate-300">
             <p><strong className="text-white">Signed in:</strong> {user.email || "Provider account"}</p>
-            <p className="mt-1"><strong className="text-white">Account ID:</strong> {accountIdHint(user.uid)}</p>
+            <p className="mt-1"><strong className="text-white">Account ID:</strong> {accountIdHint(profile.uid)}</p>
             <p className="mt-2 text-xs text-slate-400">The desktop app should show the same account ID after linking.</p>
           </div>
           <label className="grid gap-2 text-sm text-slate-300">Display name
@@ -323,14 +425,14 @@ export function RiftLiteAuthPanel({
           <div className="flex flex-wrap gap-2">
             <Button disabled={busy} onClick={() => void saveProfile()}>{busy ? "Saving..." : "Save changes"}</Button>
             <Button asChild variant="secondary"><a href="/hubs">My Hubs</a></Button>
-            <Button variant="secondary" onClick={() => void signOut(auth)}>Sign out</Button>
+            <Button variant="secondary" onClick={() => void signOutForAccountSwitch()}>Sign out</Button>
           </div>
           {message ? <p className="text-sm text-cyan-200">{message}</p> : null}
         </Card>
       );
     }
     const identity = {
-      uid: user.uid,
+      uid: profile.uid,
       email: user.email ?? "",
       displayName: profile.displayName,
       handle: profile.handle,
@@ -357,23 +459,26 @@ export function RiftLiteAuthPanel({
               ? `Link this desktop as @${profile.handle}`
               : actionLabel}
         </Button>
-        <Button variant="secondary" onClick={() => void signOut(auth)}>Use a different account</Button>
+        <Button variant="secondary" onClick={() => void signOutForAccountSwitch()}>Use a different account</Button>
         {message ? <p className="text-sm text-cyan-200">{message}</p> : null}
       </Card>
     );
   }
 
   return (
-    <Card className="mx-auto max-w-xl space-y-4 p-6">
+    <Card
+      className="mx-auto max-w-xl space-y-4 p-6"
+      data-preferred-provider={preferredProvider}
+    >
       <div>
         <CardTitle>Create or sign in</CardTitle>
         <CardDescription className="mt-2">{description}</CardDescription>
       </div>
-      <Button disabled={busy} onClick={() => void googleSignIn()}>Continue with Google</Button>
-      <Button disabled={busy} variant="secondary" onClick={() => setEmailExpanded((value) => !value)}>Use email instead</Button>
+      <Button autoFocus={preferredProvider === "google"} disabled={busy} onClick={() => void googleSignIn()}>Continue with Google</Button>
+      <Button disabled={busy} variant="secondary" onClick={() => setEmailExpanded((value) => !value)}>Continue with email</Button>
       {emailExpanded ? (
         <div className="grid gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
-          <input className="social-input" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" type="email" />
+          <input autoFocus={preferredProvider === "email"} className="social-input" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" type="email" />
           <input className="social-input" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
           <div className="flex flex-wrap gap-2">
             <Button disabled={busy || !email || !password} onClick={() => void emailAuth(false)}>Sign in with email</Button>
@@ -394,11 +499,6 @@ function suggestHandle(value: string) {
 function isGeneratedName(value: string) {
   const cleaned = value.trim().toLowerCase();
   return !cleaned || cleaned === "riftlite player" || cleaned === "riftlite user" || /^player(?:[ #_-]|$)/.test(cleaned) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned);
-}
-
-function isCredentialConflict(error: unknown) {
-  const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
-  return code === "auth/credential-already-in-use" || code === "auth/email-already-in-use" || code === "auth/account-exists-with-different-credential";
 }
 
 function friendlyAuthError(error: unknown) {

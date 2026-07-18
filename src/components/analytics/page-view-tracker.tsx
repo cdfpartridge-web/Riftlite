@@ -5,6 +5,17 @@ import { useEffect, useRef } from "react";
 
 const PAGE_VIEW_THROTTLE_MS = 10 * 60 * 1000;
 
+export function sanitizeAnalyticsReferrer(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? `${url.origin}${url.pathname}`
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 function shouldTrack(): boolean {
   if (typeof window === "undefined") return false;
   if (process.env.NEXT_PUBLIC_RIFTLITE_ANALYTICS_DISABLED === "1") return false;
@@ -45,7 +56,7 @@ export function PageViewTracker() {
       path: pathname,
       title: document.title,
       source: "website",
-      referrer: document.referrer,
+      referrer: sanitizeAnalyticsReferrer(document.referrer),
       occurredAt: new Date().toISOString(),
     });
 

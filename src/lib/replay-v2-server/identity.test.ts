@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
 
 describe("Replay V2 linked account identity", () => {
-  it.each(["email", "phone", "google.com", "github.com"])("accepts durable Firebase identity %s", (provider) => {
+  it.each(["phone", "google.com", "github.com"])("accepts durable Firebase identity %s", (provider) => {
     expect(linkedReplayUid({
       uid: "account-123",
       firebase: {
@@ -12,6 +12,32 @@ describe("Replay V2 linked account identity", () => {
       },
     }))
       .toBe("account-123");
+  });
+
+  it("accepts email only after Firebase confirms mailbox ownership", () => {
+    expect(linkedReplayUid({
+      uid: "account-123",
+      email_verified: true,
+      firebase: { identities: { email: ["linked@example.com"] }, sign_in_provider: "password" },
+    })).toBe("account-123");
+    expect(linkedReplayUid({
+      uid: "account-123",
+      email_verified: false,
+      firebase: { identities: { email: ["linked@example.com"] }, sign_in_provider: "password" },
+    })).toBe("");
+  });
+
+  it("accepts a server-issued RiftLite linked-account token without repeated provider metadata", () => {
+    expect(linkedReplayUid({
+      uid: "account-123",
+      riftlite_linked_account: true,
+      firebase: { identities: {}, sign_in_provider: "custom" },
+    })).toBe("account-123");
+    expect(linkedReplayUid({
+      uid: "account-123",
+      riftlite_linked_account: false,
+      firebase: { identities: {}, sign_in_provider: "custom" },
+    })).toBe("");
   });
 
   it("accepts an anonymous-origin session after Google and email identities are linked", () => {

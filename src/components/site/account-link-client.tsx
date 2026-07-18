@@ -1,12 +1,32 @@
 "use client";
 
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo } from "react";
 import type { User } from "firebase/auth";
 
-import { RiftLiteAuthPanel } from "@/components/site/riftlite-auth-panel";
+import {
+  RiftLiteAuthPanel,
+  type AuthProviderHint,
+} from "@/components/site/riftlite-auth-panel";
 
-export function AccountLinkClient({ sessionId, code }: { sessionId: string; code: string }) {
+export function AccountLinkClient({
+  sessionId,
+  code,
+  preferredProvider,
+}: {
+  sessionId: string;
+  code: string;
+  preferredProvider?: AuthProviderHint;
+}) {
   const desktopLink = useMemo(() => ({ sessionId, code }), [sessionId, code]);
+
+  useLayoutEffect(() => {
+    // The server has already passed the short-lived values into this mounted
+    // component. Remove them from the address bar before any later navigation
+    // can expose them through copied URLs, browser history, or referrers.
+    if (window.location.search) {
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+    }
+  }, []);
 
   async function complete(user: User) {
     const idToken = await user.getIdToken(true);
@@ -26,6 +46,7 @@ export function AccountLinkClient({ sessionId, code }: { sessionId: string; code
       description="Sign in once, choose your RiftLite name, and this desktop will link automatically. Existing local matches stay on the app."
       desktopLink={desktopLink}
       onReady={complete}
+      preferredProvider={preferredProvider}
       readyTitle="RiftLite is linked"
     />
   );

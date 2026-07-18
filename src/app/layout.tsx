@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import Script from "next/script";
 
-import { PageViewTracker } from "@/components/analytics/page-view-tracker";
+import { SiteThirdPartyScripts } from "@/components/analytics/site-third-party-scripts";
 import { SiteFrame } from "@/components/site/site-frame";
 import { getSiteSettings } from "@/lib/sanity/content";
 import {
@@ -117,13 +117,7 @@ export default async function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
         <SiteFrame settings={settings}>{children}</SiteFrame>
-        <PageViewTracker />
-        <Script
-          async
-          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1277251394011398"
-          crossOrigin="anonymous"
-          strategy="afterInteractive"
-        />
+        <SiteThirdPartyScripts />
       </body>
     </html>
   );

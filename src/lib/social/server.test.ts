@@ -5,14 +5,18 @@ import {
   buildSearchPrefixes,
   buildUserAggregate,
   bestProfileDisplayName,
+  claimLinkedIdentityAssociation,
   cleanDisplayName,
   cleanHandle,
   decodeMatches,
   encodeMatches,
   findMembershipDocuments,
   handleLower,
+  identityUidsFor,
+  LinkedIdentityConflictError,
   normalizeAccountProfile,
   publicProfileFromAccount,
+  repairHistoricalDesktopIdentityAssociations,
   profileIsComplete,
   repairCachedProfileMatch,
   validHandle,
@@ -202,4 +206,131 @@ describe("social profile helpers", () => {
     expect(prefixes).toEqual(expect.arrayContaining(["n", "no", "noveggies", "coach"]));
     expect(prefixes.length).toBeLessThanOrEqual(80);
   });
+
+  it("immutably binds one raw desktop identity across competing link sessions", async () => {
+    const { db, read } = fakeIdentityBindingDatabase();
+
+    const results = await Promise.allSettled([
+      claimLinkedIdentityAssociation(db, "desktop-raw", "account-a", 100),
+      claimLinkedIdentityAssociation(db, "desktop-raw", "account-b", 101),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected).toMatchObject({ reason: expect.any(LinkedIdentityConflictError) });
+    const winner = String(read("identityAliases/desktop-raw").canonicalUid ?? "");
+    expect(["account-a", "account-b"]).toContain(winner);
+
+    await expect(claimLinkedIdentityAssociation(db, "desktop-raw", winner, 102)).resolves.toBeUndefined();
+    const other = winner === "account-a" ? "account-b" : "account-a";
+    await expect(claimLinkedIdentityAssociation(db, "desktop-raw", other, 103))
+      .rejects.toBeInstanceOf(LinkedIdentityConflictError);
+  });
+
+  it("retains and flags a conflicting historical identity instead of failing account health", async () => {
+    const { db, read, seed, setLinkSessions } = fakeIdentityBindingDatabase();
+    seed("identityAliases/desktop-raw", { canonicalUid: "account-a", sourceUid: "desktop-raw" });
+    seed("users/desktop-raw", { canonicalUid: "account-a" });
+    seed("users/account-b", {});
+    setLinkSessions([{
+      status: "complete",
+      desktopUid: "desktop-raw",
+      linkedUid: "account-b",
+    }]);
+
+    await expect(repairHistoricalDesktopIdentityAssociations("account-b", db)).resolves.toEqual([]);
+    expect(read("identityAliases/desktop-raw")).toMatchObject({
+      canonicalUid: "account-a",
+      migrationConflictCanonicalUid: "account-a",
+      migrationRequestedCanonicalUid: "account-b",
+    });
+    expect(read("users/account-b")).toMatchObject({
+      desktopIdentityBackfilledSources: 0,
+      desktopIdentityBackfillConflicts: [{
+        sourceUid: "desktop-raw",
+        existingCanonicalUid: "account-a",
+      }],
+    });
+  });
+
+  it("excludes a stale alias that is immutably bound to another canonical account", async () => {
+    const documents = new Map<string, Record<string, unknown>>([
+      ["users/account-a", { identityAliases: ["desktop-a", "stale-desktop"] }],
+      ["users/desktop-a", { canonicalUid: "account-a" }],
+      ["identityAliases/desktop-a", { canonicalUid: "account-a" }],
+      ["users/stale-desktop", { canonicalUid: "account-b" }],
+      ["identityAliases/stale-desktop", { canonicalUid: "account-b" }],
+    ]);
+    const db = {
+      collection: (collectionId: string) => ({
+        doc: (documentId: string) => ({
+          get: async () => ({
+            exists: documents.has(`${collectionId}/${documentId}`),
+            data: () => documents.get(`${collectionId}/${documentId}`),
+          }),
+        }),
+      }),
+    } as unknown as Firestore;
+
+    await expect(identityUidsFor("account-a", db)).resolves.toEqual(["account-a", "desktop-a"]);
+  });
 });
+
+function fakeIdentityBindingDatabase() {
+  const documents = new Map<string, Record<string, unknown>>();
+  let linkSessions: Record<string, unknown>[] = [];
+  const refFor = (path: string) => ({
+    path,
+    get: async () => ({
+      exists: documents.has(path),
+      data: () => documents.get(path),
+    }),
+    set: async (data: Record<string, unknown>, options?: { merge?: boolean }) => {
+      documents.set(path, options?.merge
+        ? { ...(documents.get(path) ?? {}), ...data }
+        : { ...data });
+    },
+  });
+  let transactionTail: Promise<unknown> = Promise.resolve();
+  const db = {
+    collection: (collectionId: string) => ({
+      doc: (documentId: string) => refFor(`${collectionId}/${documentId}`),
+      where: () => ({
+        limit: () => ({
+          get: async () => ({
+            docs: linkSessions.map((data) => ({ data: () => data })),
+          }),
+        }),
+      }),
+    }),
+    runTransaction: <T>(callback: (tx: {
+      get: (ref: { path: string }) => Promise<{
+        exists: boolean;
+        data: () => Record<string, unknown> | undefined;
+      }>;
+      set: (ref: { path: string }, data: Record<string, unknown>, options?: { merge?: boolean }) => void;
+    }) => Promise<T>) => {
+      const result = transactionTail.then(() => callback({
+        get: async (ref) => ({
+          exists: documents.has(ref.path),
+          data: () => documents.get(ref.path),
+        }),
+        set: (ref, data, options) => {
+          documents.set(ref.path, options?.merge
+            ? { ...(documents.get(ref.path) ?? {}), ...data }
+            : { ...data });
+        },
+      }));
+      transactionTail = result.then(() => undefined, () => undefined);
+      return result;
+    },
+  } as unknown as Firestore;
+  return {
+    db,
+    read: (path: string) => documents.get(path) ?? {},
+    seed: (path: string, data: Record<string, unknown>) => documents.set(path, { ...data }),
+    setLinkSessions: (sessions: Record<string, unknown>[]) => {
+      linkSessions = sessions.map((session) => ({ ...session }));
+    },
+  };
+}

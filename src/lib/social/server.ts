@@ -1,7 +1,7 @@
 import "server-only";
 
-import { randomBytes, randomUUID } from "node:crypto";
-import { gzipSync, gunzipSync } from "node:zlib";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { gzipSync, gunzipSync, inflateRawSync } from "node:zlib";
 
 import {
   FieldValue,
@@ -16,6 +16,16 @@ import {
   DESKTOP_IDENTITY_BACKFILL_VERSION,
   historicalDesktopIdentitySources,
 } from "@/lib/account-connection";
+import {
+  ACCOUNT_CLOUD_SYNC_FORMAT,
+  ACCOUNT_CLOUD_SYNC_VERSION,
+  accountCloudSyncChunkDocumentId,
+  accountCloudSyncManifestFingerprint,
+  normalizeAccountCloudSyncManifest,
+  validateAccountCloudSyncChunk,
+  type AccountCloudSyncManifest,
+} from "@/lib/account-cloud-sync-conflict";
+import { conflictingLinkedIdentityCanonicalUid } from "@/lib/account-link";
 import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
 import { canonicalIdentityUid } from "@/lib/identity-server";
 import {
@@ -461,19 +471,99 @@ export function decodeMatches(encoded: string): CommunityMatch[] {
   }
 }
 
-export async function associateLinkedIdentity(sourceUid: string, canonicalUid: string): Promise<void> {
+export class LinkedIdentityConflictError extends Error {
+  readonly existingCanonicalUid: string;
+
+  constructor(existingCanonicalUid: string) {
+    super("This desktop identity is already linked to another RiftLite account.");
+    this.name = "LinkedIdentityConflictError";
+    this.existingCanonicalUid = existingCanonicalUid;
+  }
+}
+
+export async function claimLinkedIdentityAssociation(
+  db: Firestore,
+  sourceUid: string,
+  canonicalUid: string,
+  now = Date.now(),
+): Promise<void> {
   const source = String(sourceUid ?? "").trim();
   const canonical = String(canonicalUid ?? "").trim();
   if (!source || !canonical) return;
-  const db = getFirestoreAdmin();
-  if (!db) throw new Error("Firebase admin is not configured");
-  const now = Date.now();
   const association = {
     canonicalUid: canonical,
     sourceUid: source,
     linkedAt: now,
     migrationVersion: 1,
   };
+
+  await db.runTransaction(async (tx) => {
+    const sourceAliasRef = db.collection("identityAliases").doc(source);
+    const sourceUserRef = db.collection("users").doc(source);
+    const canonicalAliasRef = db.collection("identityAliases").doc(canonical);
+    const canonicalUserRef = db.collection("users").doc(canonical);
+    const [sourceAliasSnap, sourceUserSnap] = await Promise.all([
+      tx.get(sourceAliasRef),
+      tx.get(sourceUserRef),
+    ]);
+    const [canonicalAliasSnap, canonicalUserSnap] = source === canonical
+      ? [sourceAliasSnap, sourceUserSnap]
+      : await Promise.all([
+        tx.get(canonicalAliasRef),
+        tx.get(canonicalUserRef),
+      ]);
+    const conflict = conflictingLinkedIdentityCanonicalUid(
+      canonical,
+      sourceAliasSnap.data()?.canonicalUid,
+      sourceUserSnap.data()?.canonicalUid,
+    ) || conflictingLinkedIdentityCanonicalUid(
+      canonical,
+      canonicalAliasSnap.data()?.canonicalUid,
+      canonicalUserSnap.data()?.canonicalUid,
+    );
+    if (conflict) throw new LinkedIdentityConflictError(conflict);
+
+    const sourceLinkedAt = positiveNumber(sourceAliasSnap.data()?.linkedAt, now);
+    const canonicalLinkedAt = positiveNumber(canonicalAliasSnap.data()?.linkedAt, now);
+    tx.set(sourceAliasRef, { ...association, linkedAt: sourceLinkedAt }, { merge: true });
+    if (source !== canonical) {
+      tx.set(canonicalAliasRef, {
+        ...association,
+        sourceUid: canonical,
+        linkedAt: canonicalLinkedAt,
+      }, { merge: true });
+    }
+    tx.set(canonicalUserRef, {
+      canonicalUid: canonical,
+      identityAliases: FieldValue.arrayUnion(source, canonical),
+      identityUpdatedAt: now,
+    }, { merge: true });
+    if (source !== canonical) {
+      tx.set(sourceUserRef, {
+        canonicalUid: canonical,
+        identityAliases: FieldValue.arrayUnion(source, canonical),
+        identityUpdatedAt: now,
+      }, { merge: true });
+    }
+  });
+}
+
+export async function associateLinkedIdentity(
+  sourceUid: string,
+  canonicalUid: string,
+  providedDb?: Firestore,
+): Promise<void> {
+  const source = String(sourceUid ?? "").trim();
+  const canonical = String(canonicalUid ?? "").trim();
+  if (!source || !canonical) return;
+  const db = providedDb ?? getFirestoreAdmin();
+  if (!db) throw new Error("Firebase admin is not configured");
+  const now = Date.now();
+
+  // Claim the source identity before profile promotion, data migration, or
+  // token creation can happen. The transaction makes the first proven bind
+  // immutable while allowing retries to the same canonical UID.
+  await claimLinkedIdentityAssociation(db, source, canonical, now);
 
   if (source !== canonical) {
     await db.runTransaction(async (tx) => {
@@ -508,21 +598,6 @@ export async function associateLinkedIdentity(sourceUid: string, canonicalUid: s
     });
   }
 
-  const identityBatch = db.batch();
-  identityBatch.set(db.collection("identityAliases").doc(source), association, { merge: true });
-  identityBatch.set(db.collection("identityAliases").doc(canonical), { ...association, sourceUid: canonical }, { merge: true });
-  identityBatch.set(db.collection("users").doc(canonical), {
-    canonicalUid: canonical,
-    identityAliases: FieldValue.arrayUnion(source, canonical),
-    identityUpdatedAt: now,
-  }, { merge: true });
-  identityBatch.set(db.collection("users").doc(source), {
-    canonicalUid: canonical,
-    identityAliases: FieldValue.arrayUnion(source, canonical),
-    identityUpdatedAt: now,
-  }, { merge: true });
-  await identityBatch.commit();
-
   if (source === canonical) return;
   await migrateLinkedIdentityReferences(source, canonical, now).catch(async (error) => {
     await db.collection("identityAliases").doc(source).set({
@@ -532,10 +607,10 @@ export async function associateLinkedIdentity(sourceUid: string, canonicalUid: s
   });
 }
 
-export async function identityUidsFor(uid: string): Promise<string[]> {
+export async function identityUidsFor(uid: string, providedDb?: Firestore): Promise<string[]> {
   const cleanUid = String(uid ?? "").trim();
   if (!cleanUid) return [];
-  const db = getFirestoreAdmin();
+  const db = providedDb ?? getFirestoreAdmin();
   if (!db) return [cleanUid];
   const canonicalUid = await canonicalIdentityUid(cleanUid, db);
   const [sourceSnap, canonicalSnap] = await Promise.all([
@@ -547,13 +622,23 @@ export async function identityUidsFor(uid: string): Promise<string[]> {
   const aliases = [sourceSnap, canonicalSnap].flatMap((snap) => Array.isArray(snap?.data()?.identityAliases)
     ? snap.data()?.identityAliases.map((value: unknown) => String(value ?? "").trim()).filter(Boolean)
     : []);
-  return Array.from(new Set([cleanUid, canonicalUid, ...aliases].filter(Boolean)));
+  const candidates = Array.from(new Set([cleanUid, canonicalUid, ...aliases].filter(Boolean))).slice(0, 100);
+  const validated = await Promise.all(candidates.map(async (candidate) => ({
+    candidate,
+    canonical: await canonicalIdentityUid(candidate, db).catch(() => ""),
+  })));
+  return validated
+    .filter(({ candidate, canonical }) => candidate === canonicalUid || canonical === canonicalUid)
+    .map(({ candidate }) => candidate);
 }
 
-export async function repairHistoricalDesktopIdentityAssociations(canonicalUid: string): Promise<string[]> {
+export async function repairHistoricalDesktopIdentityAssociations(
+  canonicalUid: string,
+  providedDb?: Firestore,
+): Promise<string[]> {
   const canonical = String(canonicalUid ?? "").trim();
   if (!canonical) return [];
-  const db = getFirestoreAdmin();
+  const db = providedDb ?? getFirestoreAdmin();
   if (!db) return [];
   const userRef = db.collection("users").doc(canonical);
   const userSnap = await userRef.get();
@@ -569,15 +654,30 @@ export async function repairHistoricalDesktopIdentityAssociations(canonicalUid: 
     sessions.docs.map((doc) => doc.data()),
     canonical,
   );
+  const conflicts: Array<{ sourceUid: string; existingCanonicalUid: string }> = [];
   for (const source of sources) {
-    await associateLinkedIdentity(source, canonical);
+    try {
+      await associateLinkedIdentity(source, canonical, db);
+    } catch (error) {
+      if (!(error instanceof LinkedIdentityConflictError)) throw error;
+      conflicts.push({ sourceUid: source, existingCanonicalUid: error.existingCanonicalUid });
+      // Retain the first proven bind and leave a durable repair signal instead
+      // of breaking every future connection-health request for this account.
+      await db.collection("identityAliases").doc(source).set({
+        migrationError: "Conflicting canonical identity binding retained",
+        migrationConflictCanonicalUid: error.existingCanonicalUid,
+        migrationRequestedCanonicalUid: canonical,
+        migrationAttemptAt: Date.now(),
+      }, { merge: true });
+    }
   }
   await userRef.set({
     desktopIdentityBackfillVersion: DESKTOP_IDENTITY_BACKFILL_VERSION,
     desktopIdentityBackfilledAt: Date.now(),
-    desktopIdentityBackfilledSources: sources.length,
+    desktopIdentityBackfilledSources: sources.length - conflicts.length,
+    desktopIdentityBackfillConflicts: conflicts,
   }, { merge: true });
-  return sources;
+  return sources.filter((source) => !conflicts.some((conflict) => conflict.sourceUid === source));
 }
 
 type MembershipParentCollection = "hubs" | "teams";
@@ -758,40 +858,474 @@ async function migrateIdentitySnapshots(sourceUid: string, canonicalUid: string,
   }
 }
 
-async function migrateAccountCloudBackup(sourceUid: string, canonicalUid: string, now: number): Promise<void> {
-  const db = getFirestoreAdmin();
+const ACCOUNT_CLOUD_SYNC_MIGRATION_MAX_CHUNKS = 64;
+// Keep worst-case 450 KB chunk batches comfortably below Firestore's 10 MiB
+// write-request limit, including document and protocol overhead.
+const ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE = 16;
+
+type PreparedAccountCloudMigration = {
+  canonicalManifestData: Record<string, unknown>;
+  sourceContentFingerprint: string;
+  sourceFingerprint: string;
+  stagedGenerationId: string;
+  stagedChunkWrites: Array<{ ref: DocumentReference; data: Record<string, unknown> }>;
+};
+
+type AccountCloudMigrationOutcome = "migrated" | "already-migrated" | "conflict" | "source-changed";
+
+export async function migrateAccountCloudBackup(
+  sourceUid: string,
+  canonicalUid: string,
+  now: number,
+  providedDb?: Firestore,
+): Promise<void> {
+  const db = providedDb ?? getFirestoreAdmin();
   if (!db) return;
   const sourceRoot = db.collection("accountSync").doc(sourceUid);
   const canonicalRoot = db.collection("accountSync").doc(canonicalUid);
-  const [sourceManifest, canonicalManifest] = await Promise.all([
-    sourceRoot.collection("manifest").doc("current").get().catch(() => null),
-    canonicalRoot.collection("manifest").doc("current").get().catch(() => null),
+  const sourceManifestRef = sourceRoot.collection("manifest").doc("current");
+  const canonicalManifestRef = canonicalRoot.collection("manifest").doc("current");
+  const aliasRef = db.collection("identityAliases").doc(sourceUid);
+  const canonicalUserRef = db.collection("users").doc(canonicalUid);
+  const [sourceManifestSnapshot, canonicalManifestSnapshot, aliasSnapshot] = await Promise.all([
+    sourceManifestRef.get().catch(() => null),
+    canonicalManifestRef.get().catch(() => null),
+    aliasRef.get().catch(() => null),
   ]);
-  if (!sourceManifest?.exists) return;
-  if (canonicalManifest?.exists) {
-    await db.collection("identityAliases").doc(sourceUid).set({
-      cloudSyncConflict: true,
-      cloudSyncSourceUid: sourceUid,
-      cloudSyncCanonicalUid: canonicalUid,
-      cloudSyncCheckedAt: now,
-    }, { merge: true });
-    await db.collection("users").doc(canonicalUid).set({
-      accountCloudSyncLegacySources: FieldValue.arrayUnion(sourceUid),
-      accountCloudSyncIdentityUpdatedAt: now,
-    }, { merge: true });
+  if (!sourceManifestSnapshot?.exists) return;
+
+  const sourceManifest = accountCloudManifestFromSnapshot(sourceManifestSnapshot);
+  const aliasData = aliasSnapshot?.data() ?? {};
+  if (canonicalManifestSnapshot?.exists) {
+    if (!sourceManifest) {
+      // An invalid retained copy cannot be offered as a safe recovery choice.
+      // Surface repair attention without creating an unresolvable two-backup
+      // conflict or modifying the valid canonical backup.
+      await aliasRef.set({
+        cloudSyncConflict: FieldValue.delete(),
+        cloudSyncCheckedAt: now,
+      }, { merge: true });
+      throw new Error("The retained account backup manifest is invalid and needs support.");
+    }
+    const sourceFingerprint = accountCloudSyncManifestFingerprint(sourceManifest);
+    const sourceContentFingerprint = accountCloudMigrationContentFingerprint(sourceManifest);
+
+    // An explicit owner decision remains authoritative until the retained
+    // source changes again. This also prevents a resolved migrated backup from
+    // being reopened merely because its canonical manifest still has migration
+    // provenance fields.
+    if (
+      aliasData.cloudSyncConflict === false &&
+      String(aliasData.cloudSyncResolvedSourceFingerprint ?? "").trim() === sourceFingerprint
+    ) {
+      await aliasRef.set({ cloudSyncCheckedAt: now }, { merge: true });
+      return;
+    }
+
+    const canonicalData = canonicalManifestSnapshot.data() ?? {};
+    const canonicalManifest = accountCloudManifestFromSnapshot(canonicalManifestSnapshot);
+    if (String(canonicalData.identityMigratedFromUid ?? "").trim() === sourceUid) {
+      const storedSourceFingerprint = String(
+        canonicalData.identityMigratedSourceFingerprint ?? aliasData.cloudSyncMigratedSourceFingerprint ?? "",
+      ).trim();
+      const storedSourceContentFingerprint = String(
+        canonicalData.identityMigratedSourceContentFingerprint ??
+        aliasData.cloudSyncMigratedSourceContentFingerprint ??
+        "",
+      ).trim();
+      const legacyMigrationStillMatches = !storedSourceFingerprint &&
+        !storedSourceContentFingerprint &&
+        canonicalManifest &&
+        accountCloudMigrationContentFingerprint(canonicalManifest) === sourceContentFingerprint;
+      if (
+        storedSourceFingerprint === sourceFingerprint ||
+        storedSourceContentFingerprint === sourceContentFingerprint ||
+        legacyMigrationStillMatches
+      ) {
+        await aliasRef.set(accountCloudMigrationCompleteData(
+          sourceFingerprint,
+          sourceContentFingerprint,
+          positiveNumber(canonicalData.identityMigratedAt, now),
+          now,
+        ), { merge: true });
+        return;
+      }
+    }
+
+    // There are now two independently changed backups. Retain both and make
+    // the choice explicit instead of silently treating the first migration as
+    // permanently complete.
+    await markAccountCloudBackupConflict(db, sourceUid, canonicalUid, now);
     return;
   }
-  const sourceChunks = await sourceRoot.collection("chunks").get();
-  await commitMigrationUpdates(sourceChunks.docs.map((doc) => ({
-    ref: canonicalRoot.collection("chunks").doc(doc.id),
-    data: { ...doc.data(), identityMigratedFromUid: sourceUid },
-  })));
-  await canonicalRoot.collection("manifest").doc("current").set({
-    ...(sourceManifest.data() ?? {}),
-    identityMigratedFromUid: sourceUid,
-    identityMigratedAt: now,
-  }, { merge: true });
-  await db.collection("identityAliases").doc(sourceUid).set({ cloudSyncMigratedAt: now }, { merge: true });
+
+  if (!sourceManifest) {
+    throw new Error("The retained account backup manifest is invalid and was not migrated.");
+  }
+  const prepared = await prepareAccountCloudMigration(
+    sourceRoot,
+    canonicalRoot,
+    sourceManifestSnapshot,
+    sourceManifest,
+    sourceUid,
+    now,
+  );
+
+  try {
+    await commitAccountCloudMigrationChunks(db, prepared.stagedChunkWrites);
+  } catch (error) {
+    await cleanupAccountCloudMigrationChunks(db, prepared.stagedChunkWrites.map(({ ref }) => ref)).catch(() => undefined);
+    throw error;
+  }
+
+  let outcome: AccountCloudMigrationOutcome;
+  try {
+    outcome = await db.runTransaction(async (transaction): Promise<AccountCloudMigrationOutcome> => {
+      const [latestSourceSnapshot, latestCanonicalSnapshot] = await Promise.all([
+        transaction.get(sourceManifestRef),
+        transaction.get(canonicalManifestRef),
+      ]);
+      const latestSourceManifest = accountCloudManifestFromSnapshot(latestSourceSnapshot);
+      if (
+        !latestSourceManifest ||
+        accountCloudSyncManifestFingerprint(latestSourceManifest) !== prepared.sourceFingerprint
+      ) {
+        return "source-changed";
+      }
+
+      if (latestCanonicalSnapshot.exists) {
+        const latestCanonicalData = latestCanonicalSnapshot.data() ?? {};
+        if (
+          String(latestCanonicalData.identityMigratedFromUid ?? "").trim() === sourceUid &&
+          String(latestCanonicalData.identityMigratedSourceFingerprint ?? "").trim() === prepared.sourceFingerprint
+        ) {
+          transaction.set(aliasRef, accountCloudMigrationCompleteData(
+            prepared.sourceFingerprint,
+            prepared.sourceContentFingerprint,
+            positiveNumber(latestCanonicalData.identityMigratedAt, now),
+            now,
+          ), { merge: true });
+          return "already-migrated";
+        }
+        transaction.set(aliasRef, accountCloudMigrationConflictData(sourceUid, canonicalUid, now), { merge: true });
+        transaction.set(canonicalUserRef, accountCloudMigrationConflictUserData(sourceUid, now), { merge: true });
+        return "conflict";
+      }
+
+      transaction.set(canonicalManifestRef, prepared.canonicalManifestData);
+      transaction.set(aliasRef, accountCloudMigrationCompleteData(
+        prepared.sourceFingerprint,
+        prepared.sourceContentFingerprint,
+        now,
+        now,
+      ), { merge: true });
+      return "migrated";
+    });
+  } catch (error) {
+    // A transaction acknowledgement can be lost after Firestore has committed.
+    // Reconcile against canonical current before deleting the staged generation;
+    // otherwise an uncertain response could leave the live manifest pointing at
+    // chunks that this catch block just removed.
+    const canonicalAfterError = await canonicalManifestRef.get().catch(() => null);
+    if (canonicalAfterError && accountCloudMigrationMatchesPreparedCommit(
+      canonicalAfterError,
+      prepared,
+      sourceUid,
+    )) {
+      outcome = "migrated";
+    } else {
+      if (
+        canonicalAfterError &&
+        !accountCloudMigrationReferencesPreparedGeneration(canonicalAfterError, prepared)
+      ) {
+        await cleanupAccountCloudMigrationChunks(
+          db,
+          prepared.stagedChunkWrites.map(({ ref }) => ref),
+        ).catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+
+  if (outcome !== "migrated") {
+    await cleanupAccountCloudMigrationChunks(db, prepared.stagedChunkWrites.map(({ ref }) => ref)).catch(() => undefined);
+  }
+  if (outcome === "source-changed") {
+    await aliasRef.set({
+      cloudSyncMigrationSourceChanged: true,
+      cloudSyncMigrationSourceChangedAt: now,
+      cloudSyncCheckedAt: now,
+    }, { merge: true });
+    throw new Error("The retained account backup changed during migration and was left untouched for a safe retry.");
+  }
+}
+
+async function prepareAccountCloudMigration(
+  sourceRoot: DocumentReference,
+  canonicalRoot: DocumentReference,
+  sourceManifestSnapshot: DocumentSnapshot,
+  sourceManifest: AccountCloudSyncManifest,
+  sourceUid: string,
+  now: number,
+): Promise<PreparedAccountCloudMigration> {
+  if (sourceManifest.chunkCount > ACCOUNT_CLOUD_SYNC_MIGRATION_MAX_CHUNKS) {
+    throw new Error(
+      `The retained account backup has ${sourceManifest.chunkCount} chunks and is too large for safe inline migration.`,
+    );
+  }
+
+  const sourceChunkSnapshots: DocumentSnapshot[] = [];
+  for (let offset = 0; offset < sourceManifest.chunkCount; offset += 16) {
+    const indexes = Array.from(
+      { length: Math.min(16, sourceManifest.chunkCount - offset) },
+      (_, index) => offset + index,
+    );
+    sourceChunkSnapshots.push(...await Promise.all(indexes.map((index) => (
+      sourceRoot.collection("chunks").doc(accountCloudSyncChunkDocumentId(sourceManifest, index)).get()
+    ))));
+  }
+
+  const payloads: string[] = [];
+  const chunkChecksums: string[] = [];
+  const checksum = createHash("sha256");
+  let byteSize = 0;
+  for (let index = 0; index < sourceManifest.chunkCount; index += 1) {
+    const snapshot = sourceChunkSnapshots[index];
+    const chunk = validateAccountCloudSyncChunk(sourceManifest, index, snapshot?.data() ?? null);
+    if (!snapshot?.exists || !chunk) {
+      throw new Error(`Retained account backup chunk ${index + 1} is missing or failed validation.`);
+    }
+    payloads.push(chunk.payload);
+    chunkChecksums.push(createHash("sha256").update(chunk.payload, "utf8").digest("hex"));
+    checksum.update(chunk.payload, "utf8");
+    byteSize += chunk.byteSize;
+  }
+  const fullChecksum = checksum.digest("hex");
+  if (byteSize !== sourceManifest.byteSize) {
+    throw new Error("The retained account backup byte size does not match its manifest.");
+  }
+  if (sourceManifest.version === ACCOUNT_CLOUD_SYNC_VERSION && fullChecksum !== sourceManifest.checksum) {
+    throw new Error("The retained account backup checksum does not match its manifest.");
+  }
+  if (sourceManifest.version !== ACCOUNT_CLOUD_SYNC_VERSION) {
+    validateLegacyAccountCloudBackupPayload(payloads.join(""), sourceManifest);
+  }
+
+  const sourceFingerprint = accountCloudSyncManifestFingerprint(sourceManifest);
+  const sourceContentFingerprint = accountCloudMigrationContentFingerprint(sourceManifest);
+  const stagedGenerationId = randomUUID();
+  const stagedManifest: AccountCloudSyncManifest = {
+    ...sourceManifest,
+    version: ACCOUNT_CLOUD_SYNC_VERSION,
+    generationId: stagedGenerationId,
+    byteSize,
+    checksumAlgorithm: "sha256",
+    checksum: fullChecksum,
+    chunkChecksums,
+    updateTime: "",
+  };
+  const stagedChunkWrites = payloads.map((payload, index) => ({
+    ref: canonicalRoot.collection("chunks").doc(accountCloudSyncChunkDocumentId(stagedManifest, index)),
+    data: {
+      format: ACCOUNT_CLOUD_SYNC_FORMAT,
+      version: ACCOUNT_CLOUD_SYNC_VERSION,
+      generation_id: stagedGenerationId,
+      index,
+      payload,
+      byte_size: Buffer.byteLength(payload, "utf8"),
+      checksum: chunkChecksums[index],
+      identityMigratedFromUid: sourceUid,
+      identityMigratedAt: now,
+    },
+  }));
+
+  return {
+    sourceFingerprint,
+    sourceContentFingerprint,
+    stagedGenerationId,
+    stagedChunkWrites,
+    canonicalManifestData: {
+      format: ACCOUNT_CLOUD_SYNC_FORMAT,
+      version: ACCOUNT_CLOUD_SYNC_VERSION,
+      updated_at: sourceManifest.updatedAt,
+      device_id: sourceManifest.deviceId,
+      device_name: sourceManifest.deviceName,
+      app_version: sourceManifest.appVersion,
+      generation_id: stagedGenerationId,
+      chunk_count: sourceManifest.chunkCount,
+      byte_size: byteSize,
+      checksum_algorithm: "sha256",
+      checksum: fullChecksum,
+      chunk_checksums: chunkChecksums,
+      counts: sourceManifest.counts,
+      identityMigratedFromUid: sourceUid,
+      identityMigratedAt: now,
+      identityMigratedSourceFingerprint: sourceFingerprint,
+      identityMigratedSourceContentFingerprint: sourceContentFingerprint,
+      identityMigratedSourceUpdateTime: sourceManifestSnapshot.updateTime?.toDate().toISOString() ?? "",
+    },
+  };
+}
+
+function accountCloudMigrationMatchesPreparedCommit(
+  snapshot: DocumentSnapshot,
+  prepared: PreparedAccountCloudMigration,
+  sourceUid: string,
+): boolean {
+  if (!snapshot.exists) return false;
+  const data = snapshot.data() ?? {};
+  return String(data.generation_id ?? "").trim() === prepared.stagedGenerationId &&
+    String(data.identityMigratedFromUid ?? "").trim() === sourceUid &&
+    String(data.identityMigratedSourceFingerprint ?? "").trim() === prepared.sourceFingerprint &&
+    String(data.identityMigratedSourceContentFingerprint ?? "").trim() === prepared.sourceContentFingerprint;
+}
+
+function accountCloudMigrationReferencesPreparedGeneration(
+  snapshot: DocumentSnapshot,
+  prepared: PreparedAccountCloudMigration,
+): boolean {
+  return snapshot.exists &&
+    String(snapshot.data()?.generation_id ?? "").trim() === prepared.stagedGenerationId;
+}
+
+function validateLegacyAccountCloudBackupPayload(
+  compressed: string,
+  manifest: AccountCloudSyncManifest,
+): void {
+  let backup: Record<string, unknown>;
+  try {
+    const json = inflateRawSync(Buffer.from(compressed, "base64")).toString("utf8");
+    const decoded = JSON.parse(json) as unknown;
+    if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) {
+      throw new Error("Invalid backup document");
+    }
+    backup = decoded as Record<string, unknown>;
+  } catch {
+    throw new Error("The retained legacy account backup could not be decoded safely.");
+  }
+
+  if (
+    backup.format !== "riftlite.backup" ||
+    backup.version !== 1 ||
+    !backup.settings ||
+    typeof backup.settings !== "object" ||
+    Array.isArray(backup.settings) ||
+    !Array.isArray(backup.matches) ||
+    !Array.isArray(backup.deletedMatches) ||
+    !Array.isArray(backup.decks) ||
+    !Array.isArray(backup.notebooks) ||
+    !Array.isArray(backup.replays) ||
+    !Array.isArray(backup.deletedReplays)
+  ) {
+    throw new Error("The retained legacy account backup is not a supported RiftLite backup.");
+  }
+
+  const counts = {
+    matches: backup.matches.length + backup.deletedMatches.length,
+    decks: backup.decks.length,
+    notebooks: backup.notebooks.length,
+    replays: 0,
+  };
+  if (
+    counts.matches !== manifest.counts.matches ||
+    counts.decks !== manifest.counts.decks ||
+    counts.notebooks !== manifest.counts.notebooks ||
+    counts.replays !== manifest.counts.replays
+  ) {
+    throw new Error("The retained legacy account backup contents do not match its manifest.");
+  }
+}
+
+function accountCloudManifestFromSnapshot(snapshot: DocumentSnapshot | null | undefined): AccountCloudSyncManifest | null {
+  if (!snapshot?.exists) return null;
+  return normalizeAccountCloudSyncManifest(
+    snapshot.data() ?? null,
+    snapshot.updateTime?.toDate().toISOString() ?? "",
+  );
+}
+
+function accountCloudMigrationContentFingerprint(manifest: AccountCloudSyncManifest): string {
+  return accountCloudSyncManifestFingerprint({ ...manifest, updateTime: "" });
+}
+
+function accountCloudMigrationCompleteData(
+  sourceFingerprint: string,
+  sourceContentFingerprint: string,
+  migratedAt: number,
+  checkedAt: number,
+): Record<string, unknown> {
+  return {
+    cloudSyncMigratedAt: migratedAt,
+    cloudSyncMigratedSourceFingerprint: sourceFingerprint,
+    cloudSyncMigratedSourceContentFingerprint: sourceContentFingerprint,
+    cloudSyncConflict: FieldValue.delete(),
+    cloudSyncMigrationSourceChanged: FieldValue.delete(),
+    cloudSyncMigrationSourceChangedAt: FieldValue.delete(),
+    cloudSyncCheckedAt: checkedAt,
+  };
+}
+
+function accountCloudMigrationConflictData(
+  sourceUid: string,
+  canonicalUid: string,
+  now: number,
+): Record<string, unknown> {
+  return {
+    cloudSyncConflict: true,
+    cloudSyncSourceUid: sourceUid,
+    cloudSyncCanonicalUid: canonicalUid,
+    cloudSyncCheckedAt: now,
+  };
+}
+
+function accountCloudMigrationConflictUserData(sourceUid: string, now: number): Record<string, unknown> {
+  return {
+    accountCloudSyncLegacySources: FieldValue.arrayUnion(sourceUid),
+    accountCloudSyncIdentityUpdatedAt: now,
+  };
+}
+
+async function markAccountCloudBackupConflict(
+  db: Firestore,
+  sourceUid: string,
+  canonicalUid: string,
+  now: number,
+): Promise<void> {
+  const batch = db.batch();
+  batch.set(
+    db.collection("identityAliases").doc(sourceUid),
+    accountCloudMigrationConflictData(sourceUid, canonicalUid, now),
+    { merge: true },
+  );
+  batch.set(
+    db.collection("users").doc(canonicalUid),
+    accountCloudMigrationConflictUserData(sourceUid, now),
+    { merge: true },
+  );
+  await batch.commit();
+}
+
+async function commitAccountCloudMigrationChunks(
+  db: Firestore,
+  writes: Array<{ ref: DocumentReference; data: Record<string, unknown> }>,
+): Promise<void> {
+  for (let offset = 0; offset < writes.length; offset += ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE) {
+    const batch = db.batch();
+    for (const write of writes.slice(offset, offset + ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE)) {
+      batch.set(write.ref, write.data);
+    }
+    await batch.commit();
+  }
+}
+
+async function cleanupAccountCloudMigrationChunks(db: Firestore, refs: DocumentReference[]): Promise<void> {
+  for (let offset = 0; offset < refs.length; offset += ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE) {
+    const batch = db.batch();
+    for (const ref of refs.slice(offset, offset + ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE)) {
+      batch.delete(ref);
+    }
+    await batch.commit();
+  }
 }
 
 async function commitMigrationUpdates(updates: Array<{ ref: DocumentReference; data: Record<string, unknown> }>): Promise<void> {

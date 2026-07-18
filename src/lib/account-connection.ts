@@ -4,6 +4,7 @@ export type AccountMigrationRecord = {
   migrationCompletedAt?: unknown;
   migrationError?: unknown;
   cloudSyncConflict?: unknown;
+  desktopIdentityBackfillConflicts?: unknown;
 };
 
 export const DESKTOP_IDENTITY_BACKFILL_VERSION = 1;
@@ -36,9 +37,12 @@ export function summarizeAccountMigration(records: AccountMigrationRecord[]): {
   let state: AccountMigrationState = "ready";
   const messages: string[] = [];
   for (const record of records) {
-    if (record.migrationError || record.cloudSyncConflict === true) {
+    const hasIdentityConflicts = Array.isArray(record.desktopIdentityBackfillConflicts) &&
+      record.desktopIdentityBackfillConflicts.length > 0;
+    if (record.migrationError || record.cloudSyncConflict === true || hasIdentityConflicts) {
       state = "attention";
       if (record.migrationError) messages.push("Some older account records still need repair.");
+      if (hasIdentityConflicts) messages.push("A historical desktop link needs account support.");
       if (record.cloudSyncConflict === true) messages.push("Two device backups were retained for safe recovery.");
     } else if (!record.migrationCompletedAt) {
       if (state !== "attention") state = "pending";

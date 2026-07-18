@@ -23,6 +23,10 @@ describe("account connection health", () => {
       state: "attention",
       message: "Some older account records still need repair. Two device backups were retained for safe recovery.",
     });
+    expect(summarizeAccountMigration([{ desktopIdentityBackfillConflicts: [{ sourceUid: "private" }] }])).toEqual({
+      state: "attention",
+      message: "A historical desktop link needs account support.",
+    });
   });
 
   it("resolves a historical desktop UID to its canonical account", () => {
