@@ -15,6 +15,7 @@ import {
   isDiscordReplayResultResolved,
   summarizeReplayForDiscord,
 } from "@/lib/discord/replay-share";
+import type { DiscordActiveDeckInput } from "@/lib/discord/replay-share";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 import { assertHubCapability, identityUidsFor } from "@/lib/social/server";
 
@@ -29,6 +30,7 @@ export async function shareReplayToDiscordFeeds(input: {
   replayId: string;
   replay: CanonicalReplayV2;
   hubIds: string[];
+  activeDeck?: DiscordActiveDeckInput;
   origin: string;
 }): Promise<ReplayDiscordHubShareResult[]> {
   if (!isDiscordReplayResultResolved(input.replay)) {
@@ -37,7 +39,7 @@ export async function shareReplayToDiscordFeeds(input: {
   const db = getFirestoreAdmin();
   if (!db) throw new Error("Firebase admin is not configured.");
   const identityUids = await identityUidsFor(input.ownerUid);
-  const summary = summarizeReplayForDiscord(input.replay);
+  const summary = summarizeReplayForDiscord(input.replay, input.activeDeck);
   const replayUrl = `${input.origin.replace(/\/$/, "")}/replays/${encodeURIComponent(input.replayId)}`;
   const content = formatDiscordReplayPost(summary, replayUrl);
   const results: ReplayDiscordHubShareResult[] = [];

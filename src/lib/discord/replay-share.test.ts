@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  discordDeckLegendFromSnapshot,
   discordReplayReportChannelId,
   formatDiscordReplayPost,
   isDiscordReplayResultResolved,
   summarizeReplayForDiscord,
+  verifiedPiltoverDeckUrl,
 } from "@/lib/discord/replay-share";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 
@@ -41,6 +43,45 @@ describe("Discord replay sharing", () => {
     }, "https://www.riftlite.com/replays/rl2_test");
     expect(message).not.toContain("@everyone");
     expect(message).toContain("＠everyone");
+  });
+
+  it("links a verified Piltover active deck when its normalized Legend matches the captured player", () => {
+    const summary = summarizeReplayForDiscord(fixture(), {
+      title: "Akali [Tempo] @team",
+      legend: "Rogue Assassin",
+      sourceUrl: "https://www.piltoverarchive.com/decks/view/11111111-1111-4111-8111-111111111111?ref=private",
+    });
+
+    expect(summary.activeDeck).toEqual({
+      title: "Akali [Tempo] @team",
+      url: "https://piltoverarchive.com/decks/view/11111111-1111-4111-8111-111111111111",
+    });
+    const message = formatDiscordReplayPost(summary, "https://www.riftlite.com/replays/rl2_test");
+    expect(message).toContain(
+      "Active deck: [Akali \\[Tempo\\] ＠team](https://piltoverarchive.com/decks/view/11111111-1111-4111-8111-111111111111)",
+    );
+  });
+
+  it("omits a deck link when the Legend differs or the source is not a verified Piltover deck URL", () => {
+    expect(summarizeReplayForDiscord(fixture(), {
+      title: "Ahri Control",
+      legend: "Ahri",
+      sourceUrl: "https://piltoverarchive.com/decks/view/11111111-1111-4111-8111-111111111111",
+    }).activeDeck).toBeUndefined();
+    expect(summarizeReplayForDiscord(fixture(), {
+      title: "Akali Control",
+      legend: "Akali",
+      sourceUrl: "https://piltoverarchive.example/decks/view/11111111-1111-4111-8111-111111111111",
+    }).activeDeck).toBeUndefined();
+  });
+
+  it("reads only the deck Legend identity from a saved snapshot and strictly validates Piltover links", () => {
+    expect(discordDeckLegendFromSnapshot(JSON.stringify({ legend_key: "Akali" }))).toBe("Akali");
+    expect(discordDeckLegendFromSnapshot({ legendEntry: { name: "Akali, Rogue Assassin" } })).toBe("Akali, Rogue Assassin");
+    expect(discordDeckLegendFromSnapshot("not-json")).toBe("");
+    expect(verifiedPiltoverDeckUrl("http://piltoverarchive.com/decks/view/11111111-1111-4111-8111-111111111111")).toBe("");
+    expect(verifiedPiltoverDeckUrl("https://piltoverarchive.com.evil.example/decks/view/11111111-1111-4111-8111-111111111111")).toBe("");
+    expect(verifiedPiltoverDeckUrl("https://piltoverarchive.com/decks/view/not-a-uuid")).toBe("");
   });
   it("uses the BO1 match result instead of tied board points after a concession", () => {
     const replay = fixture();

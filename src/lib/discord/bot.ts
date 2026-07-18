@@ -6,6 +6,12 @@ import { type Firestore } from "firebase-admin/firestore";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import {
+  discordDeckLegendFromSnapshot,
+  discordDeckLinkForLegend,
+  formatDiscordDeckLink,
+  formatDiscordDeckTitle,
+} from "@/lib/discord/replay-share";
 import { type DiscordVerifiedMember } from "@/lib/discord/verified-members";
 import { assertHubCapability, bestProfileDisplayName, cleanDisplayName, identityUidsFor, normalizeAccountProfile } from "@/lib/social/server";
 
@@ -35,6 +41,7 @@ export type DiscordHubMatch = {
   result: string;
   score: string;
   deckName: string;
+  deckUrl: string;
   createdAt: number;
   superseded: boolean;
 };
@@ -55,7 +62,7 @@ export type DiscordHubStats = {
   }>;
   topMatchups: Array<{ matchup: string; count: number }>;
   underTestedMatchups: Array<{ matchup: string; count: number }>;
-  deckResults: Array<{ deckName: string; matches: number; wins: number; winRate: number }>;
+  deckResults: Array<{ deckName: string; deckUrl: string; matches: number; wins: number; winRate: number }>;
 };
 
 export function discordJson(body: Record<string, unknown>, status = 200) {
@@ -355,7 +362,7 @@ export function buildHubStats(hubId: string, matches: DiscordHubMatch[], rangeDa
   const scoped = matches.filter((match) => !match.createdAt || match.createdAt >= since);
   const byUser = new Map<string, { uid: string; player: string; matches: number; bo3s: number; unique: Set<string> }>();
   const matchups = new Map<string, number>();
-  const decks = new Map<string, { deckName: string; matches: number; wins: number }>();
+  const decks = new Map<string, { deckName: string; deckUrl: string; matches: number; wins: number }>();
 
   for (const match of scoped) {
     const uid = match.uid || match.player;
@@ -371,10 +378,11 @@ export function buildHubStats(hubId: string, matches: DiscordHubMatch[], rangeDa
     byUser.set(uid, row);
 
     if (match.deckName) {
-      const deck = decks.get(match.deckName) ?? { deckName: match.deckName, matches: 0, wins: 0 };
+      const deckKey = match.deckUrl || `name:${match.deckName}`;
+      const deck = decks.get(deckKey) ?? { deckName: match.deckName, deckUrl: match.deckUrl, matches: 0, wins: 0 };
       deck.matches += 1;
       if (match.result === "Win") deck.wins += 1;
-      decks.set(match.deckName, deck);
+      decks.set(deckKey, deck);
     }
   }
 
@@ -429,7 +437,10 @@ export function formatRecentMatches(matches: DiscordHubMatch[], count = 5) {
   return recent.map((match) => {
     const result = match.score ? `${match.score}` : match.result || "Result pending";
     const legends = match.myLegend && match.oppLegend ? `${match.myLegend} vs ${match.oppLegend}` : "Legends pending";
-    return `• ${match.player} ${result} vs ${match.opponent || "Opponent"} | ${legends} | ${match.format || "Bo1"}`;
+    const activeDeck = match.deckUrl
+      ? ` | Active deck: ${formatDiscordDeckLink({ title: match.deckName, url: match.deckUrl })}`
+      : "";
+    return `• ${match.player} ${result} vs ${match.opponent || "Opponent"} | ${legends} | ${match.format || "Bo1"}${activeDeck}`;
   }).join("\n");
 }
 
@@ -455,7 +466,12 @@ export function formatWeeklyReport(stats: DiscordHubStats) {
     lines.push("", "**Under-tested matchups**", ...stats.underTestedMatchups.slice(0, 5).map((item) => `• ${item.matchup}: ${item.count}`));
   }
   if (stats.deckResults.length) {
-    lines.push("", "**Most logged decks**", ...stats.deckResults.slice(0, 5).map((deck) => `• ${deck.deckName}: ${deck.matches} matches, ${deck.winRate}% WR`));
+    lines.push("", "**Most logged decks**", ...stats.deckResults.slice(0, 5).map((deck) => {
+      const label = deck.deckUrl
+        ? formatDiscordDeckLink({ title: deck.deckName, url: deck.deckUrl })
+        : formatDiscordDeckTitle(deck.deckName);
+      return `• ${label}: ${deck.matches} matches, ${deck.winRate}% WR`;
+    }));
   }
   return lines.join("\n");
 }
@@ -555,17 +571,24 @@ function normalizeHubMatch(id: string, raw: Record<string, unknown>): DiscordHub
   const uid = String(raw.uid ?? raw.owner_uid ?? raw.ownerUid ?? "");
   const player = bestProfileDisplayName(uid, raw.username, raw.displayName, raw.ownerDisplayName, raw.handle);
   const createdAt = normalizeCreatedAt(raw);
+  const myLegend = String(raw.my_champion ?? raw.myChampion ?? raw.myLegend ?? "").trim();
+  const deckLink = discordDeckLinkForLegend(myLegend, {
+    title: String(raw.my_deck_name ?? raw.deckName ?? raw.myDeckName ?? "").trim(),
+    legend: discordDeckLegendFromSnapshot(raw.my_deck_snapshot_json ?? raw.deckSnapshotJson ?? raw.myDeckSnapshotJson),
+    sourceUrl: String(raw.my_deck_source_url ?? raw.deckSourceUrl ?? raw.myDeckSourceUrl ?? "").trim(),
+  });
   return {
     id,
     uid,
     player,
     opponent: cleanDisplayName(raw.opp_name ?? raw.oppName ?? raw.opponent ?? "", "Opponent"),
-    myLegend: String(raw.my_champion ?? raw.myChampion ?? raw.myLegend ?? "").trim(),
+    myLegend,
     oppLegend: String(raw.opp_champion ?? raw.oppChampion ?? raw.oppLegend ?? "").trim(),
     format: String(raw.fmt ?? raw.format ?? "Bo1").trim() || "Bo1",
     result: String(raw.result ?? "").trim(),
     score: String(raw.score ?? "").trim(),
-    deckName: String(raw.my_deck_name ?? raw.deckName ?? raw.myDeckName ?? "").trim(),
+    deckName: deckLink?.title ?? String(raw.my_deck_name ?? raw.deckName ?? raw.myDeckName ?? "").trim(),
+    deckUrl: deckLink?.url ?? "",
     createdAt,
     superseded: isSuperseded(raw),
   };

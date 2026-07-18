@@ -23,7 +23,12 @@ export const maxDuration = 60;
 
 const ShareSchema = z.object({
   hubIds: z.array(z.string().trim().regex(/^[A-Za-z0-9_-]{1,128}$/)).min(1).max(10),
-});
+  activeDeck: z.object({
+    title: z.string().trim().max(120).optional(),
+    legend: z.string().trim().min(1).max(100),
+    sourceUrl: z.string().trim().min(1).max(500),
+  }).strict().optional(),
+}).strict();
 
 type RouteContext = { params: Promise<{ replayId: string }> };
 
@@ -54,6 +59,7 @@ export async function POST(request: Request, context: RouteContext) {
       replayId,
       replay,
       hubIds,
+      activeDeck: parsed.data.activeDeck,
       origin: process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://www.riftlite.com",
     });
     return NextResponse.json({
