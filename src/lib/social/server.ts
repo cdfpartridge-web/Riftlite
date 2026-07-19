@@ -1,12 +1,39 @@
 import "server-only";
 
-import { randomBytes, randomUUID } from "node:crypto";
-import { gzipSync, gunzipSync } from "node:zlib";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { gzipSync, gunzipSync, inflateRawSync } from "node:zlib";
 
-import { FieldValue, type DocumentReference, type Query } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  type DocumentReference,
+  type DocumentSnapshot,
+  type Firestore,
+  type Query,
+} from "firebase-admin/firestore";
 import { type NextRequest, NextResponse } from "next/server";
 
+import {
+  DESKTOP_IDENTITY_BACKFILL_VERSION,
+  historicalDesktopIdentitySources,
+} from "@/lib/account-connection";
+import {
+  ACCOUNT_CLOUD_SYNC_FORMAT,
+  ACCOUNT_CLOUD_SYNC_VERSION,
+  accountCloudSyncChunkDocumentId,
+  accountCloudSyncManifestFingerprint,
+  normalizeAccountCloudSyncManifest,
+  validateAccountCloudSyncChunk,
+  type AccountCloudSyncManifest,
+} from "@/lib/account-cloud-sync-conflict";
+import { conflictingLinkedIdentityCanonicalUid } from "@/lib/account-link";
 import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
+import { canonicalIdentityUid } from "@/lib/identity-server";
+import {
+  hubRoleHasCapability,
+  normalizeHubMemberRole,
+  type HubCapability,
+  type HubMemberRole,
+} from "@/lib/social/hub-permissions";
 import type { CommunityMatch, DeckSnapshot, MatchGame } from "@/lib/types";
 
 export type AccountProfile = {
@@ -26,6 +53,8 @@ export type AccountProfile = {
   marketingConsentUpdatedAt: number;
   marketingConsentVersion: string;
   marketingConsentSource: string;
+  profileComplete: boolean;
+  onboardingVersion: number;
   createdAt: number;
   updatedAt: number;
 };
@@ -90,12 +119,16 @@ const USER_MATCH_WINDOW = 500;
 const PROFILE_PAGE_MATCH_WINDOW = 250;
 const USER_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const LINK_SESSION_TTL_MS = 15 * 60 * 1000;
+const CURRENT_ONBOARDING_VERSION = 1;
 
 export function socialJson(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status });
 }
 
-export async function requireUser(req: NextRequest) {
+export async function requireUser(
+  req: NextRequest,
+  options: { canonicalize?: boolean } = {},
+) {
   const db = getFirestoreAdmin();
   if (!db) {
     return { error: socialJson({ error: "Firebase admin is not configured" }, 503) };
@@ -109,7 +142,16 @@ export async function requireUser(req: NextRequest) {
   if (!decoded) {
     return { error: socialJson({ error: "Invalid or expired ID token" }, 401) };
   }
-  return { db, decoded, token };
+  const authenticatedUid = decoded.uid;
+  const canonicalUid = options.canonicalize === false
+    ? authenticatedUid
+    : await canonicalIdentityUid(authenticatedUid, db);
+  return {
+    db,
+    decoded: canonicalUid && canonicalUid !== authenticatedUid ? { ...decoded, uid: canonicalUid } : decoded,
+    authenticatedUid,
+    token,
+  };
 }
 
 export function cleanHandle(value: unknown): string {
@@ -127,6 +169,10 @@ export function validHandle(value: string): boolean {
 
 function compactDisplayName(value: unknown): string {
   return String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+}
+
+function isEmailDisplayName(value: unknown): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(compactDisplayName(value));
 }
 
 export function isGenericDisplayName(value: unknown): boolean {
@@ -154,11 +200,15 @@ export function cleanDisplayName(value: unknown, fallback = DEFAULT_DISPLAY_NAME
 export function bestProfileDisplayName(uid: string, ...candidates: unknown[]): string {
   for (const candidate of candidates) {
     const cleaned = compactDisplayName(candidate);
-    if (!isGenericDisplayName(cleaned)) {
+    if (!isGenericDisplayName(cleaned) && !isEmailDisplayName(cleaned)) {
       return cleaned;
     }
   }
   return fallbackPlayerName(uid);
+}
+
+export function profileIsComplete(profile: Pick<AccountProfile, "handle" | "displayName">): boolean {
+  return validHandle(profile.handle) && !isGenericDisplayName(profile.displayName) && !isEmailDisplayName(profile.displayName);
 }
 
 function cleanDeckName(value: unknown): string {
@@ -233,6 +283,15 @@ export async function ensureUserProfile(uid: string, displayName = "", email = "
     if (profileNeedsDisplayNameRepair(raw.displayName, nextDisplayName)) {
       patch.displayName = nextDisplayName;
     }
+    if (isEmailDisplayName(raw.displayName)) {
+      patch.displayName = "";
+    }
+    const nextProfile = { ...profile, ...patch } as AccountProfile;
+    const profileComplete = profileIsComplete(nextProfile);
+    if (raw.profileComplete !== profileComplete || Number(raw.onboardingVersion ?? 0) !== (profileComplete ? CURRENT_ONBOARDING_VERSION : 0)) {
+      patch.profileComplete = profileComplete;
+      patch.onboardingVersion = profileComplete ? CURRENT_ONBOARDING_VERSION : 0;
+    }
     if (Object.keys(patch).length) {
       patch.updatedAt = now;
       await ref.set(patch, { merge: true });
@@ -254,6 +313,8 @@ export async function ensureUserProfile(uid: string, displayName = "", email = "
     marketingConsentUpdatedAt: 0,
     marketingConsentVersion: "",
     marketingConsentSource: "",
+    profileComplete: false,
+    onboardingVersion: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -264,7 +325,7 @@ export async function ensureUserProfile(uid: string, displayName = "", email = "
 export function normalizeAccountProfile(uid: string, data: Record<string, unknown>): AccountProfile {
   const handle = cleanHandle(data.handle);
   const now = Date.now();
-  return {
+  const profile = {
     uid,
     email: String(data.email ?? "").trim(),
     handle,
@@ -281,9 +342,14 @@ export function normalizeAccountProfile(uid: string, data: Record<string, unknow
     marketingConsentUpdatedAt: Number(data.marketingConsentUpdatedAt ?? 0),
     marketingConsentVersion: String(data.marketingConsentVersion ?? ""),
     marketingConsentSource: String(data.marketingConsentSource ?? ""),
+    profileComplete: false,
+    onboardingVersion: Number(data.onboardingVersion ?? 0),
     createdAt: Number(data.createdAt ?? now),
     updatedAt: Number(data.updatedAt ?? now),
   };
+  profile.profileComplete = profileIsComplete(profile);
+  profile.onboardingVersion = profile.profileComplete ? Math.max(CURRENT_ONBOARDING_VERSION, profile.onboardingVersion) : 0;
+  return profile;
 }
 
 export async function saveAccountProfile(uid: string, patch: Partial<AccountProfile>, context: { email?: string; consentSource?: string } = {}): Promise<AccountProfile> {
@@ -337,8 +403,12 @@ export async function saveAccountProfile(uid: string, patch: Partial<AccountProf
       marketingConsentUpdatedAt: marketingChanged ? now : current.marketingConsentUpdatedAt,
       marketingConsentVersion: marketingChanged ? MARKETING_CONSENT_VERSION : current.marketingConsentVersion,
       marketingConsentSource: marketingChanged ? (context.consentSource || MARKETING_CONSENT_SOURCE) : current.marketingConsentSource,
+      profileComplete: false,
+      onboardingVersion: 0,
       updatedAt: now,
     };
+    next.profileComplete = profileIsComplete(next);
+    next.onboardingVersion = next.profileComplete ? CURRENT_ONBOARDING_VERSION : 0;
     tx.set(userRef, next, { merge: true });
     if (next.publicProfile && next.handleLower) {
       tx.set(db.collection("publicProfiles").doc(next.handleLower), publicProfileFromAccount(next), { merge: true });
@@ -370,6 +440,8 @@ async function defaultProfile(uid: string): Promise<AccountProfile> {
     marketingConsentUpdatedAt: 0,
     marketingConsentVersion: "",
     marketingConsentSource: "",
+    profileComplete: false,
+    onboardingVersion: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -402,6 +474,887 @@ export function decodeMatches(encoded: string): CommunityMatch[] {
   } catch {
     return [];
   }
+}
+
+export class LinkedIdentityConflictError extends Error {
+  readonly existingCanonicalUid: string;
+
+  constructor(existingCanonicalUid: string) {
+    super("This desktop identity is already linked to another RiftLite account.");
+    this.name = "LinkedIdentityConflictError";
+    this.existingCanonicalUid = existingCanonicalUid;
+  }
+}
+
+export async function claimLinkedIdentityAssociation(
+  db: Firestore,
+  sourceUid: string,
+  canonicalUid: string,
+  now = Date.now(),
+): Promise<void> {
+  const source = String(sourceUid ?? "").trim();
+  const canonical = String(canonicalUid ?? "").trim();
+  if (!source || !canonical) return;
+  const association = {
+    canonicalUid: canonical,
+    sourceUid: source,
+    linkedAt: now,
+    migrationVersion: 1,
+  };
+
+  await db.runTransaction(async (tx) => {
+    const sourceAliasRef = db.collection("identityAliases").doc(source);
+    const sourceUserRef = db.collection("users").doc(source);
+    const canonicalAliasRef = db.collection("identityAliases").doc(canonical);
+    const canonicalUserRef = db.collection("users").doc(canonical);
+    const [sourceAliasSnap, sourceUserSnap] = await Promise.all([
+      tx.get(sourceAliasRef),
+      tx.get(sourceUserRef),
+    ]);
+    const [canonicalAliasSnap, canonicalUserSnap] = source === canonical
+      ? [sourceAliasSnap, sourceUserSnap]
+      : await Promise.all([
+        tx.get(canonicalAliasRef),
+        tx.get(canonicalUserRef),
+      ]);
+    const conflict = conflictingLinkedIdentityCanonicalUid(
+      canonical,
+      sourceAliasSnap.data()?.canonicalUid,
+      sourceUserSnap.data()?.canonicalUid,
+    ) || conflictingLinkedIdentityCanonicalUid(
+      canonical,
+      canonicalAliasSnap.data()?.canonicalUid,
+      canonicalUserSnap.data()?.canonicalUid,
+    );
+    if (conflict) throw new LinkedIdentityConflictError(conflict);
+
+    const sourceLinkedAt = positiveNumber(sourceAliasSnap.data()?.linkedAt, now);
+    const canonicalLinkedAt = positiveNumber(canonicalAliasSnap.data()?.linkedAt, now);
+    tx.set(sourceAliasRef, { ...association, linkedAt: sourceLinkedAt }, { merge: true });
+    if (source !== canonical) {
+      tx.set(canonicalAliasRef, {
+        ...association,
+        sourceUid: canonical,
+        linkedAt: canonicalLinkedAt,
+      }, { merge: true });
+    }
+    tx.set(canonicalUserRef, {
+      canonicalUid: canonical,
+      identityAliases: FieldValue.arrayUnion(source, canonical),
+      identityUpdatedAt: now,
+    }, { merge: true });
+    if (source !== canonical) {
+      tx.set(sourceUserRef, {
+        canonicalUid: canonical,
+        identityAliases: FieldValue.arrayUnion(source, canonical),
+        identityUpdatedAt: now,
+      }, { merge: true });
+    }
+  });
+}
+
+export async function associateLinkedIdentity(
+  sourceUid: string,
+  canonicalUid: string,
+  providedDb?: Firestore,
+): Promise<void> {
+  const source = String(sourceUid ?? "").trim();
+  const canonical = String(canonicalUid ?? "").trim();
+  if (!source || !canonical) return;
+  const db = providedDb ?? getFirestoreAdmin();
+  if (!db) throw new Error("Firebase admin is not configured");
+  const now = Date.now();
+
+  // Claim the source identity before profile promotion, data migration, or
+  // token creation can happen. The transaction makes the first proven bind
+  // immutable while allowing retries to the same canonical UID.
+  await claimLinkedIdentityAssociation(db, source, canonical, now);
+
+  if (source !== canonical) {
+    await db.runTransaction(async (tx) => {
+      const sourceRef = db.collection("users").doc(source);
+      const canonicalRef = db.collection("users").doc(canonical);
+      const [sourceSnap, canonicalSnap] = await Promise.all([tx.get(sourceRef), tx.get(canonicalRef)]);
+      if (!sourceSnap.exists) return;
+      const sourceProfile = normalizeAccountProfile(source, sourceSnap.data() ?? {});
+      const canonicalProfile = normalizeAccountProfile(canonical, canonicalSnap.data() ?? {});
+      if (!profileIsComplete(sourceProfile) || profileIsComplete(canonicalProfile)) return;
+      const handleRef = db.collection("handles").doc(sourceProfile.handleLower);
+      const handleSnap = await tx.get(handleRef);
+      const handleOwner = String(handleSnap.data()?.uid ?? "");
+      if (handleSnap.exists && handleOwner !== source && handleOwner !== canonical) return;
+      tx.set(handleRef, { uid: canonical, handle: sourceProfile.handle, updatedAt: now }, { merge: true });
+      tx.set(canonicalRef, {
+        handle: sourceProfile.handle,
+        handleLower: sourceProfile.handleLower,
+        displayName: sourceProfile.displayName,
+        profileComplete: true,
+        onboardingVersion: CURRENT_ONBOARDING_VERSION,
+        identityPromotedFromUid: source,
+        updatedAt: now,
+      }, { merge: true });
+      if (sourceProfile.publicProfile) {
+        tx.set(db.collection("publicProfiles").doc(sourceProfile.handleLower), {
+          ...publicProfileFromAccount({ ...sourceProfile, uid: canonical }),
+          uid: canonical,
+          updatedAt: now,
+        }, { merge: true });
+      }
+    });
+  }
+
+  if (source === canonical) return;
+  await migrateLinkedIdentityReferences(source, canonical, now).catch(async (error) => {
+    await db.collection("identityAliases").doc(source).set({
+      migrationError: error instanceof Error ? error.message : "Identity migration needs retry",
+      migrationAttemptAt: Date.now(),
+    }, { merge: true });
+  });
+}
+
+export async function identityUidsFor(uid: string, providedDb?: Firestore): Promise<string[]> {
+  const cleanUid = String(uid ?? "").trim();
+  if (!cleanUid) return [];
+  const db = providedDb ?? getFirestoreAdmin();
+  if (!db) return [cleanUid];
+  const canonicalUid = await canonicalIdentityUid(cleanUid, db);
+  const [sourceSnap, canonicalSnap] = await Promise.all([
+    db.collection("users").doc(cleanUid).get().catch(() => null),
+    canonicalUid === cleanUid
+      ? Promise.resolve(null)
+      : db.collection("users").doc(canonicalUid).get().catch(() => null),
+  ]);
+  const aliases = [sourceSnap, canonicalSnap].flatMap((snap) => Array.isArray(snap?.data()?.identityAliases)
+    ? snap.data()?.identityAliases.map((value: unknown) => String(value ?? "").trim()).filter(Boolean)
+    : []);
+  const candidates = Array.from(new Set([cleanUid, canonicalUid, ...aliases].filter(Boolean))).slice(0, 100);
+  const validated = await Promise.all(candidates.map(async (candidate) => ({
+    candidate,
+    canonical: await canonicalIdentityUid(candidate, db).catch(() => ""),
+  })));
+  return validated
+    .filter(({ candidate, canonical }) => candidate === canonicalUid || canonical === canonicalUid)
+    .map(({ candidate }) => candidate);
+}
+
+export async function repairHistoricalDesktopIdentityAssociations(
+  canonicalUid: string,
+  providedDb?: Firestore,
+): Promise<string[]> {
+  const canonical = String(canonicalUid ?? "").trim();
+  if (!canonical) return [];
+  const db = providedDb ?? getFirestoreAdmin();
+  if (!db) return [];
+  const userRef = db.collection("users").doc(canonical);
+  const userSnap = await userRef.get();
+  if (Number(userSnap.data()?.desktopIdentityBackfillVersion ?? 0) >= DESKTOP_IDENTITY_BACKFILL_VERSION) {
+    return [];
+  }
+
+  const sessions = await db.collection("desktopLinkSessions")
+    .where("linkedUid", "==", canonical)
+    .limit(100)
+    .get();
+  const sources = historicalDesktopIdentitySources(
+    sessions.docs.map((doc) => doc.data()),
+    canonical,
+  );
+  const conflicts: Array<{ sourceUid: string; existingCanonicalUid: string }> = [];
+  for (const source of sources) {
+    try {
+      await associateLinkedIdentity(source, canonical, db);
+    } catch (error) {
+      if (!(error instanceof LinkedIdentityConflictError)) throw error;
+      conflicts.push({ sourceUid: source, existingCanonicalUid: error.existingCanonicalUid });
+      // Retain the first proven bind and leave a durable repair signal instead
+      // of breaking every future connection-health request for this account.
+      await db.collection("identityAliases").doc(source).set({
+        migrationError: "Conflicting canonical identity binding retained",
+        migrationConflictCanonicalUid: error.existingCanonicalUid,
+        migrationRequestedCanonicalUid: canonical,
+        migrationAttemptAt: Date.now(),
+      }, { merge: true });
+    }
+  }
+  await userRef.set({
+    desktopIdentityBackfillVersion: DESKTOP_IDENTITY_BACKFILL_VERSION,
+    desktopIdentityBackfilledAt: Date.now(),
+    desktopIdentityBackfilledSources: sources.length - conflicts.length,
+    desktopIdentityBackfillConflicts: conflicts,
+  }, { merge: true });
+  return sources.filter((source) => !conflicts.some((conflict) => conflict.sourceUid === source));
+}
+
+type MembershipParentCollection = "hubs" | "teams";
+
+/**
+ * Finds memberships through the fast collection-group index when it is
+ * available, then falls back to direct member document reads. Member IDs are
+ * the Firebase UID throughout RiftLite, so the fallback is deterministic and
+ * does not require scanning private match or message data.
+ */
+export async function findMembershipDocuments(
+  db: Firestore,
+  uids: string[],
+  parentCollection: MembershipParentCollection,
+): Promise<DocumentSnapshot[]> {
+  const identityUids = Array.from(new Set(uids.map((value) => String(value ?? "").trim()).filter(Boolean)));
+  if (!identityUids.length) return [];
+
+  try {
+    const indexed = await Promise.all(identityUids.map((uid) => (
+      db.collectionGroup("members").where("uid", "==", uid).get()
+    )));
+    return dedupeDocumentSnapshots(indexed.flatMap((snapshot) => snapshot.docs)
+      .filter((doc) => doc.ref.parent.parent?.parent.id === parentCollection));
+  } catch {
+    const parents = await db.collection(parentCollection).get();
+    const refs = parents.docs.flatMap((parent) => identityUids.map((uid) => parent.ref.collection("members").doc(uid)));
+    const members: DocumentSnapshot[] = [];
+    for (let offset = 0; offset < refs.length; offset += 250) {
+      members.push(...await db.getAll(...refs.slice(offset, offset + 250)));
+    }
+    return dedupeDocumentSnapshots(members.filter((member) => member.exists));
+  }
+}
+
+function dedupeDocumentSnapshots(documents: DocumentSnapshot[]): DocumentSnapshot[] {
+  return Array.from(new Map(documents.map((document) => [document.ref.path, document])).values());
+}
+
+async function findNestedDocumentsByField(
+  db: Firestore,
+  collectionId: string,
+  field: string,
+  value: string,
+  parentCollections: MembershipParentCollection[],
+  limit = Number.POSITIVE_INFINITY,
+): Promise<DocumentSnapshot[]> {
+  try {
+    let query: Query = db.collectionGroup(collectionId).where(field, "==", value);
+    if (Number.isFinite(limit)) query = query.limit(limit);
+    return (await query.get()).docs;
+  } catch {
+    const documents: DocumentSnapshot[] = [];
+    for (const parentCollection of parentCollections) {
+      const parents = await db.collection(parentCollection).get();
+      for (let offset = 0; offset < parents.docs.length && documents.length < limit; offset += 25) {
+        const remaining = Number.isFinite(limit) ? Math.max(1, limit - documents.length) : 200;
+        const snapshots = await Promise.all(parents.docs.slice(offset, offset + 25).map((parent) => (
+          parent.ref.collection(collectionId).where(field, "==", value).limit(remaining).get()
+        )));
+        documents.push(...snapshots.flatMap((snapshot) => snapshot.docs));
+      }
+    }
+    return dedupeDocumentSnapshots(documents).slice(0, Number.isFinite(limit) ? limit : undefined);
+  }
+}
+
+async function migrateLinkedIdentityReferences(sourceUid: string, canonicalUid: string, now: number): Promise<void> {
+  const db = getFirestoreAdmin();
+  if (!db) return;
+  const profile = await ensureUserProfile(canonicalUid);
+  const updates: Array<{ ref: DocumentReference; data: Record<string, unknown> }> = [];
+  const queueSet = (ref: DocumentReference, value: Record<string, unknown>) => {
+    updates.push({ ref, data: value });
+  };
+
+  const sourceMembers = [
+    ...await findMembershipDocuments(db, [sourceUid], "hubs"),
+    ...await findMembershipDocuments(db, [sourceUid], "teams"),
+  ];
+  for (const memberDoc of sourceMembers) {
+    const ownerRef = memberDoc.ref.parent.parent;
+    if (!ownerRef) continue;
+    const canonicalRef = ownerRef.collection("members").doc(canonicalUid);
+    const canonicalSnap = await canonicalRef.get().catch(() => null);
+    const sourceData = memberDoc.data() ?? {};
+    const canonicalData = canonicalSnap?.data() ?? {};
+    const role = strongerRole(String(sourceData.role ?? "member"), String(canonicalData.role ?? ""));
+    const joinedAt = Math.min(
+      positiveNumber(sourceData.joinedAt, now),
+      positiveNumber(canonicalData.joinedAt, now),
+    );
+    queueSet(canonicalRef, {
+      ...sourceData,
+      uid: canonicalUid,
+      role,
+      handle: profile.handle,
+      displayName: bestProfileDisplayName(canonicalUid, profile.displayName, profile.handle),
+      joinedAt,
+      migratedFromUid: sourceUid,
+      updatedAt: now,
+    });
+    queueSet(memberDoc.ref, { canonicalUid, migratedToUid: canonicalUid, updatedAt: now });
+  }
+
+  for (const field of ["owner_uid", "created_by"] as const) {
+    const hubs = await db.collection("hubs").where(field, "==", sourceUid).get();
+    for (const hub of hubs.docs) {
+      queueSet(hub.ref, hubIdentityMigrationPatch(hub.data() ?? {}, field, sourceUid, canonicalUid, now));
+    }
+  }
+  const teams = await db.collection("teams").where("ownerUid", "==", sourceUid).get();
+  for (const team of teams.docs) {
+    queueSet(team.ref, { ownerUid: canonicalUid, identityMigratedAt: now });
+  }
+
+  const inbox = await db.collection("users").doc(sourceUid).collection("inbox").get();
+  for (const item of inbox.docs) {
+    queueSet(db.collection("users").doc(canonicalUid).collection("inbox").doc(item.id), {
+      ...item.data(),
+      migratedFromUid: sourceUid,
+      updatedAt: now,
+    });
+  }
+
+  const discordLinks = await db.collection("discordLinks").where("uid", "==", sourceUid).get();
+  for (const link of discordLinks.docs) {
+    queueSet(link.ref, {
+      uid: canonicalUid,
+      previousUid: sourceUid,
+      handle: profile.handle,
+      displayName: bestProfileDisplayName(canonicalUid, profile.displayName, profile.handle),
+      updatedAt: now,
+    });
+  }
+
+  const replays = await db.collection("replayV2").where("ownerUid", "==", sourceUid).get();
+  for (const replay of replays.docs) {
+    const replayData = replay.data();
+    queueSet(replay.ref, { ownerUid: canonicalUid, previousOwnerUid: sourceUid, identityMigratedAt: now });
+    queueSet(db.collection("replayV2Owners").doc(canonicalUid).collection("items").doc(replay.id), {
+      ...replayData,
+      ownerUid: canonicalUid,
+      previousOwnerUid: sourceUid,
+      identityMigratedAt: now,
+    });
+  }
+
+  await commitMigrationUpdates(updates);
+  await migrateIdentitySnapshots(sourceUid, canonicalUid, profile, now);
+  await migrateAccountCloudBackup(sourceUid, canonicalUid, now);
+  await db.collection("identityAliases").doc(sourceUid).set({
+    migrationCompletedAt: now,
+    migrationError: FieldValue.delete(),
+  }, { merge: true });
+}
+
+async function migrateIdentitySnapshots(sourceUid: string, canonicalUid: string, profile: AccountProfile, now: number): Promise<void> {
+  const db = getFirestoreAdmin();
+  if (!db) return;
+  const displayName = bestProfileDisplayName(canonicalUid, profile.displayName, profile.handle);
+  for (const collectionId of ["matches", "messages"] as const) {
+    const documents = await findNestedDocumentsByField(db, collectionId, "uid", sourceUid, ["hubs", "teams"]);
+    const updates = documents.map((doc) => ({
+      ref: doc.ref,
+      data: {
+        uid: canonicalUid,
+        owner_uid: collectionId === "matches" ? canonicalUid : undefined,
+        previousUid: sourceUid,
+        owner_display_name: collectionId === "matches" ? displayName : undefined,
+        username: collectionId === "matches" ? displayName : undefined,
+        displayName,
+        handle: profile.handle,
+        identityMigratedAt: now,
+      },
+    }));
+    await commitMigrationUpdates(updates);
+  }
+}
+
+const ACCOUNT_CLOUD_SYNC_MIGRATION_MAX_CHUNKS = 64;
+// Keep worst-case 450 KB chunk batches comfortably below Firestore's 10 MiB
+// write-request limit, including document and protocol overhead.
+const ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE = 16;
+
+type PreparedAccountCloudMigration = {
+  canonicalManifestData: Record<string, unknown>;
+  sourceContentFingerprint: string;
+  sourceFingerprint: string;
+  stagedGenerationId: string;
+  stagedChunkWrites: Array<{ ref: DocumentReference; data: Record<string, unknown> }>;
+};
+
+type AccountCloudMigrationOutcome = "migrated" | "already-migrated" | "conflict" | "source-changed";
+
+export async function migrateAccountCloudBackup(
+  sourceUid: string,
+  canonicalUid: string,
+  now: number,
+  providedDb?: Firestore,
+): Promise<void> {
+  const db = providedDb ?? getFirestoreAdmin();
+  if (!db) return;
+  const sourceRoot = db.collection("accountSync").doc(sourceUid);
+  const canonicalRoot = db.collection("accountSync").doc(canonicalUid);
+  const sourceManifestRef = sourceRoot.collection("manifest").doc("current");
+  const canonicalManifestRef = canonicalRoot.collection("manifest").doc("current");
+  const aliasRef = db.collection("identityAliases").doc(sourceUid);
+  const canonicalUserRef = db.collection("users").doc(canonicalUid);
+  const [sourceManifestSnapshot, canonicalManifestSnapshot, aliasSnapshot] = await Promise.all([
+    sourceManifestRef.get().catch(() => null),
+    canonicalManifestRef.get().catch(() => null),
+    aliasRef.get().catch(() => null),
+  ]);
+  if (!sourceManifestSnapshot?.exists) return;
+
+  const sourceManifest = accountCloudManifestFromSnapshot(sourceManifestSnapshot);
+  const aliasData = aliasSnapshot?.data() ?? {};
+  if (canonicalManifestSnapshot?.exists) {
+    if (!sourceManifest) {
+      // An invalid retained copy cannot be offered as a safe recovery choice.
+      // Surface repair attention without creating an unresolvable two-backup
+      // conflict or modifying the valid canonical backup.
+      await aliasRef.set({
+        cloudSyncConflict: FieldValue.delete(),
+        cloudSyncCheckedAt: now,
+      }, { merge: true });
+      throw new Error("The retained account backup manifest is invalid and needs support.");
+    }
+    const sourceFingerprint = accountCloudSyncManifestFingerprint(sourceManifest);
+    const sourceContentFingerprint = accountCloudMigrationContentFingerprint(sourceManifest);
+
+    // An explicit owner decision remains authoritative until the retained
+    // source changes again. This also prevents a resolved migrated backup from
+    // being reopened merely because its canonical manifest still has migration
+    // provenance fields.
+    if (
+      aliasData.cloudSyncConflict === false &&
+      String(aliasData.cloudSyncResolvedSourceFingerprint ?? "").trim() === sourceFingerprint
+    ) {
+      await aliasRef.set({ cloudSyncCheckedAt: now }, { merge: true });
+      return;
+    }
+
+    const canonicalData = canonicalManifestSnapshot.data() ?? {};
+    const canonicalManifest = accountCloudManifestFromSnapshot(canonicalManifestSnapshot);
+    if (String(canonicalData.identityMigratedFromUid ?? "").trim() === sourceUid) {
+      const storedSourceFingerprint = String(
+        canonicalData.identityMigratedSourceFingerprint ?? aliasData.cloudSyncMigratedSourceFingerprint ?? "",
+      ).trim();
+      const storedSourceContentFingerprint = String(
+        canonicalData.identityMigratedSourceContentFingerprint ??
+        aliasData.cloudSyncMigratedSourceContentFingerprint ??
+        "",
+      ).trim();
+      const legacyMigrationStillMatches = !storedSourceFingerprint &&
+        !storedSourceContentFingerprint &&
+        canonicalManifest &&
+        accountCloudMigrationContentFingerprint(canonicalManifest) === sourceContentFingerprint;
+      if (
+        storedSourceFingerprint === sourceFingerprint ||
+        storedSourceContentFingerprint === sourceContentFingerprint ||
+        legacyMigrationStillMatches
+      ) {
+        await aliasRef.set(accountCloudMigrationCompleteData(
+          sourceFingerprint,
+          sourceContentFingerprint,
+          positiveNumber(canonicalData.identityMigratedAt, now),
+          now,
+        ), { merge: true });
+        return;
+      }
+    }
+
+    // There are now two independently changed backups. Retain both and make
+    // the choice explicit instead of silently treating the first migration as
+    // permanently complete.
+    await markAccountCloudBackupConflict(db, sourceUid, canonicalUid, now);
+    return;
+  }
+
+  if (!sourceManifest) {
+    throw new Error("The retained account backup manifest is invalid and was not migrated.");
+  }
+  const prepared = await prepareAccountCloudMigration(
+    sourceRoot,
+    canonicalRoot,
+    sourceManifestSnapshot,
+    sourceManifest,
+    sourceUid,
+    now,
+  );
+
+  try {
+    await commitAccountCloudMigrationChunks(db, prepared.stagedChunkWrites);
+  } catch (error) {
+    await cleanupAccountCloudMigrationChunks(db, prepared.stagedChunkWrites.map(({ ref }) => ref)).catch(() => undefined);
+    throw error;
+  }
+
+  let outcome: AccountCloudMigrationOutcome;
+  try {
+    outcome = await db.runTransaction(async (transaction): Promise<AccountCloudMigrationOutcome> => {
+      const [latestSourceSnapshot, latestCanonicalSnapshot] = await Promise.all([
+        transaction.get(sourceManifestRef),
+        transaction.get(canonicalManifestRef),
+      ]);
+      const latestSourceManifest = accountCloudManifestFromSnapshot(latestSourceSnapshot);
+      if (
+        !latestSourceManifest ||
+        accountCloudSyncManifestFingerprint(latestSourceManifest) !== prepared.sourceFingerprint
+      ) {
+        return "source-changed";
+      }
+
+      if (latestCanonicalSnapshot.exists) {
+        const latestCanonicalData = latestCanonicalSnapshot.data() ?? {};
+        if (
+          String(latestCanonicalData.identityMigratedFromUid ?? "").trim() === sourceUid &&
+          String(latestCanonicalData.identityMigratedSourceFingerprint ?? "").trim() === prepared.sourceFingerprint
+        ) {
+          transaction.set(aliasRef, accountCloudMigrationCompleteData(
+            prepared.sourceFingerprint,
+            prepared.sourceContentFingerprint,
+            positiveNumber(latestCanonicalData.identityMigratedAt, now),
+            now,
+          ), { merge: true });
+          return "already-migrated";
+        }
+        transaction.set(aliasRef, accountCloudMigrationConflictData(sourceUid, canonicalUid, now), { merge: true });
+        transaction.set(canonicalUserRef, accountCloudMigrationConflictUserData(sourceUid, now), { merge: true });
+        return "conflict";
+      }
+
+      transaction.set(canonicalManifestRef, prepared.canonicalManifestData);
+      transaction.set(aliasRef, accountCloudMigrationCompleteData(
+        prepared.sourceFingerprint,
+        prepared.sourceContentFingerprint,
+        now,
+        now,
+      ), { merge: true });
+      return "migrated";
+    });
+  } catch (error) {
+    // A transaction acknowledgement can be lost after Firestore has committed.
+    // Reconcile against canonical current before deleting the staged generation;
+    // otherwise an uncertain response could leave the live manifest pointing at
+    // chunks that this catch block just removed.
+    const canonicalAfterError = await canonicalManifestRef.get().catch(() => null);
+    if (canonicalAfterError && accountCloudMigrationMatchesPreparedCommit(
+      canonicalAfterError,
+      prepared,
+      sourceUid,
+    )) {
+      outcome = "migrated";
+    } else {
+      if (
+        canonicalAfterError &&
+        !accountCloudMigrationReferencesPreparedGeneration(canonicalAfterError, prepared)
+      ) {
+        await cleanupAccountCloudMigrationChunks(
+          db,
+          prepared.stagedChunkWrites.map(({ ref }) => ref),
+        ).catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+
+  if (outcome !== "migrated") {
+    await cleanupAccountCloudMigrationChunks(db, prepared.stagedChunkWrites.map(({ ref }) => ref)).catch(() => undefined);
+  }
+  if (outcome === "source-changed") {
+    await aliasRef.set({
+      cloudSyncMigrationSourceChanged: true,
+      cloudSyncMigrationSourceChangedAt: now,
+      cloudSyncCheckedAt: now,
+    }, { merge: true });
+    throw new Error("The retained account backup changed during migration and was left untouched for a safe retry.");
+  }
+}
+
+async function prepareAccountCloudMigration(
+  sourceRoot: DocumentReference,
+  canonicalRoot: DocumentReference,
+  sourceManifestSnapshot: DocumentSnapshot,
+  sourceManifest: AccountCloudSyncManifest,
+  sourceUid: string,
+  now: number,
+): Promise<PreparedAccountCloudMigration> {
+  if (sourceManifest.chunkCount > ACCOUNT_CLOUD_SYNC_MIGRATION_MAX_CHUNKS) {
+    throw new Error(
+      `The retained account backup has ${sourceManifest.chunkCount} chunks and is too large for safe inline migration.`,
+    );
+  }
+
+  const sourceChunkSnapshots: DocumentSnapshot[] = [];
+  for (let offset = 0; offset < sourceManifest.chunkCount; offset += 16) {
+    const indexes = Array.from(
+      { length: Math.min(16, sourceManifest.chunkCount - offset) },
+      (_, index) => offset + index,
+    );
+    sourceChunkSnapshots.push(...await Promise.all(indexes.map((index) => (
+      sourceRoot.collection("chunks").doc(accountCloudSyncChunkDocumentId(sourceManifest, index)).get()
+    ))));
+  }
+
+  const payloads: string[] = [];
+  const chunkChecksums: string[] = [];
+  const checksum = createHash("sha256");
+  let byteSize = 0;
+  for (let index = 0; index < sourceManifest.chunkCount; index += 1) {
+    const snapshot = sourceChunkSnapshots[index];
+    const chunk = validateAccountCloudSyncChunk(sourceManifest, index, snapshot?.data() ?? null);
+    if (!snapshot?.exists || !chunk) {
+      throw new Error(`Retained account backup chunk ${index + 1} is missing or failed validation.`);
+    }
+    payloads.push(chunk.payload);
+    chunkChecksums.push(createHash("sha256").update(chunk.payload, "utf8").digest("hex"));
+    checksum.update(chunk.payload, "utf8");
+    byteSize += chunk.byteSize;
+  }
+  const fullChecksum = checksum.digest("hex");
+  if (byteSize !== sourceManifest.byteSize) {
+    throw new Error("The retained account backup byte size does not match its manifest.");
+  }
+  if (sourceManifest.version === ACCOUNT_CLOUD_SYNC_VERSION && fullChecksum !== sourceManifest.checksum) {
+    throw new Error("The retained account backup checksum does not match its manifest.");
+  }
+  if (sourceManifest.version !== ACCOUNT_CLOUD_SYNC_VERSION) {
+    validateLegacyAccountCloudBackupPayload(payloads.join(""), sourceManifest);
+  }
+
+  const sourceFingerprint = accountCloudSyncManifestFingerprint(sourceManifest);
+  const sourceContentFingerprint = accountCloudMigrationContentFingerprint(sourceManifest);
+  const stagedGenerationId = randomUUID();
+  const stagedManifest: AccountCloudSyncManifest = {
+    ...sourceManifest,
+    version: ACCOUNT_CLOUD_SYNC_VERSION,
+    generationId: stagedGenerationId,
+    byteSize,
+    checksumAlgorithm: "sha256",
+    checksum: fullChecksum,
+    chunkChecksums,
+    updateTime: "",
+  };
+  const stagedChunkWrites = payloads.map((payload, index) => ({
+    ref: canonicalRoot.collection("chunks").doc(accountCloudSyncChunkDocumentId(stagedManifest, index)),
+    data: {
+      format: ACCOUNT_CLOUD_SYNC_FORMAT,
+      version: ACCOUNT_CLOUD_SYNC_VERSION,
+      generation_id: stagedGenerationId,
+      index,
+      payload,
+      byte_size: Buffer.byteLength(payload, "utf8"),
+      checksum: chunkChecksums[index],
+      identityMigratedFromUid: sourceUid,
+      identityMigratedAt: now,
+    },
+  }));
+
+  return {
+    sourceFingerprint,
+    sourceContentFingerprint,
+    stagedGenerationId,
+    stagedChunkWrites,
+    canonicalManifestData: {
+      format: ACCOUNT_CLOUD_SYNC_FORMAT,
+      version: ACCOUNT_CLOUD_SYNC_VERSION,
+      updated_at: sourceManifest.updatedAt,
+      device_id: sourceManifest.deviceId,
+      device_name: sourceManifest.deviceName,
+      app_version: sourceManifest.appVersion,
+      generation_id: stagedGenerationId,
+      chunk_count: sourceManifest.chunkCount,
+      byte_size: byteSize,
+      checksum_algorithm: "sha256",
+      checksum: fullChecksum,
+      chunk_checksums: chunkChecksums,
+      counts: sourceManifest.counts,
+      identityMigratedFromUid: sourceUid,
+      identityMigratedAt: now,
+      identityMigratedSourceFingerprint: sourceFingerprint,
+      identityMigratedSourceContentFingerprint: sourceContentFingerprint,
+      identityMigratedSourceUpdateTime: sourceManifestSnapshot.updateTime?.toDate().toISOString() ?? "",
+    },
+  };
+}
+
+function accountCloudMigrationMatchesPreparedCommit(
+  snapshot: DocumentSnapshot,
+  prepared: PreparedAccountCloudMigration,
+  sourceUid: string,
+): boolean {
+  if (!snapshot.exists) return false;
+  const data = snapshot.data() ?? {};
+  return String(data.generation_id ?? "").trim() === prepared.stagedGenerationId &&
+    String(data.identityMigratedFromUid ?? "").trim() === sourceUid &&
+    String(data.identityMigratedSourceFingerprint ?? "").trim() === prepared.sourceFingerprint &&
+    String(data.identityMigratedSourceContentFingerprint ?? "").trim() === prepared.sourceContentFingerprint;
+}
+
+function accountCloudMigrationReferencesPreparedGeneration(
+  snapshot: DocumentSnapshot,
+  prepared: PreparedAccountCloudMigration,
+): boolean {
+  return snapshot.exists &&
+    String(snapshot.data()?.generation_id ?? "").trim() === prepared.stagedGenerationId;
+}
+
+function validateLegacyAccountCloudBackupPayload(
+  compressed: string,
+  manifest: AccountCloudSyncManifest,
+): void {
+  let backup: Record<string, unknown>;
+  try {
+    const json = inflateRawSync(Buffer.from(compressed, "base64")).toString("utf8");
+    const decoded = JSON.parse(json) as unknown;
+    if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) {
+      throw new Error("Invalid backup document");
+    }
+    backup = decoded as Record<string, unknown>;
+  } catch {
+    throw new Error("The retained legacy account backup could not be decoded safely.");
+  }
+
+  if (
+    backup.format !== "riftlite.backup" ||
+    backup.version !== 1 ||
+    !backup.settings ||
+    typeof backup.settings !== "object" ||
+    Array.isArray(backup.settings) ||
+    !Array.isArray(backup.matches) ||
+    !Array.isArray(backup.deletedMatches) ||
+    !Array.isArray(backup.decks) ||
+    !Array.isArray(backup.notebooks) ||
+    !Array.isArray(backup.replays) ||
+    !Array.isArray(backup.deletedReplays)
+  ) {
+    throw new Error("The retained legacy account backup is not a supported RiftLite backup.");
+  }
+
+  const counts = {
+    matches: backup.matches.length + backup.deletedMatches.length,
+    decks: backup.decks.length,
+    notebooks: backup.notebooks.length,
+    replays: 0,
+  };
+  if (
+    counts.matches !== manifest.counts.matches ||
+    counts.decks !== manifest.counts.decks ||
+    counts.notebooks !== manifest.counts.notebooks ||
+    counts.replays !== manifest.counts.replays
+  ) {
+    throw new Error("The retained legacy account backup contents do not match its manifest.");
+  }
+}
+
+function accountCloudManifestFromSnapshot(snapshot: DocumentSnapshot | null | undefined): AccountCloudSyncManifest | null {
+  if (!snapshot?.exists) return null;
+  return normalizeAccountCloudSyncManifest(
+    snapshot.data() ?? null,
+    snapshot.updateTime?.toDate().toISOString() ?? "",
+  );
+}
+
+function accountCloudMigrationContentFingerprint(manifest: AccountCloudSyncManifest): string {
+  return accountCloudSyncManifestFingerprint({ ...manifest, updateTime: "" });
+}
+
+function accountCloudMigrationCompleteData(
+  sourceFingerprint: string,
+  sourceContentFingerprint: string,
+  migratedAt: number,
+  checkedAt: number,
+): Record<string, unknown> {
+  return {
+    cloudSyncMigratedAt: migratedAt,
+    cloudSyncMigratedSourceFingerprint: sourceFingerprint,
+    cloudSyncMigratedSourceContentFingerprint: sourceContentFingerprint,
+    cloudSyncConflict: FieldValue.delete(),
+    cloudSyncMigrationSourceChanged: FieldValue.delete(),
+    cloudSyncMigrationSourceChangedAt: FieldValue.delete(),
+    cloudSyncCheckedAt: checkedAt,
+  };
+}
+
+function accountCloudMigrationConflictData(
+  sourceUid: string,
+  canonicalUid: string,
+  now: number,
+): Record<string, unknown> {
+  return {
+    cloudSyncConflict: true,
+    cloudSyncSourceUid: sourceUid,
+    cloudSyncCanonicalUid: canonicalUid,
+    cloudSyncCheckedAt: now,
+  };
+}
+
+function accountCloudMigrationConflictUserData(sourceUid: string, now: number): Record<string, unknown> {
+  return {
+    accountCloudSyncLegacySources: FieldValue.arrayUnion(sourceUid),
+    accountCloudSyncIdentityUpdatedAt: now,
+  };
+}
+
+async function markAccountCloudBackupConflict(
+  db: Firestore,
+  sourceUid: string,
+  canonicalUid: string,
+  now: number,
+): Promise<void> {
+  const batch = db.batch();
+  batch.set(
+    db.collection("identityAliases").doc(sourceUid),
+    accountCloudMigrationConflictData(sourceUid, canonicalUid, now),
+    { merge: true },
+  );
+  batch.set(
+    db.collection("users").doc(canonicalUid),
+    accountCloudMigrationConflictUserData(sourceUid, now),
+    { merge: true },
+  );
+  await batch.commit();
+}
+
+async function commitAccountCloudMigrationChunks(
+  db: Firestore,
+  writes: Array<{ ref: DocumentReference; data: Record<string, unknown> }>,
+): Promise<void> {
+  for (let offset = 0; offset < writes.length; offset += ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE) {
+    const batch = db.batch();
+    for (const write of writes.slice(offset, offset + ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE)) {
+      batch.set(write.ref, write.data);
+    }
+    await batch.commit();
+  }
+}
+
+async function cleanupAccountCloudMigrationChunks(db: Firestore, refs: DocumentReference[]): Promise<void> {
+  for (let offset = 0; offset < refs.length; offset += ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE) {
+    const batch = db.batch();
+    for (const ref of refs.slice(offset, offset + ACCOUNT_CLOUD_SYNC_MIGRATION_BATCH_SIZE)) {
+      batch.delete(ref);
+    }
+    await batch.commit();
+  }
+}
+
+async function commitMigrationUpdates(updates: Array<{ ref: DocumentReference; data: Record<string, unknown> }>): Promise<void> {
+  const db = getFirestoreAdmin();
+  if (!db) return;
+  for (let offset = 0; offset < updates.length; offset += 400) {
+    const batch = db.batch();
+    for (const update of updates.slice(offset, offset + 400)) {
+      const data = Object.fromEntries(Object.entries(update.data).filter(([, value]) => value !== undefined));
+      batch.set(update.ref, data, { merge: true });
+    }
+    await batch.commit();
+  }
+}
+
+function strongerRole(left: string, right: string): "owner" | "admin" | "member" {
+  const rank: Record<string, number> = { member: 1, admin: 2, owner: 3 };
+  const selected = (rank[left] ?? 0) >= (rank[right] ?? 0) ? left : right;
+  return selected === "owner" || selected === "admin" ? selected : "member";
+}
+
+function positiveNumber(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
 }
 
 function safeJsonParse(value: string) {
@@ -776,19 +1729,34 @@ export async function repairProfileReferences(profile: AccountProfile): Promise<
   });
 
   const updateCollectionGroup = async (collectionId: string, field: string, value: string, data: Record<string, unknown>) => {
-    const snap = await db.collectionGroup(collectionId).where(field, "==", value).limit(150).get().catch(() => null);
-    for (const doc of snap?.docs ?? []) {
+    const documents = collectionId === "members" && field === "uid"
+      ? [
+          ...await findMembershipDocuments(db, [value], "hubs"),
+          ...await findMembershipDocuments(db, [value], "teams"),
+        ].slice(0, 150)
+      : await findNestedDocumentsByField(db, collectionId, field, value, ["hubs", "teams"], 150).catch(() => []);
+    for (const doc of documents) {
       queueSet(doc.ref, data);
     }
   };
 
   await updateCollectionGroup("members", "uid", profile.uid, { displayName, handle, updatedAt: now });
   await updateCollectionGroup("messages", "uid", profile.uid, { displayName, handle, updatedAt: now });
+  await updateCollectionGroup("matches", "uid", profile.uid, {
+    username: displayName,
+    owner_display_name: displayName,
+    owner_handle: handle,
+    updatedAt: now,
+  });
   await updateCollectionGroup("inbox", "senderUid", profile.uid, { senderDisplayName: displayName, senderHandle: handle, updatedAt: now });
 
   const inviteSnap = await db.collection("hubInvites").where("senderUid", "==", profile.uid).limit(150).get().catch(() => null);
   for (const doc of inviteSnap?.docs ?? []) {
     queueSet(doc.ref, { senderDisplayName: displayName, senderHandle: handle, updatedAt: now });
+  }
+  const discordSnap = await db.collection("discordLinks").where("uid", "==", profile.uid).limit(150).get().catch(() => null);
+  for (const doc of discordSnap?.docs ?? []) {
+    queueSet(doc.ref, { displayName, handle, updatedAt: now });
   }
 
   if (writes) {
@@ -796,12 +1764,71 @@ export async function repairProfileReferences(profile: AccountProfile): Promise<
   }
 }
 
-export async function assertHubRole(hubId: string, uid: string, roles: string[]) {
+export function hubIdentityMigrationPatch(
+  hub: Record<string, unknown>,
+  field: "owner_uid" | "created_by",
+  sourceUid: string,
+  canonicalUid: string,
+  now: number,
+): Record<string, unknown> {
+  const authoritativeOwnerUid = String(hub.owner_uid ?? hub.ownerUid ?? "").trim();
+  const migrateOwner = field === "owner_uid" || !authoritativeOwnerUid || authoritativeOwnerUid === sourceUid;
+  return {
+    [field]: canonicalUid,
+    ...(migrateOwner ? { owner_uid: canonicalUid } : {}),
+    identityMigratedAt: now,
+  };
+}
+
+export async function resolveHubRole(hubId: string, uid: string): Promise<HubMemberRole | ""> {
   const db = getFirestoreAdmin();
   if (!db) throw new Error("Firebase admin is not configured");
-  const member = await db.collection("hubs").doc(hubId).collection("members").doc(uid).get();
-  const role = String(member.data()?.role ?? "");
-  if (!member.exists || !roles.includes(role)) {
+  const hubRef = db.collection("hubs").doc(hubId);
+  const identityUids = await identityUidsFor(uid);
+  const memberRefs = identityUids.map((identityUid) => hubRef.collection("members").doc(identityUid));
+  const [members, hubSnap] = await Promise.all([
+    memberRefs.length ? db.getAll(...memberRefs) : Promise.resolve([]),
+    hubRef.get(),
+  ]);
+  if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") return "";
+  const memberRole = members.reduce(
+    (selected, member) => {
+      const candidate = member.exists ? String(member.data()?.role ?? "") : "";
+      if (!candidate || !["owner", "admin", "member"].includes(candidate)) return selected;
+      return selected ? strongerRole(selected, candidate) : candidate;
+    },
+    "",
+  );
+  const hub = hubSnap.data() ?? {};
+  if (hubRecordOwnedByIdentity(hub, identityUids)) {
+    return "owner";
+  }
+  return memberRole ? normalizeHubMemberRole(memberRole) : "";
+}
+
+export function hubRecordOwnedByIdentity(
+  hub: Record<string, unknown>,
+  identityUids: readonly string[],
+): boolean {
+  const identities = new Set(identityUids.map((value) => String(value ?? "").trim()).filter(Boolean));
+  const ownerUid = String(hub.owner_uid ?? hub.ownerUid ?? "").trim();
+  if (ownerUid && identities.has(ownerUid)) return true;
+  const accountManaged = String(hub.role_mode ?? hub.roleMode ?? "") === "account";
+  const createdBy = String(hub.created_by ?? hub.createdBy ?? "").trim();
+  return !accountManaged && Boolean(createdBy) && identities.has(createdBy);
+}
+
+export async function assertHubRole(hubId: string, uid: string, roles: string[]) {
+  const role = await resolveHubRole(hubId, uid);
+  if (!role || !roles.includes(role)) {
+    throw new Error("You do not have permission for this hub action.");
+  }
+  return role;
+}
+
+export async function assertHubCapability(hubId: string, uid: string, capability: HubCapability): Promise<HubMemberRole> {
+  const role = await resolveHubRole(hubId, uid);
+  if (!role || !hubRoleHasCapability(role, capability)) {
     throw new Error("You do not have permission for this hub action.");
   }
   return role;

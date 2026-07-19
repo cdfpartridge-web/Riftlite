@@ -2,15 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  createUserWithEmailAndPassword,
   getAuth,
-  GoogleAuthProvider,
   onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signInWithPopup,
   type User,
 } from "firebase/auth";
 
+import { RiftLiteAuthPanel } from "@/components/site/riftlite-auth-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { LEGENDS } from "@/lib/constants";
@@ -45,11 +42,9 @@ type TeamMember = {
   role: "owner" | "admin" | "member";
 };
 
-export function TeamActionsClient({ teamId, slug, recruitmentStatus }: { teamId: string; slug: string; recruitmentStatus: string }) {
+export function TeamActionsClient({ slug, recruitmentStatus }: { teamId: string; slug: string; recruitmentStatus: string }) {
   const auth = useMemo(() => getAuth(firebaseClientApp), []);
   const [user, setUser] = useState<User | null>(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -68,39 +63,13 @@ export function TeamActionsClient({ teamId, slug, recruitmentStatus }: { teamId:
       void loadApplication();
       void loadMessages();
     }
+    // These loaders intentionally read the current authenticated user and current slug at the auth boundary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, slug]);
 
   async function token() {
     if (!auth.currentUser) throw new Error("Sign in first.");
     return auth.currentUser.getIdToken();
-  }
-
-  async function googleSignIn() {
-    setBusy(true);
-    try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-      setMessage("Signed in.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not sign in.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function emailAuth(createAccount: boolean) {
-    setBusy(true);
-    try {
-      if (createAccount) {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
-      setMessage("Signed in.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not sign in.");
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function loadApplication() {
@@ -285,22 +254,7 @@ export function TeamActionsClient({ teamId, slug, recruitmentStatus }: { teamId:
   }
 
   if (!user) {
-    return (
-      <Card className="space-y-4">
-        <div>
-          <CardTitle>Join the conversation</CardTitle>
-          <CardDescription className="mt-2">Sign in with your linked RiftLite account to apply or read member-only posts.</CardDescription>
-        </div>
-        <Button disabled={busy} onClick={() => void googleSignIn()}>Continue with Google</Button>
-        <input className="social-input" onChange={(event) => setEmail(event.target.value)} placeholder="Email address" type="email" value={email} />
-        <input className="social-input" onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" value={password} />
-        <div className="flex flex-wrap gap-2">
-          <Button disabled={busy || !email || !password} onClick={() => void emailAuth(false)} variant="secondary">Sign in</Button>
-          <Button disabled={busy || !email || !password} onClick={() => void emailAuth(true)} variant="secondary">Create account</Button>
-        </div>
-        {message ? <p className="text-sm text-cyan-200">{message}</p> : null}
-      </Card>
-    );
+    return <RiftLiteAuthPanel actionLabel="Join the conversation" description="Create or sign in once, choose your RiftLite name, and continue to this team automatically." readyTitle="Team tools are ready" />;
   }
 
   const canManage = myRole === "owner" || myRole === "admin";

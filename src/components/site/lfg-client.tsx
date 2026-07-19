@@ -2,15 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  createUserWithEmailAndPassword,
   getAuth,
-  GoogleAuthProvider,
   onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signInWithPopup,
   type User,
 } from "firebase/auth";
 
+import { RiftLiteAuthPanel } from "@/components/site/riftlite-auth-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { LEGENDS } from "@/lib/constants";
@@ -47,8 +44,6 @@ const PLATFORMS = [
 export function LfgClient() {
   const auth = useMemo(() => getAuth(firebaseClientApp), []);
   const [user, setUser] = useState<User | null>(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [listings, setListings] = useState<LfgListing[]>([]);
@@ -66,6 +61,8 @@ export function LfgClient() {
 
   useEffect(() => {
     if (user) void refreshListings(false);
+    // The auth transition is the only trigger; refreshListings intentionally uses the latest form-local helpers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   async function getToken() {
@@ -87,36 +84,6 @@ export function LfgClient() {
       if (showMessage) setMessage("Find Match refreshed.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load listings.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function googleSignIn() {
-    setBusy(true);
-    setMessage("Opening Google sign in...");
-    try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-      setMessage("Signed in. You can post or copy room codes now.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Google sign in failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function emailAuth(createAccount: boolean) {
-    setBusy(true);
-    setMessage(createAccount ? "Creating account..." : "Signing in...");
-    try {
-      if (createAccount) {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
-      setMessage("Signed in. You can post or copy room codes now.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Email sign in failed.");
     } finally {
       setBusy(false);
     }
@@ -236,6 +203,10 @@ export function LfgClient() {
     setMessage(`Copied ${code}.`);
   }
 
+  if (!user) {
+    return <RiftLiteAuthPanel actionLabel="Open Find Match" description="Create or sign in once, choose your RiftLite name, and then post or join rooms." readyTitle="Find Match is ready" />;
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
       <Card className="space-y-5">
@@ -245,8 +216,7 @@ export function LfgClient() {
             Listings are visible to signed-in RiftLite users for 15 minutes. Room codes disappear when closed or expired.
           </CardDescription>
         </div>
-        {user ? (
-          <div className="grid gap-3">
+        <div className="grid gap-3">
             <select className="social-input" value={form.platform} onChange={(event) => setForm({ ...form, platform: event.target.value })}>
               {PLATFORMS.map((platform) => <option key={platform.value} value={platform.value}>{platform.label}</option>)}
             </select>
@@ -268,18 +238,7 @@ export function LfgClient() {
             <p className="text-xs text-slate-400">Hold Ctrl or Cmd to select multiple preferred legends.</p>
             <textarea className="social-input min-h-24" placeholder="Optional note" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
             <Button disabled={busy || !form.roomCode.trim()} onClick={() => void createListing()}>Post for 15 minutes</Button>
-          </div>
-        ) : (
-          <SignInPanel
-            busy={busy}
-            email={email}
-            onEmail={setEmail}
-            onEmailAuth={emailAuth}
-            onGoogle={googleSignIn}
-            onPassword={setPassword}
-            password={password}
-          />
-        )}
+        </div>
         {message ? <p className="text-sm text-cyan-200">{message}</p> : null}
       </Card>
 
@@ -291,9 +250,7 @@ export function LfgClient() {
           </div>
           <Button disabled={busy || !user} onClick={() => void refreshListings()} variant="secondary">Refresh</Button>
         </div>
-        {!user ? (
-          <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">Sign in to view active room codes.</p>
-        ) : listings.length ? (
+        {listings.length ? (
           <div className="grid gap-3">
             {listings.filter((listing) => listing.status === "matched" && listing.uid === user.uid).map((listing) => (
               <div className="rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4" key={`accepted-${listing.id}`}>
@@ -343,36 +300,6 @@ export function LfgClient() {
           <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">No active listings right now.</p>
         )}
       </Card>
-    </div>
-  );
-}
-
-function SignInPanel({
-  busy,
-  email,
-  onEmail,
-  onEmailAuth,
-  onGoogle,
-  onPassword,
-  password,
-}: {
-  busy: boolean;
-  email: string;
-  onEmail: (value: string) => void;
-  onEmailAuth: (createAccount: boolean) => Promise<void>;
-  onGoogle: () => Promise<void>;
-  onPassword: (value: string) => void;
-  password: string;
-}) {
-  return (
-    <div className="grid gap-3">
-      <Button disabled={busy} onClick={() => void onGoogle()}>Continue with Google</Button>
-      <input className="social-input" onChange={(event) => onEmail(event.target.value)} placeholder="Email address" type="email" value={email} />
-      <input className="social-input" onChange={(event) => onPassword(event.target.value)} placeholder="Password" type="password" value={password} />
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={busy || !email || !password} onClick={() => void onEmailAuth(false)} variant="secondary">Sign in</Button>
-        <Button disabled={busy || !email || !password} onClick={() => void onEmailAuth(true)} variant="secondary">Create account</Button>
-      </div>
     </div>
   );
 }

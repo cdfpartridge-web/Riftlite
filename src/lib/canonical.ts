@@ -17,6 +17,12 @@ export function canonicalChoice(
   const alias = aliases[slug];
   if (alias && options.includes(alias)) return alias;
 
+  const primary = trimmed.split(",")[0]?.trim();
+  if (primary && primary !== trimmed) {
+    const primaryChoice = canonicalChoice(primary, options, aliases);
+    if (primaryChoice) return primaryChoice;
+  }
+
   return options.find((option) => slugChoice(option) === slug) ?? "";
 }
 

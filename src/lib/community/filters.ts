@@ -1,7 +1,10 @@
 import {
   DEFAULT_FILTERS,
   DEFAULT_PAGE_SIZE,
+  COMMUNITY_SEASON_IDS,
   MAX_PAGE_SIZE,
+  VENDETTA_LAUNCH_START_MS,
+  VENDETTA_PREVIEW_START_MS,
 } from "@/lib/constants";
 import type { CommunityFilterParams, CommunityMatch } from "@/lib/types";
 
@@ -26,6 +29,9 @@ export function parseFilters(
     range: ["1d", "7d", "14d", "30d"].includes(String(source.range ?? ""))
       ? String(source.range)
       : DEFAULT_FILTERS.range,
+    season: COMMUNITY_SEASON_IDS.includes(String(source.season ?? "") as (typeof COMMUNITY_SEASON_IDS)[number])
+      ? String(source.season ?? "")
+      : DEFAULT_FILTERS.season,
     legend: String(source.legend ?? "").trim(),
     result: String(source.result ?? "").trim(),
     seat: String(source.seat ?? "").trim(),
@@ -37,6 +43,31 @@ export function parseFilters(
         ? Math.min(pageSize, MAX_PAGE_SIZE)
         : DEFAULT_PAGE_SIZE,
   };
+}
+
+export function applyCommunitySeasonFilter(
+  matches: CommunityMatch[],
+  filters: Pick<CommunityFilterParams, "season">,
+) {
+  if (!filters.season) {
+    return matches;
+  }
+  return matches.filter((match) => {
+    const createdAt = matchCreatedAtMs(match);
+    if (!createdAt) {
+      return false;
+    }
+    if (filters.season === "pre-vendetta") {
+      return createdAt < VENDETTA_PREVIEW_START_MS;
+    }
+    if (filters.season === "vendetta-preview") {
+      return createdAt >= VENDETTA_PREVIEW_START_MS && createdAt < VENDETTA_LAUNCH_START_MS;
+    }
+    if (filters.season === "vendetta-launch") {
+      return createdAt >= VENDETTA_LAUNCH_START_MS;
+    }
+    return true;
+  });
 }
 
 export function applyCommunityFilters(
@@ -90,4 +121,10 @@ export function paginate<T>(items: T[], page: number, pageSize: number) {
     pageSize,
     pageCount: Math.max(1, Math.ceil(items.length / pageSize)),
   };
+}
+
+function matchCreatedAtMs(match: CommunityMatch): number {
+  const raw = Number(match.createdAt ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return raw < 10_000_000_000 ? raw * 1000 : raw;
 }

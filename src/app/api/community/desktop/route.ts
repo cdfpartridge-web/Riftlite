@@ -1,4 +1,10 @@
 import {
+  DEFAULT_FILTERS,
+} from "@/lib/constants";
+import {
+  applyCommunitySeasonFilter,
+} from "@/lib/community/filters";
+import {
   filterCommunityMatchesByDays,
   getCommunityMatchWindow,
   getCommunityRangeMatchWindow,
@@ -26,8 +32,9 @@ import type { CommunityMatch, MatchGame } from "@/lib/types";
 // the desktop gets the long-form fields, while keeping myBf/oppBf as
 // aliases so anything still reading the old shape keeps working.
 //
-// Costs: served from the cached match window (1 Firestore read per
-// 10-minute cache miss, shared with the rest of the website). The
+// Costs: served from the coalesced 30-minute server-process match cache.
+// A cold process reads the aggregate manifest and its bounded chunks once;
+// warm requests reuse the exact normalized window. The
 // desktop's own forceRefresh flag is honoured by hitting this endpoint
 // fresh — it doesn't bypass the server cache, but at desktop-poll
 // volume that's fine.
@@ -61,12 +68,14 @@ function toDesktopMatch(match: CommunityMatch): DesktopMatch {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const range = url.searchParams.get("range") ?? "";
-  const matches =
+  const season = url.searchParams.get("season") ?? "";
+  const baseMatches =
     range === "1d"
       ? filterCommunityMatchesByDays(await getCommunityMatchWindow(), 1)
       : range === "7d" || range === "14d" || range === "30d"
         ? await getCommunityRangeMatchWindow(Number.parseInt(range, 10) as 7 | 14 | 30)
         : await getCommunityMatchWindow();
+  const matches = applyCommunitySeasonFilter(baseMatches, { ...DEFAULT_FILTERS, season });
   const desktopMatches = matches.map(toDesktopMatch);
   return communityJson({
     matches: desktopMatches,

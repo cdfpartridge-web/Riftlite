@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { type NextRequest } from "next/server";
 
-import { assertHubRole, bestProfileDisplayName, cleanHandle, ensureUserProfile, handleLower, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
+import { assertHubCapability, bestProfileDisplayName, cleanHandle, ensureUserProfile, handleLower, repairProfileReferences, requireUser, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
   const { hubId } = await params;
   const body = await readBody(req);
   try {
-    await assertHubRole(hubId, auth.decoded.uid, ["owner", "admin"]);
+    await assertHubCapability(hubId, auth.decoded.uid, "manage_invites");
     const hubSnap = await auth.db.collection("hubs").doc(hubId).get();
     const hubData = hubSnap.data() ?? {};
     const hubName = String(hubData.name ?? hubId);
@@ -60,27 +60,44 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
       status: "open",
       delivered,
     };
-    const batch = auth.db.batch();
-    batch.set(auth.db.collection("hubInvites").doc(inviteId), invite);
-    if (targetUid) {
-      batch.set(auth.db.collection("users").doc(targetUid).collection("inbox").doc(inviteId), {
-        id: inviteId,
-        type: "hub-invite",
-        inviteId,
-        hubId,
-        hubName,
-        targetUid,
-        targetHandle,
-        senderUid: auth.decoded.uid,
-        senderHandle: senderProfile.handle,
-        senderDisplayName,
-        status: "open",
-        createdAt: now,
-        expiresAt: now + INVITE_TTL_MS,
-        readAt: 0,
-      });
-    }
-    await batch.commit();
+    const inviteRef = auth.db.collection("hubInvites").doc(inviteId);
+    const targetMemberRef = targetUid
+      ? auth.db.collection("hubs").doc(hubId).collection("members").doc(targetUid)
+      : null;
+    const inboxRef = targetUid
+      ? auth.db.collection("users").doc(targetUid).collection("inbox").doc(inviteId)
+      : null;
+    await auth.db.runTransaction(async (tx) => {
+      const [currentHubSnap, currentMemberSnap] = await Promise.all([
+        tx.get(auth.db.collection("hubs").doc(hubId)),
+        targetMemberRef ? tx.get(targetMemberRef) : Promise.resolve(null),
+      ]);
+      if (!currentHubSnap.exists || String(currentHubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+        throw new Error("This private hub is being deleted");
+      }
+      if (currentMemberSnap?.exists) {
+        throw new Error(`@${targetHandle} is already a member of this hub.`);
+      }
+      tx.set(inviteRef, invite);
+      if (inboxRef) {
+        tx.set(inboxRef, {
+          id: inviteId,
+          type: "hub-invite",
+          inviteId,
+          hubId,
+          hubName,
+          targetUid,
+          targetHandle,
+          senderUid: auth.decoded.uid,
+          senderHandle: senderProfile.handle,
+          senderDisplayName,
+          status: "open",
+          createdAt: now,
+          expiresAt: now + INVITE_TTL_MS,
+          readAt: 0,
+        });
+      }
+    });
     const origin = req.nextUrl.origin;
     return socialJson({ ok: true, invite, inviteUrl: `${origin}/hubs/invite/${inviteId}` });
   } catch (error) {

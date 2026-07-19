@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { type NextRequest } from "next/server";
 
-import { bestProfileDisplayName, cleanDisplayName, ensureUserProfile, hubIdFromName, requireUser, saveAccountProfile, socialJson } from "@/lib/social/server";
+import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
+import { primaryOwnerUid } from "@/lib/social/hub-lifecycle";
+import { bestProfileDisplayName, cleanDisplayName, ensureUserProfile, hubIdFromName, identityUidsFor, requireUser, saveAccountProfile, socialJson } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,6 +11,9 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if ("error" in auth) return auth.error;
+  if (!linkedReplayUid(auth.decoded)) {
+    return socialJson({ error: "Create or sign in to a recoverable RiftLite account first." }, 401);
+  }
   const body = await readBody(req);
   const hubId = String(body.hubId ?? "").trim() || hubIdFromName(String(body.name ?? ""));
   if (String(body.passwordHash ?? "").trim()) {
@@ -19,11 +24,15 @@ export async function POST(req: NextRequest) {
 
   const hubRef = auth.db.collection("hubs").doc(hubId);
   const memberRef = hubRef.collection("members").doc(auth.decoded.uid);
-  const ensuredProfile = await ensureUserProfile(
-    auth.decoded.uid,
-    cleanDisplayName(body.displayName, auth.decoded.name ?? auth.decoded.email ?? ""),
-    auth.decoded.email ?? "",
-  );
+  const [identityUids, ensuredProfile] = await Promise.all([
+    identityUidsFor(auth.decoded.uid, auth.db),
+    ensureUserProfile(
+      auth.decoded.uid,
+      cleanDisplayName(body.displayName, auth.decoded.name ?? auth.decoded.email ?? ""),
+      auth.decoded.email ?? "",
+    ),
+  ]);
+  const identityUidSet = new Set([...identityUids, auth.decoded.uid]);
   const profile = await saveAccountProfile(auth.decoded.uid, {
     displayName: bestProfileDisplayName(auth.decoded.uid, body.displayName, ensuredProfile.displayName, ensuredProfile.handle),
   }, {
@@ -35,26 +44,33 @@ export async function POST(req: NextRequest) {
       const hubSnap = await tx.get(hubRef);
       if (!hubSnap.exists) throw new Error("Hub not found");
       const data = hubSnap.data() ?? {};
+      if (String(data.lifecycle_state ?? "") === "deleting") {
+        throw new Error("This private hub is being deleted");
+      }
       const remoteHash = String(data.password_hash ?? data.passwordHash ?? "");
       if (!remoteHash || remoteHash !== passwordHash) throw new Error("Private hub password did not match");
-      const ownerUid = String(data.owner_uid ?? data.ownerUid ?? data.created_by ?? "");
-      if (ownerUid && ownerUid !== auth.decoded.uid && String(data.role_mode ?? "") === "account") {
+      const ownerUid = primaryOwnerUid(data);
+      const roleMode = String(data.role_mode ?? data.roleMode ?? "");
+      if (ownerUid && !identityUidSet.has(ownerUid) && roleMode === "account") {
         throw new Error("This hub has already been claimed by another account.");
       }
+      const now = Date.now();
       tx.set(hubRef, {
         owner_uid: auth.decoded.uid,
+        created_by: auth.decoded.uid,
         role_mode: "account",
         invite_policy: "admins",
         name: String(data.name ?? body.name ?? hubId),
-        updated_at: Date.now(),
+        identityMigratedAt: now,
+        updated_at: now,
       }, { merge: true });
       tx.set(memberRef, {
         uid: auth.decoded.uid,
         role: "owner",
         handle: profile.handle,
         displayName: bestProfileDisplayName(auth.decoded.uid, profile.displayName, profile.handle),
-        joinedAt: Date.now(),
-        updatedAt: Date.now(),
+        joinedAt: now,
+        updatedAt: now,
       }, { merge: true });
     });
     return socialJson({ ok: true });

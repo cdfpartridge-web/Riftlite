@@ -10,6 +10,7 @@
     "optimize:images": "node scripts/optimize-images.mjs",
     "prebuild": "node scripts/optimize-images.mjs",
     "test": "vitest run",
+    "test:rules": "npx --yes firebase-tools@15.23.0 emulators:exec --only firestore \"vitest run src/lib/social/firestore-rules.emulator.test.ts\"",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "sanity": "sanity",
@@ -18,7 +19,8 @@
     "report:app-usage": "node scripts/app-usage-report.mjs",
     "report:marketing": "node scripts/marketing-report.mjs",
     "repair:profile-names": "node scripts/repair-profile-display-names.mjs",
-    "repair:private-counters": "node scripts/backfill-private-community-counters.mjs"
+    "repair:private-counters": "node scripts/backfill-private-community-counters.mjs",
+    "discord:register": "node scripts/register-discord-commands.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
@@ -26,6 +28,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@sanity/image-url": "^2.1.1",
     "@sanity/vision": "^5.21.0",
+    "@vercel/blob": "^2.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -43,6 +46,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4.2.2",
     "@testing-library/dom": "^10.4.1",

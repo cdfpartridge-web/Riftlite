@@ -6,7 +6,7 @@ import {
   deckGroupKey,
   getDeckGroupByKey,
 } from "@/lib/community/aggregate";
-import { applyCommunityFilters, paginate } from "@/lib/community/filters";
+import { applyCommunityFilters, applyCommunitySeasonFilter, paginate } from "@/lib/community/filters";
 import {
   filterCommunityMatchesByDays,
   getCommunityAggregateCounts,
@@ -29,7 +29,7 @@ export async function getFilteredCommunityMatches(filters: CommunityFilterParams
       : filters.range === "7d" || filters.range === "14d" || filters.range === "30d"
         ? await getCommunityRangeMatchWindow(Number.parseInt(filters.range, 10) as 7 | 14 | 30)
         : await getCommunityMatchWindow();
-  return applyCommunityFilters(matches, filters);
+  return applyCommunityFilters(applyCommunitySeasonFilter(matches, filters), filters);
 }
 
 export async function getCommunityOverview() {
@@ -62,6 +62,7 @@ async function getUnfilteredRangeStats(filters: CommunityFilterParams) {
   if (
     !isRange ||
     filters.legend ||
+    filters.season ||
     filters.result ||
     filters.seat ||
     filters.battlefield ||

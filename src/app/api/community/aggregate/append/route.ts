@@ -1,9 +1,13 @@
 import { revalidateTag } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
 
-import { appendMatchToAggregate, normalizeMatch } from "@/lib/community/data";
+import {
+  appendMatchToAggregate,
+  invalidateCommunityMatchMemoryCache,
+  normalizeMatch,
+} from "@/lib/community/data";
 import { verifyFirebaseIdToken } from "@/lib/firebase/admin";
-import { appendUserPublicMatch } from "@/lib/social/server";
+import { appendUserPublicMatch, bestProfileDisplayName, ensureUserProfile } from "@/lib/social/server";
 
 // Force dynamic — this is a mutation, never cache the response.
 export const dynamic = "force-dynamic";
@@ -91,19 +95,29 @@ export async function POST(req: NextRequest) {
 
   // 5. Normalize through the shared pipeline so the aggregate shape is
   // identical to what the cron produces.
-  const normalized = normalizeMatch(matchId, { ...rawMatch, uid: decoded.uid });
+  const profile = await ensureUserProfile(decoded.uid, decoded.name ?? "", decoded.email ?? "");
+  const displayName = bestProfileDisplayName(decoded.uid, profile.displayName, profile.handle);
+  const normalized = normalizeMatch(matchId, {
+    ...rawMatch,
+    uid: decoded.uid,
+    owner_uid: decoded.uid,
+    username: displayName,
+    owner_display_name: displayName,
+    owner_handle: profile.handle,
+  });
 
   try {
     const result = await appendMatchToAggregate(normalized);
     await appendUserPublicMatch(normalized).catch(() => undefined);
+    invalidateCommunityMatchMemoryCache();
 
     // Make the new match visible on the next render instead of waiting
-    // out the 10-minute unstable_cache TTL.
+    // out the 30-minute server cache TTL.
     try {
       revalidateTag("community-matches", "max");
     } catch {
       // Fine — just means we're not in a request context where the
-      // revalidation cache is available. The 10-min TTL will pick it up.
+      // revalidation cache is available. The server TTL will pick it up.
     }
 
     return NextResponse.json({ ok: true, ...result });

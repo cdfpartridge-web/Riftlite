@@ -1,7 +1,10 @@
 import { revalidateTag } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
 
-import { refreshCommunityAggregate } from "@/lib/community/data";
+import {
+  invalidateCommunityMatchMemoryCache,
+  refreshCommunityAggregate,
+} from "@/lib/community/data";
 
 // Force dynamic so this route never gets cached — each cron run must
 // actually execute the refresh.
@@ -32,10 +35,11 @@ function isAuthorized(req: NextRequest): boolean {
 async function runRefresh() {
   try {
     const result = await refreshCommunityAggregate();
+    invalidateCommunityMatchMemoryCache();
 
     // Invalidate the cached match window so user-facing pages pick up
     // the new data on their next request instead of waiting out the
-    // 10-minute TTL.
+    // server cache TTL.
     //
     // Next.js 16 requires a second arg on revalidateTag; "max" means
     // expire the cache immediately (same as the old 1-arg behavior).
