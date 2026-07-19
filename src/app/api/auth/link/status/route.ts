@@ -9,7 +9,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const auth = await requireUser(req);
+  // Version-2 sessions are deliberately owned by the raw Firebase UID. Avoid
+  // resolving the canonical identity on every 2.5-second pending poll; old
+  // sessions pay that cost only when their stored owner does not match raw UID.
+  const auth = await requireUser(req, { canonicalize: false });
   if ("error" in auth) return privateLinkResponse(auth.error ?? socialJson({ error: "Authentication failed" }, 401));
 
   const sessionId = req.nextUrl.searchParams.get("sessionId")?.trim() ?? "";
@@ -19,10 +22,17 @@ export async function GET(req: NextRequest) {
   const snap = await ref.get();
   const data = snap.data();
   if (!snap.exists || !data) return linkStatusJson({ error: "Link session not found" }, 404);
+  let canonicalAuthenticatedUid = auth.authenticatedUid;
+  if (
+    Number(data.desktopUidBindingVersion ?? 0) < 2 &&
+    String(data.desktopUid ?? "").trim() !== auth.authenticatedUid
+  ) {
+    canonicalAuthenticatedUid = await canonicalIdentityUid(auth.authenticatedUid, auth.db);
+  }
   if (!desktopLinkSessionOwnedBy(
     data.desktopUid,
     auth.authenticatedUid,
-    auth.decoded.uid,
+    canonicalAuthenticatedUid,
     data.desktopUidBindingVersion,
   )) {
     return linkStatusJson({ error: "Session belongs to another device" }, 403);

@@ -284,10 +284,18 @@ export async function getDiscordGuildConfigsForHub(hubId: string): Promise<Disco
 
 export async function saveDiscordGuildConfig(input: Omit<DiscordGuildConfig, "updatedAt">) {
   const now = Date.now();
-  await requireDb().collection("discordGuildConfigs").doc(input.guildId).set({
-    ...input,
-    updatedAt: now,
-  }, { merge: true });
+  const db = requireDb();
+  const hubRef = db.collection("hubs").doc(input.hubId);
+  await db.runTransaction(async (tx) => {
+    const hubSnap = await tx.get(hubRef);
+    if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+      throw new Error("This private hub is being deleted.");
+    }
+    tx.set(db.collection("discordGuildConfigs").doc(input.guildId), {
+      ...input,
+      updatedAt: now,
+    }, { merge: true });
+  });
   return { ...input, updatedAt: now };
 }
 
@@ -489,30 +497,52 @@ export async function listTestingGoals(guildId: string) {
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
-export async function addTestingGoal(guildId: string, text: string, createdBy: string) {
+export async function addTestingGoal(guildId: string, text: string, createdBy: string, hubIdInput = "") {
   const clean = text.trim().slice(0, 240);
   if (!clean) throw new Error("Goal text is required.");
-  const ref = requireDb().collection("discordGuildConfigs").doc(guildId).collection("testingGoals").doc();
-  await ref.set({
-    id: ref.id,
-    text: clean,
-    status: "active",
-    createdBy,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+  const db = requireDb();
+  const configRef = db.collection("discordGuildConfigs").doc(guildId);
+  const ref = configRef.collection("testingGoals").doc();
+  await db.runTransaction(async (tx) => {
+    const configSnap = await tx.get(configRef);
+    const hubId = hubIdInput.trim() || String(configSnap.data()?.hubId ?? "").trim();
+    if (!hubId) throw new Error("This Discord server is not connected to a RiftLite hub.");
+    const hubSnap = await tx.get(db.collection("hubs").doc(hubId));
+    if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+      throw new Error("This private hub is being deleted.");
+    }
+    tx.set(ref, {
+      id: ref.id,
+      text: clean,
+      status: "active",
+      createdBy,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
   });
   return { id: ref.id, text: clean };
 }
 
-export async function completeTestingGoal(guildId: string, goalId: string, completedBy: string) {
+export async function completeTestingGoal(guildId: string, goalId: string, completedBy: string, hubIdInput = "") {
   const clean = goalId.trim();
   if (!clean) throw new Error("Goal id is required.");
-  await requireDb().collection("discordGuildConfigs").doc(guildId).collection("testingGoals").doc(clean).set({
-    status: "done",
-    completedBy,
-    completedAt: Date.now(),
-    updatedAt: Date.now(),
-  }, { merge: true });
+  const db = requireDb();
+  const configRef = db.collection("discordGuildConfigs").doc(guildId);
+  await db.runTransaction(async (tx) => {
+    const configSnap = await tx.get(configRef);
+    const hubId = hubIdInput.trim() || String(configSnap.data()?.hubId ?? "").trim();
+    if (!hubId) throw new Error("This Discord server is not connected to a RiftLite hub.");
+    const hubSnap = await tx.get(db.collection("hubs").doc(hubId));
+    if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+      throw new Error("This private hub is being deleted.");
+    }
+    tx.set(configRef.collection("testingGoals").doc(clean), {
+      status: "done",
+      completedBy,
+      completedAt: Date.now(),
+      updatedAt: Date.now(),
+    }, { merge: true });
+  });
 }
 
 export function formatTestingGoals(goals: Array<{ id: string; text: string }>) {

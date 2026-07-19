@@ -213,12 +213,12 @@ async function handleTestingGoals(interaction: DiscordInteraction) {
   await assertHubCapability(config.hubId, uid, "manage_testing_goals");
 
   if (command.name === "add") {
-    const goal = await addTestingGoal(guildId, stringOption(command.options, "text"), uid);
+    const goal = await addTestingGoal(guildId, stringOption(command.options, "text"), uid, config.hubId);
     return reply(`Testing goal added: ${goal.text} \`${goal.id.slice(0, 6)}\``, false);
   }
   if (command.name === "complete") {
     const goalId = stringOption(command.options, "id");
-    await completeTestingGoal(guildId, goalId, uid);
+    await completeTestingGoal(guildId, goalId, uid, config.hubId);
     return reply(`Testing goal completed: \`${goalId.slice(0, 6)}\``, false);
   }
   return reply("Unknown testing-goals command.", true);

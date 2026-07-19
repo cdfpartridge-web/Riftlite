@@ -12,6 +12,8 @@ import {
   encodeMatches,
   findMembershipDocuments,
   handleLower,
+  hubIdentityMigrationPatch,
+  hubRecordOwnedByIdentity,
   identityUidsFor,
   LinkedIdentityConflictError,
   normalizeAccountProfile,
@@ -132,6 +134,38 @@ describe("social profile helpers", () => {
     expect(profileIsComplete({ handle: "", displayName: "BMU" })).toBe(false);
     expect(profileIsComplete({ handle: "BMU", displayName: "Player#abc123" })).toBe(false);
     expect(profileIsComplete({ handle: "BMU", displayName: "player@example.com" })).toBe(false);
+  });
+
+  it("uses created_by as ownership only before a hub becomes account-managed", () => {
+    expect(hubRecordOwnedByIdentity({ created_by: "legacy-owner" }, ["legacy-owner"])).toBe(true);
+    expect(hubRecordOwnedByIdentity({
+      role_mode: "account",
+      owner_uid: "current-owner",
+      created_by: "legacy-owner",
+    }, ["legacy-owner"])).toBe(false);
+    expect(hubRecordOwnedByIdentity({
+      role_mode: "account",
+      owner_uid: "desktop-alias",
+      created_by: "legacy-owner",
+    }, ["account-owner", "desktop-alias"])).toBe(true);
+  });
+
+  it("does not overwrite an established owner while migrating an old creator UID", () => {
+    expect(hubIdentityMigrationPatch({
+      role_mode: "account",
+      owner_uid: "current-owner",
+      created_by: "desktop-alias",
+    }, "created_by", "desktop-alias", "account-uid", 100)).toEqual({
+      created_by: "account-uid",
+      identityMigratedAt: 100,
+    });
+    expect(hubIdentityMigrationPatch({
+      created_by: "desktop-alias",
+    }, "created_by", "desktop-alias", "account-uid", 100)).toEqual({
+      created_by: "account-uid",
+      owner_uid: "account-uid",
+      identityMigratedAt: 100,
+    });
   });
 
   it("never exposes an email address as the social display name", () => {

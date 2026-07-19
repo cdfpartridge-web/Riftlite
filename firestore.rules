@@ -7,10 +7,17 @@ service cloud.firestore {
     }
 
     function ownsHub(hubId) {
+      let hub = get(/databases/$(database)/documents/hubs/$(hubId));
+      let accountManaged = hub.data.keys().hasAny(['role_mode'])
+                           && hub.data.role_mode == 'account';
+      let ownerMatches = hub.data.keys().hasAny(['owner_uid'])
+                         && hub.data.owner_uid == request.auth.uid;
+      let legacyCreatorMatches = hub.data.keys().hasAny(['created_by'])
+                                 && hub.data.created_by == request.auth.uid;
       return signedIn()
              && (
-               get(/databases/$(database)/documents/hubs/$(hubId)).data.created_by == request.auth.uid ||
-               get(/databases/$(database)/documents/hubs/$(hubId)).data.owner_uid == request.auth.uid
+               ownerMatches ||
+               (!accountManaged && legacyCreatorMatches)
              );
     }
 
@@ -22,6 +29,7 @@ service cloud.firestore {
 
     function belongsToHub(hubId) {
       return signedIn()
+             && hubAcceptingActivity(hubId)
              && (
                // Legacy password-only hubs predate membership documents.
                // Keep their existing signed-in behavior until they are claimed;
@@ -30,6 +38,12 @@ service cloud.firestore {
                ownsHub(hubId) ||
                exists(/databases/$(database)/documents/hubs/$(hubId)/members/$(request.auth.uid))
              );
+    }
+
+    function hubAcceptingActivity(hubId) {
+      let hub = get(/databases/$(database)/documents/hubs/$(hubId));
+      return !hub.data.keys().hasAny(['lifecycle_state'])
+             || hub.data.lifecycle_state != 'deleting';
     }
 
     match /matches/{matchId} {
@@ -55,7 +69,11 @@ service cloud.firestore {
                     && request.resource.data.password_hash is string
                     && request.resource.data.name is string;
 
-      allow update, delete: if ownsHub(hubId);
+      // Account-managed private hubs are mutated and recursively deleted only
+      // through capability-checked Admin API routes so cleanup cannot be
+      // bypassed by a direct client write.
+      allow update, delete: if ownsHub(hubId)
+                            && !accountManagedHub(hubId);
 
       // Membership roles, invitations, messages, and Discord configuration are
       // server-authoritative. Firebase Admin-backed website routes enforce hub
@@ -68,8 +86,17 @@ service cloud.firestore {
       match /matches/{matchId} {
         allow get, list: if belongsToHub(hubId);
 
-        allow create, update: if belongsToHub(hubId)
-                              && request.resource.data.uid == request.auth.uid;
+        // Web Replay grants are server-authoritative. A client first writes the
+        // match, then the authenticated website endpoint atomically adds the
+        // replay pointer and its live-membership grant.
+        allow create: if belongsToHub(hubId)
+                      && request.resource.data.uid == request.auth.uid
+                      && !request.resource.data.keys().hasAny(['web_replay_id', 'webReplayId']);
+
+        allow update: if belongsToHub(hubId)
+                      && request.resource.data.uid == request.auth.uid
+                      && !request.resource.data.diff(resource.data).affectedKeys()
+                        .hasAny(['web_replay_id', 'webReplayId']);
 
         allow delete: if belongsToHub(hubId)
                       && resource.data.uid == request.auth.uid;

@@ -10,8 +10,11 @@ Replay v2 uses an authenticated, idempotent three-step upload:
 
 All management calls require a non-anonymous, linked-account Firebase bearer token. Raw captures and canonical generations are immutable private
 artifacts, even when the replay is public. Only the owner diagnostics route can return raw bytes. Public and
-unlisted canonical replays are read through `GET /api/v2/replays/:replayId`; private reads require either the bearer
-token or a short-lived embed session.
+unlisted canonical replays are read through `GET /api/v2/replays/:replayId`. Private canonical reads require an
+owner identity (via bearer token or short-lived embed session), or a server-issued `replayHubGrants` record whose
+account-managed hub, source match, replay pointer, and viewer membership all still validate at read time. Hub-match
+owners create or remove that grant through `PUT`/`DELETE /api/hubs/:hubId/matches/:matchId/web-replay`; clients
+cannot write the pointer or grant directly.
 
 Canonical and replay-list responses are deliberately `no-store`. This ensures a public-to-private visibility change
 cannot leave an older replay or listing available through a shared CDN cache.

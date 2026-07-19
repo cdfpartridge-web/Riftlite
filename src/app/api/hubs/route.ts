@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { type NextRequest } from "next/server";
 
 import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
+import { primaryOwnerUid } from "@/lib/social/hub-lifecycle";
 import { bestProfileDisplayName, ensureUserProfile, findMembershipDocuments, hubIdFromName, identityUidsFor, profileIsComplete, repairHistoricalDesktopIdentityAssociations, requireUser, socialJson, type AccountProfile } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
   }
   await repairHistoricalDesktopIdentityAssociations(auth.decoded.uid);
   const uids = await identityUidsFor(auth.decoded.uid);
+  const identityUidSet = new Set([...uids, auth.decoded.uid]);
   const memberDocs = await findMembershipDocuments(auth.db, uids, "hubs");
   const byHub = new Map<string, { ref: FirebaseFirestore.DocumentReference; role: string; joinedAt: number }>();
   for (const member of memberDocs) {
@@ -27,20 +29,40 @@ export async function GET(req: NextRequest) {
     const role = strongerHubRole(String(existing?.role ?? ""), String(data.role ?? "member"));
     byHub.set(hubRef.id, { ref: hubRef, role, joinedAt: Math.min(existing?.joinedAt || Date.now(), Number(data.joinedAt ?? Date.now())) });
   }
+  // Legacy hubs did not have membership documents. Recover hubs created by a
+  // linked desktop identity so their owner can still see and claim them after
+  // moving to a recoverable account.
+  const legacyOwnerQueries = await Promise.all(uids.map((uid) => (
+    auth.db.collection("hubs").where("created_by", "==", uid).get()
+  )));
+  for (const hub of legacyOwnerQueries.flatMap((snapshot) => snapshot.docs)) {
+    const data = hub.data() ?? {};
+    if (!identityUidSet.has(primaryOwnerUid(data))) continue;
+    const existing = byHub.get(hub.id);
+    byHub.set(hub.id, {
+      ref: hub.ref,
+      role: strongerHubRole(String(existing?.role ?? ""), "owner"),
+      joinedAt: existing?.joinedAt ?? (Number(data.createdAt ?? Number(data.created_at ?? 0) * 1_000) || Date.now()),
+    });
+  }
   const hubRows = Array.from(byHub.values());
   const hubSnaps = hubRows.length ? await auth.db.getAll(...hubRows.map((item) => item.ref)) : [];
   return socialJson({
     ok: true,
     profile,
-    hubs: hubSnaps.filter((item) => item.exists).map((item) => {
-      const membership = byHub.get(item.id);
-      return {
-        id: item.id,
-        name: String(item.data()?.name ?? item.id),
-        role: membership?.role ?? "member",
-        joinedAt: membership?.joinedAt ? new Date(membership.joinedAt).toISOString() : "",
-      };
-    }),
+    hubs: hubSnaps
+      .filter((item) => item.exists && String(item.data()?.lifecycle_state ?? "") !== "deleting")
+      .map((item) => {
+        const membership = byHub.get(item.id);
+        const data = item.data() ?? {};
+        return {
+          id: item.id,
+          name: String(data.name ?? item.id),
+          role: membership?.role ?? "member",
+          claimed: String(data.role_mode ?? data.roleMode ?? "") === "account",
+          joinedAt: membership?.joinedAt ? new Date(membership.joinedAt).toISOString() : "",
+        };
+      }),
   });
 }
 
@@ -91,24 +113,36 @@ export async function POST(req: NextRequest) {
         }, { merge: true });
         tx.set(memberRef, hubMemberPayload(auth.decoded.uid, profile, "owner", now), { merge: true });
       });
-      return socialJson({ ok: true, hub: hubPayload(hubId, name, "owner", now) });
+      return socialJson({ ok: true, hub: hubPayload(hubId, name, "owner", now, true) });
     }
 
-    const snap = await hubRef.get();
-    if (!snap.exists) throw new Error("Private hub name or password did not match");
-    const data = snap.data() ?? {};
-    const remoteHash = String(data.password_hash ?? data.passwordHash ?? "");
-    if (!remoteHash || remoteHash !== passwordHash) {
-      throw new Error("Private hub name or password did not match");
-    }
-    const memberSnap = await memberRef.get();
-    const existingRole = String(memberSnap.data()?.role ?? "").trim();
-    const role = existingRole === "owner" || existingRole === "admin" || existingRole === "member" ? existingRole : "member";
-    await memberRef.set({
-      ...hubMemberPayload(auth.decoded.uid, profile, role, now),
-      joinedAt: Number(memberSnap.data()?.joinedAt ?? now) || now,
-    }, { merge: true });
-    return socialJson({ ok: true, hub: hubPayload(hubId, String(data.name ?? name), role, now) });
+    const joined = await auth.db.runTransaction(async (tx) => {
+      const [snap, memberSnap] = await Promise.all([tx.get(hubRef), tx.get(memberRef)]);
+      if (!snap.exists) throw new Error("Private hub name or password did not match");
+      const data = snap.data() ?? {};
+      if (String(data.lifecycle_state ?? "") === "deleting") {
+        throw new Error("This private hub is being deleted");
+      }
+      const remoteHash = String(data.password_hash ?? data.passwordHash ?? "");
+      if (!remoteHash || remoteHash !== passwordHash) {
+        throw new Error("Private hub name or password did not match");
+      }
+      const existingRole = String(memberSnap.data()?.role ?? "").trim();
+      const role: "owner" | "admin" | "member" =
+        existingRole === "owner" || existingRole === "admin" || existingRole === "member"
+          ? existingRole
+          : "member";
+      tx.set(memberRef, {
+        ...hubMemberPayload(auth.decoded.uid, profile, role, now),
+        joinedAt: Number(memberSnap.data()?.joinedAt ?? now) || now,
+      }, { merge: true });
+      return {
+        hubName: String(data.name ?? name),
+        role,
+        claimed: String(data.role_mode ?? data.roleMode ?? "") === "account",
+      };
+    });
+    return socialJson({ ok: true, hub: hubPayload(hubId, joined.hubName, joined.role, now, joined.claimed) });
   } catch (error) {
     return socialJson({ error: error instanceof Error ? error.message : "Hub action failed" }, action === "create" ? 409 : 400);
   }
@@ -132,13 +166,13 @@ function strongerHubRole(left: string, right: string) {
   return (rank[left] ?? 0) >= (rank[right] ?? 0) ? left || "member" : right || "member";
 }
 
-function hubPayload(id: string, name: string, role: "owner" | "admin" | "member", now: number) {
+function hubPayload(id: string, name: string, role: "owner" | "admin" | "member", now: number, claimed: boolean) {
   return {
     id,
     name,
     sync: true,
     role,
-    claimed: false,
+    claimed,
     joinedAt: new Date(now).toISOString(),
   };
 }

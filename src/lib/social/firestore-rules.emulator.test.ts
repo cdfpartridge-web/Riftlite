@@ -7,7 +7,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
@@ -68,8 +68,35 @@ describe.skipIf(!emulatorAvailable)("Firestore security rules in the emulator", 
     await assertFails(getDoc(doc(outsider, "hubs/team-uk")));
     await assertFails(getDocs(collection(outsider, "hubs/team-uk/matches")));
     await assertSucceeds(setDoc(doc(member, "hubs/team-uk/matches/member-match"), { uid: "member-a", result: "Loss" }));
+    await assertFails(setDoc(doc(member, "hubs/team-uk/matches/replay-injected"), {
+      uid: "member-a",
+      result: "Loss",
+      web_replay_id: `rl2_${"a".repeat(32)}`,
+    }));
     await assertFails(setDoc(doc(member, "hubs/team-uk/matches/spoofed-match"), { uid: "outsider-a", result: "Win" }));
     await assertFails(setDoc(doc(outsider, "hubs/team-uk/matches/injected-match"), { uid: "outsider-a", result: "Win" }));
+    await assertFails(deleteDoc(doc(owner, "hubs/team-uk")));
+    await assertFails(updateDoc(doc(owner, "hubs/team-uk"), { lifecycle_state: "deleting" }));
+  });
+
+  it("blocks hub reads and match writes after the server starts deletion", async () => {
+    await environment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "hubs/deleting-hub"), {
+        name: "Deleting Hub",
+        created_by: "owner-a",
+        owner_uid: "owner-a",
+        role_mode: "account",
+        lifecycle_state: "deleting",
+        password_hash: "server-only",
+      });
+      await setDoc(doc(db, "hubs/deleting-hub/members/member-a"), { uid: "member-a", role: "member" });
+    });
+    const owner = environment.authenticatedContext("owner-a").firestore();
+    const member = environment.authenticatedContext("member-a").firestore();
+    await assertFails(getDoc(doc(owner, "hubs/deleting-hub")));
+    await assertFails(getDocs(collection(member, "hubs/deleting-hub/matches")));
+    await assertFails(setDoc(doc(member, "hubs/deleting-hub/matches/new-match"), { uid: "member-a" }));
   });
 
   it("preserves legacy password-only hub access until the hub is claimed", async () => {
@@ -87,6 +114,23 @@ describe.skipIf(!emulatorAvailable)("Firestore security rules in the emulator", 
     await assertSucceeds(getDocs(collection(signedInUser, "hubs/legacy-hub/matches")));
   });
 
+  it("does not treat the legacy creator as owner after another account claims the hub", async () => {
+    await environment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "hubs/claimed-hub"), {
+        name: "Claimed Hub",
+        created_by: "legacy-creator",
+        owner_uid: "current-owner",
+        role_mode: "account",
+        password_hash: "server-only",
+      });
+    });
+    const currentOwner = environment.authenticatedContext("current-owner").firestore();
+    const legacyCreator = environment.authenticatedContext("legacy-creator").firestore();
+    await assertSucceeds(getDoc(doc(currentOwner, "hubs/claimed-hub")));
+    await assertFails(getDoc(doc(legacyCreator, "hubs/claimed-hub")));
+  });
+
   it("keeps membership roles server-authoritative even for the member", async () => {
     await environment.withSecurityRulesDisabled(async (context) => {
       await setDoc(doc(context.firestore(), "hubs/team-uk/members/member-a"), { uid: "member-a", role: "member" });
@@ -94,6 +138,37 @@ describe.skipIf(!emulatorAvailable)("Firestore security rules in the emulator", 
     const member = environment.authenticatedContext("member-a").firestore();
     await assertFails(getDoc(doc(member, "hubs/team-uk/members/member-a")));
     await assertFails(updateDoc(doc(member, "hubs/team-uk/members/member-a"), { role: "owner" }));
+  });
+
+  it("lets match owners edit ordinary fields but not server-managed Web Replay pointers", async () => {
+    const replayId = `rl2_${"b".repeat(32)}`;
+    await environment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "hubs/team-uk"), {
+        name: "Team UK",
+        created_by: "owner-a",
+        owner_uid: "owner-a",
+        role_mode: "account",
+      });
+      await setDoc(doc(db, "hubs/team-uk/members/member-a"), { uid: "member-a", role: "member" });
+      await setDoc(doc(db, "hubs/team-uk/matches/member-match"), {
+        uid: "member-a",
+        result: "Win",
+        web_replay_id: replayId,
+      });
+      await setDoc(doc(db, "replayHubGrants/grant-a"), {
+        hubId: "team-uk",
+        matchId: "member-match",
+        replayId,
+      });
+    });
+    const member = environment.authenticatedContext("member-a").firestore();
+    await assertSucceeds(updateDoc(doc(member, "hubs/team-uk/matches/member-match"), { result: "Loss" }));
+    await assertFails(updateDoc(doc(member, "hubs/team-uk/matches/member-match"), {
+      web_replay_id: `rl2_${"c".repeat(32)}`,
+    }));
+    await assertFails(getDoc(doc(member, "replayHubGrants/grant-a")));
+    await assertFails(setDoc(doc(member, "replayHubGrants/grant-b"), { replayId }));
   });
 
   it("isolates account backups by authenticated UID", async () => {

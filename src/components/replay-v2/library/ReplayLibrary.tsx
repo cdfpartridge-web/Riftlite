@@ -213,8 +213,33 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (scope !== "mine" || (!user && !embedded) || !myReplays.some((replay) => replay.status === "processing")) return;
-    const timer = window.setInterval(() => void loadMyReplays(user), 5_000);
-    return () => window.clearInterval(timer);
+
+    let timer: number | undefined;
+    const stopPolling = () => {
+      if (timer === undefined) return;
+      window.clearInterval(timer);
+      timer = undefined;
+    };
+    const poll = () => void loadMyReplays(user);
+    const startPolling = () => {
+      if (document.visibilityState !== "visible" || timer !== undefined) return;
+      timer = window.setInterval(poll, 5_000);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        stopPolling();
+        return;
+      }
+      poll();
+      startPolling();
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      stopPolling();
+    };
   }, [embedded, loadMyReplays, myReplays, scope, user]);
 
   async function selectFile(file: File | undefined) {

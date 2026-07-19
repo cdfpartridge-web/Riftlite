@@ -137,6 +137,65 @@ describe("embedded replay library", () => {
     expect(view.getByRole("tab", { name: "My replays" })).toBeEnabled();
   });
 
+  it("pauses processing refreshes while hidden and refreshes immediately when visible", async () => {
+    let mineRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const isMine = String(input).includes("scope=mine");
+      if (isMine) mineRequests += 1;
+      return new Response(JSON.stringify({
+        items: isMine ? [{
+          replayId: "rl2_processing",
+          visibility: "private",
+          status: "processing",
+          title: "Processing replay",
+          platform: "atlas",
+          messageCount: 42,
+          createdAt: "2026-07-10T12:00:00.000Z",
+          updatedAt: "2026-07-10T12:01:00.000Z",
+        }] : [],
+      }), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let visibilityState: DocumentVisibilityState = "visible";
+    const originalVisibilityState = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibilityState,
+    });
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+    const view = render(createElement(ReplayLibrary, { embedded: true }));
+
+    try {
+      await waitFor(() => {
+        expect(mineRequests).toBe(1);
+        expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 5_000);
+      });
+      const pollingCallIndex = setIntervalSpy.mock.calls.findIndex((call) => call[1] === 5_000);
+      const pollingTimer = setIntervalSpy.mock.results[pollingCallIndex]?.value;
+
+      visibilityState = "hidden";
+      fireEvent(document, new Event("visibilitychange"));
+      expect(clearIntervalSpy).toHaveBeenCalledWith(pollingTimer);
+
+      visibilityState = "visible";
+      fireEvent(document, new Event("visibilitychange"));
+      await waitFor(() => expect(mineRequests).toBe(2));
+      expect(setIntervalSpy.mock.calls.filter((call) => call[1] === 5_000)).toHaveLength(2);
+    } finally {
+      view.unmount();
+      if (originalVisibilityState) {
+        Object.defineProperty(document, "visibilityState", originalVisibilityState);
+      } else {
+        Reflect.deleteProperty(document, "visibilityState");
+      }
+    }
+  });
+
   it("filters public replays by player and opponent legend", async () => {
     const item = (replayId: string, title: string, playerLegend: string, opponentLegend: string) => ({
       replayId,

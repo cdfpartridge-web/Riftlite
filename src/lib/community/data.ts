@@ -2,6 +2,7 @@ import "server-only";
 
 import { gzipSync, gunzipSync } from "node:zlib";
 
+import type { Firestore } from "firebase-admin/firestore";
 import { unstable_cache } from "next/cache";
 
 import { canonicalChoice } from "@/lib/canonical";
@@ -155,6 +156,23 @@ const FALLBACK_DAILY_CAP = 1;
 let fallbackCount = 0;
 let fallbackWindowStart = 0;
 const FALLBACK_WINDOW_MS = 24 * 60 * 60 * 1000;
+let communityMatchMemoryCache: {
+  expiresAt: number;
+  matches: CommunityMatch[];
+} | null = null;
+let communityMatchMemoryLoad: Promise<CommunityMatch[]> | null = null;
+let communityMatchMemoryGeneration = 0;
+
+/**
+ * Next's data cache rejects this normalized window once it exceeds 2 MB
+ * (production is currently about 13 MB). Keep an exact process-local cache
+ * instead, and coalesce cold requests so one warm server instance performs
+ * one aggregate read set per TTL rather than one per request.
+ */
+export function invalidateCommunityMatchMemoryCache(): void {
+  communityMatchMemoryGeneration += 1;
+  communityMatchMemoryCache = null;
+}
 
 function safeJsonParse(value: string) {
   try {
@@ -645,6 +663,18 @@ function mergeCommunityMatches(...batches: CommunityMatch[][]): CommunityMatch[]
     }
   }
   return sortedByCreatedAtDesc([...byId.values()]);
+}
+
+/**
+ * Reuse the complete 30-day scan for the latest window when it already
+ * contains enough rows. If it is smaller, the caller must retain the
+ * historical latest query so older matches are still included.
+ */
+export function latestCommunityWindowFromThirtyDayRange(
+  matches: CommunityMatch[] | null,
+): CommunityMatch[] | null {
+  if (!matches || matches.length < COMMUNITY_WINDOW_SIZE) return null;
+  return sortedByCreatedAtDesc(matches).slice(0, COMMUNITY_WINDOW_SIZE);
 }
 
 function decodeMatchesFromAggregateData(data: Record<string, unknown>): CommunityMatch[] | null {
@@ -1195,19 +1225,34 @@ async function fetchCommunityMatchesSafe() {
   }
 }
 
-const cachedFetchCommunityMatches = unstable_cache(
-  fetchCommunityMatchesSafe,
-  ["community-match-window-v4"],
-  { revalidate: COMMUNITY_CACHE_TTL_SECONDS, tags: ["community-matches"] },
-);
-
 export async function getCommunityMatchWindow() {
+  if (
+    communityMatchMemoryCache &&
+    communityMatchMemoryCache.expiresAt > Date.now()
+  ) {
+    return communityMatchMemoryCache.matches;
+  }
+  if (communityMatchMemoryLoad) {
+    return communityMatchMemoryLoad;
+  }
+
+  const generation = communityMatchMemoryGeneration;
+  const pending = fetchCommunityMatchesSafe().then((matches) => {
+    if (communityMatchMemoryGeneration === generation) {
+      communityMatchMemoryCache = {
+        expiresAt: Date.now() + COMMUNITY_CACHE_TTL_SECONDS * 1000,
+        matches,
+      };
+    }
+    return matches;
+  });
+  communityMatchMemoryLoad = pending;
   try {
-    return await cachedFetchCommunityMatches();
-  } catch {
-    // `unstable_cache` throws when there is no Next.js request context
-    // (e.g. inside vitest). Fall through to a direct fetch in that case.
-    return fetchCommunityMatchesSafe();
+    return await pending;
+  } finally {
+    if (communityMatchMemoryLoad === pending) {
+      communityMatchMemoryLoad = null;
+    }
   }
 }
 
@@ -1473,18 +1518,23 @@ export async function recordPrivateHubAggregateEvent(event: {
   const now = Date.now();
   const countersRef = db.collection(AGGREGATE_COLLECTION).doc(PRIVATE_COUNTER_DOC_ID);
   const aggregateRef = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID);
+  const hubRef = db.collection("hubs").doc(hubId);
   const matchRef = db
     .collection(PRIVATE_MATCH_INDEX_COLLECTION)
     .doc(privateHubMatchDocId(hubId, matchId));
   const playerRef = db.collection(PRIVATE_PLAYER_INDEX_COLLECTION).doc(publicPlayerDocId(uid));
 
   return db.runTransaction(async (tx) => {
-    const [countersSnap, aggregateSnap, matchSnap, playerSnap] = await Promise.all([
+    const [hubSnap, countersSnap, aggregateSnap, matchSnap, playerSnap] = await Promise.all([
+      tx.get(hubRef),
       tx.get(countersRef),
       tx.get(aggregateRef),
       tx.get(matchRef),
       tx.get(playerRef),
     ]);
+    if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+      throw new Error("This private hub is no longer available");
+    }
     const counterData = countersSnap.data() ?? aggregateSnap.data() ?? {};
     let privateMatchCount = toNonNegativeInteger(counterData.privateMatchCount) ?? 0;
     let privatePlayerCount = toNonNegativeInteger(counterData.privatePlayerCount) ?? 0;
@@ -1552,6 +1602,84 @@ export async function recordPrivateHubAggregateEvent(event: {
 }
 
 /**
+ * Removes the global aggregate-index rows owned by one private hub.
+ *
+ * Work is deliberately chunked into transactions. Each retry only counts
+ * index documents that still exist, so a partially completed hub deletion
+ * cannot decrement the shared counters twice or affect another hub's rows.
+ */
+export async function deletePrivateHubAggregateRecords(
+  db: Firestore,
+  hubIdInput: string,
+): Promise<{ removedMatches: number }> {
+  const hubId = hubIdInput.trim();
+  if (!hubId) throw new Error("hubId is required");
+
+  const countersRef = db.collection(AGGREGATE_COLLECTION).doc(PRIVATE_COUNTER_DOC_ID);
+  const aggregateRef = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID);
+  let removedMatches = 0;
+
+  while (true) {
+    const removedInChunk = await db.runTransaction(async (tx) => {
+      const indexQuery = db
+        .collection(PRIVATE_MATCH_INDEX_COLLECTION)
+        .where("hubId", "==", hubId)
+        .limit(150);
+      const [indexSnap, countersSnap, aggregateSnap] = await Promise.all([
+        tx.get(indexQuery),
+        tx.get(countersRef),
+        tx.get(aggregateRef),
+      ]);
+      if (indexSnap.empty) return 0;
+
+      const removedByUid = new Map<string, number>();
+      for (const document of indexSnap.docs) {
+        const uid = String(document.get("uid") ?? "").trim();
+        if (uid) removedByUid.set(uid, (removedByUid.get(uid) ?? 0) + 1);
+      }
+      const playerRows = Array.from(removedByUid, ([uid, count]) => ({
+        uid,
+        count,
+        ref: db.collection(PRIVATE_PLAYER_INDEX_COLLECTION).doc(publicPlayerDocId(uid)),
+      }));
+      const playerSnaps = await Promise.all(playerRows.map((row) => tx.get(row.ref)));
+
+      const counterData = {
+        ...(aggregateSnap.data() ?? {}),
+        ...(countersSnap.data() ?? {}),
+      };
+      let privateMatchCount = toNonNegativeInteger(counterData.privateMatchCount) ?? 0;
+      let privatePlayerCount = toNonNegativeInteger(counterData.privatePlayerCount) ?? 0;
+      privateMatchCount = Math.max(0, privateMatchCount - indexSnap.size);
+
+      for (let index = 0; index < playerRows.length; index += 1) {
+        const row = playerRows[index];
+        const snapshot = playerSnaps[index];
+        const currentMatchCount = toNonNegativeInteger(snapshot.data()?.matchCount) ?? 0;
+        const nextMatchCount = Math.max(0, currentMatchCount - row.count);
+        if (currentMatchCount > 0 && nextMatchCount === 0) {
+          privatePlayerCount = Math.max(0, privatePlayerCount - 1);
+          tx.delete(row.ref);
+        } else if (snapshot.exists) {
+          tx.set(row.ref, { matchCount: nextMatchCount, updatedAt: Date.now() }, { merge: true });
+        }
+      }
+      for (const document of indexSnap.docs) tx.delete(document.ref);
+
+      const counterPayload = { privateMatchCount, privatePlayerCount, updatedAt: Date.now() };
+      tx.set(countersRef, counterPayload, { merge: true });
+      tx.set(aggregateRef, counterPayload, { merge: true });
+      return indexSnap.size;
+    });
+
+    if (!removedInChunk) break;
+    removedMatches += removedInChunk;
+  }
+
+  return { removedMatches };
+}
+
+/**
  * Force-refresh the aggregate doc from the live matches collection.
  * Entry point for the scheduled cron. Intentionally bypasses the
  * unstable_cache wrapper so every cron run reads fresh from Firestore.
@@ -1567,7 +1695,11 @@ export async function refreshCommunityAggregate(): Promise<{
   updatedAt: number;
   source: "firestore" | "fixtures";
 }> {
-  const live = await fetchMatchesFromCollection();
+  const fullThirtyDayWindow = await fetchRangeMatchesFromCollection(30, {
+    limitToDetailWindow: false,
+  });
+  const live = latestCommunityWindowFromThirtyDayRange(fullThirtyDayWindow) ??
+    await fetchMatchesFromCollection();
 
   if (live === null) {
     throw new Error(
@@ -1575,9 +1707,6 @@ export async function refreshCommunityAggregate(): Promise<{
     );
   }
 
-  const fullThirtyDayWindow = await fetchRangeMatchesFromCollection(30, {
-    limitToDetailWindow: false,
-  });
   const rangeWindows: CommunityRangeWindows = {};
   await Promise.all(
     COMMUNITY_RANGE_DAYS.map(async (days) => {

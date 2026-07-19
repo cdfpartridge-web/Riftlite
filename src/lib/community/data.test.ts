@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeMatch } from "@/lib/community/data";
+import {
+  latestCommunityWindowFromThirtyDayRange,
+  normalizeMatch,
+} from "@/lib/community/data";
+import { COMMUNITY_WINDOW_SIZE } from "@/lib/constants";
+import type { CommunityMatch } from "@/lib/types";
 
 describe("normalizeMatch", () => {
   it("preserves desktop camelCase per-game scores", () => {
@@ -130,5 +135,42 @@ describe("normalizeMatch", () => {
     expect(match.mergedIntoMatchId).toBe("bo3");
     expect(match.superseded).toBe(true);
     expect(match.supersededAt).toBe("2026-05-31T12:00:00.000Z");
+  });
+
+  it("never copies private-hub Web Replay pointers into public aggregates", () => {
+    const match = normalizeMatch("public-match", {
+      uid: "public-player",
+      username: "Public Player",
+      result: "Win",
+      web_replay_id: `rl2_${"f".repeat(32)}`,
+      webReplayId: `rl2_${"e".repeat(32)}`,
+    });
+
+    expect(match).not.toHaveProperty("web_replay_id");
+    expect(match).not.toHaveProperty("webReplayId");
+  });
+});
+
+describe("latestCommunityWindowFromThirtyDayRange", () => {
+  it("reuses a complete busy 30-day range in newest-first order", () => {
+    const matches = Array.from({ length: COMMUNITY_WINDOW_SIZE + 1 }, (_, index) => ({
+      id: `match-${index}`,
+      createdAt: 1_000_000 + index,
+    })) as CommunityMatch[];
+
+    const latest = latestCommunityWindowFromThirtyDayRange(matches);
+
+    expect(latest).toHaveLength(COMMUNITY_WINDOW_SIZE);
+    expect(latest?.[0]?.id).toBe(`match-${COMMUNITY_WINDOW_SIZE}`);
+    expect(latest?.at(-1)?.id).toBe("match-1");
+  });
+
+  it("keeps the separate latest query for quieter 30-day ranges", () => {
+    const matches = Array.from({ length: COMMUNITY_WINDOW_SIZE - 1 }, (_, index) => ({
+      id: `match-${index}`,
+      createdAt: index,
+    })) as CommunityMatch[];
+
+    expect(latestCommunityWindowFromThirtyDayRange(matches)).toBeNull();
   });
 });

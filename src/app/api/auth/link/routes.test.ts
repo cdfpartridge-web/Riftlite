@@ -185,6 +185,32 @@ describe("desktop account-link routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: "Session belongs to another device",
     });
+    expect(mocks.canonicalIdentityUid).not.toHaveBeenCalled();
+  });
+
+  it("canonicalizes only when an older status session stored the canonical owner", async () => {
+    const { db } = fakeLinkDatabase({
+      desktopUid: "account-canonical",
+      desktopUidBindingVersion: 1,
+      status: "pending",
+      expiresAt: Date.now() + 60_000,
+    });
+    mocks.requireUser.mockResolvedValue({
+      authenticatedUid: "desktop-raw",
+      decoded: { uid: "desktop-raw" },
+      db,
+    });
+    mocks.canonicalIdentityUid.mockResolvedValue("account-canonical");
+
+    const response = await linkStatus({
+      nextUrl: new URL("https://riftlite.example/api/auth/link/status?sessionId=session-1"),
+    } as never);
+
+    if (!response) throw new Error("Expected the status route to return a response");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: "pending" });
+    expect(mocks.canonicalIdentityUid).toHaveBeenCalledOnce();
+    expect(mocks.canonicalIdentityUid).toHaveBeenCalledWith("desktop-raw", db);
   });
 
   it("expires a crashed completion claim instead of polling forever", async () => {

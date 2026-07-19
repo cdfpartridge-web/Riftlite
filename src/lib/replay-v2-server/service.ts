@@ -28,6 +28,7 @@ import {
 } from "@/lib/replay-v2-server/contracts";
 import { replayProcessingClaimIsActive } from "@/lib/replay-v2-server/completion-claim";
 import { ReplayV2Error, replayFailure } from "@/lib/replay-v2-server/errors";
+import { privateReplayHubAccessAllowsViewer } from "@/lib/replay-v2-server/hub-grants";
 import { createArtifactGeneration, deterministicReplayId, sha256Hex } from "@/lib/replay-v2-server/ids";
 import type { ReplayRecord, ReplaySummary } from "@/lib/replay-v2-server/model";
 import {
@@ -488,7 +489,11 @@ async function ownedReplay(db: Firestore, ownerUid: string, replayId: string): P
 async function readableReplay(db: Firestore, replayId: string, viewerUid: string): Promise<ReplayRecord> {
   const snapshot = await db.collection(REPLAY_COLLECTION).doc(replayId).get();
   const record = replayRecord(snapshot);
-  if (!replayVisibilityAllowsViewer(record.visibility, record.ownerUid, viewerUid)) {
+  const directlyReadable = replayVisibilityAllowsViewer(record.visibility, record.ownerUid, viewerUid);
+  const readableThroughPrivateHub = !directlyReadable && record.visibility === "private"
+    ? await privateReplayHubAccessAllowsViewer(db, record, viewerUid)
+    : false;
+  if (!directlyReadable && !readableThroughPrivateHub) {
     throw new ReplayV2Error(403, "replay_private", "Replay is private.");
   }
   return record;

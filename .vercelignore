@@ -1,0 +1,11 @@
+# Local credentials and environment captures
+.env
+.env.*
+*.local
+
+# Browser QA artifacts are local-only and may contain captured page state
+.playwright-cli/
+firestore-debug.log
+
+# Local TypeScript incremental state
+tsconfig.tsbuildinfo

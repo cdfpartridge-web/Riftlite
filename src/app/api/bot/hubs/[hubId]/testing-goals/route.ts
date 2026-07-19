@@ -27,7 +27,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
   const { hubId } = await params;
   const guildId = await getDiscordGuildIdForHub(hubId) || hubId;
   const body = await readBody(req);
-  const goal = await addTestingGoal(guildId, String(body.text ?? ""), "bot");
+  const goal = await addTestingGoal(guildId, String(body.text ?? ""), "bot", hubId);
   return Response.json({ hubId, goal });
 }
 
@@ -38,7 +38,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ hu
   const guildId = await getDiscordGuildIdForHub(hubId) || hubId;
   const body = await readBody(req);
   const id = String(body.id ?? "").trim();
-  await completeTestingGoal(guildId, id, "bot");
+  await completeTestingGoal(guildId, id, "bot", hubId);
   return Response.json({ hubId, id, ok: true });
 }
 

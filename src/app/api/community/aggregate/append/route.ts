@@ -1,7 +1,11 @@
 import { revalidateTag } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
 
-import { appendMatchToAggregate, normalizeMatch } from "@/lib/community/data";
+import {
+  appendMatchToAggregate,
+  invalidateCommunityMatchMemoryCache,
+  normalizeMatch,
+} from "@/lib/community/data";
 import { verifyFirebaseIdToken } from "@/lib/firebase/admin";
 import { appendUserPublicMatch, bestProfileDisplayName, ensureUserProfile } from "@/lib/social/server";
 
@@ -105,14 +109,15 @@ export async function POST(req: NextRequest) {
   try {
     const result = await appendMatchToAggregate(normalized);
     await appendUserPublicMatch(normalized).catch(() => undefined);
+    invalidateCommunityMatchMemoryCache();
 
     // Make the new match visible on the next render instead of waiting
-    // out the 10-minute unstable_cache TTL.
+    // out the 30-minute server cache TTL.
     try {
       revalidateTag("community-matches", "max");
     } catch {
       // Fine — just means we're not in a request context where the
-      // revalidation cache is available. The 10-min TTL will pick it up.
+      // revalidation cache is available. The server TTL will pick it up.
     }
 
     return NextResponse.json({ ok: true, ...result });

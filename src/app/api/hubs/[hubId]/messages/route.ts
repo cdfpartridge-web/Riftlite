@@ -62,8 +62,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ hub
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    await auth.db.collection("hubs").doc(hubId).collection("messages").doc(id).set(message);
-    await auth.db.collection("hubs").doc(hubId).set({ lastMessageAt: Date.now(), lastMessageText: text.slice(0, 120) }, { merge: true });
+    const hubRef = auth.db.collection("hubs").doc(hubId);
+    await auth.db.runTransaction(async (tx) => {
+      const hubSnap = await tx.get(hubRef);
+      if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+        throw new Error("This private hub is being deleted");
+      }
+      tx.set(hubRef.collection("messages").doc(id), message);
+      tx.set(hubRef, { lastMessageAt: Date.now(), lastMessageText: text.slice(0, 120) }, { merge: true });
+    });
     return socialJson({ ok: true, message });
   } catch (error) {
     return socialJson({ error: error instanceof Error ? error.message : "Could not post message" }, 403);

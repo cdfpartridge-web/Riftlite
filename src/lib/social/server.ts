@@ -125,7 +125,10 @@ export function socialJson(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status });
 }
 
-export async function requireUser(req: NextRequest) {
+export async function requireUser(
+  req: NextRequest,
+  options: { canonicalize?: boolean } = {},
+) {
   const db = getFirestoreAdmin();
   if (!db) {
     return { error: socialJson({ error: "Firebase admin is not configured" }, 503) };
@@ -140,7 +143,9 @@ export async function requireUser(req: NextRequest) {
     return { error: socialJson({ error: "Invalid or expired ID token" }, 401) };
   }
   const authenticatedUid = decoded.uid;
-  const canonicalUid = await canonicalIdentityUid(authenticatedUid, db);
+  const canonicalUid = options.canonicalize === false
+    ? authenticatedUid
+    : await canonicalIdentityUid(authenticatedUid, db);
   return {
     db,
     decoded: canonicalUid && canonicalUid !== authenticatedUid ? { ...decoded, uid: canonicalUid } : decoded,
@@ -786,7 +791,7 @@ async function migrateLinkedIdentityReferences(sourceUid: string, canonicalUid: 
   for (const field of ["owner_uid", "created_by"] as const) {
     const hubs = await db.collection("hubs").where(field, "==", sourceUid).get();
     for (const hub of hubs.docs) {
-      queueSet(hub.ref, { [field]: canonicalUid, owner_uid: canonicalUid, identityMigratedAt: now });
+      queueSet(hub.ref, hubIdentityMigrationPatch(hub.data() ?? {}, field, sourceUid, canonicalUid, now));
     }
   }
   const teams = await db.collection("teams").where("ownerUid", "==", sourceUid).get();
@@ -1759,13 +1764,33 @@ export async function repairProfileReferences(profile: AccountProfile): Promise<
   }
 }
 
+export function hubIdentityMigrationPatch(
+  hub: Record<string, unknown>,
+  field: "owner_uid" | "created_by",
+  sourceUid: string,
+  canonicalUid: string,
+  now: number,
+): Record<string, unknown> {
+  const authoritativeOwnerUid = String(hub.owner_uid ?? hub.ownerUid ?? "").trim();
+  const migrateOwner = field === "owner_uid" || !authoritativeOwnerUid || authoritativeOwnerUid === sourceUid;
+  return {
+    [field]: canonicalUid,
+    ...(migrateOwner ? { owner_uid: canonicalUid } : {}),
+    identityMigratedAt: now,
+  };
+}
+
 export async function resolveHubRole(hubId: string, uid: string): Promise<HubMemberRole | ""> {
   const db = getFirestoreAdmin();
   if (!db) throw new Error("Firebase admin is not configured");
   const hubRef = db.collection("hubs").doc(hubId);
   const identityUids = await identityUidsFor(uid);
   const memberRefs = identityUids.map((identityUid) => hubRef.collection("members").doc(identityUid));
-  const members = memberRefs.length ? await db.getAll(...memberRefs) : [];
+  const [members, hubSnap] = await Promise.all([
+    memberRefs.length ? db.getAll(...memberRefs) : Promise.resolve([]),
+    hubRef.get(),
+  ]);
+  if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") return "";
   const memberRole = members.reduce(
     (selected, member) => {
       const candidate = member.exists ? String(member.data()?.role ?? "") : "";
@@ -1774,14 +1799,23 @@ export async function resolveHubRole(hubId: string, uid: string): Promise<HubMem
     },
     "",
   );
-  const hubSnap = await hubRef.get();
   const hub = hubSnap.data() ?? {};
-  const ownerUid = String(hub.owner_uid ?? hub.ownerUid ?? "");
-  const createdBy = String(hub.created_by ?? hub.createdBy ?? "");
-  if (identityUids.some((identityUid) => ownerUid === identityUid || createdBy === identityUid)) {
+  if (hubRecordOwnedByIdentity(hub, identityUids)) {
     return "owner";
   }
   return memberRole ? normalizeHubMemberRole(memberRole) : "";
+}
+
+export function hubRecordOwnedByIdentity(
+  hub: Record<string, unknown>,
+  identityUids: readonly string[],
+): boolean {
+  const identities = new Set(identityUids.map((value) => String(value ?? "").trim()).filter(Boolean));
+  const ownerUid = String(hub.owner_uid ?? hub.ownerUid ?? "").trim();
+  if (ownerUid && identities.has(ownerUid)) return true;
+  const accountManaged = String(hub.role_mode ?? hub.roleMode ?? "") === "account";
+  const createdBy = String(hub.created_by ?? hub.createdBy ?? "").trim();
+  return !accountManaged && Boolean(createdBy) && identities.has(createdBy);
 }
 
 export async function assertHubRole(hubId: string, uid: string, roles: string[]) {

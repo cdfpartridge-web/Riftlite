@@ -2,7 +2,8 @@ import { revalidateTag } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { recordPrivateHubAggregateEvent } from "@/lib/community/data";
-import { verifyFirebaseIdToken } from "@/lib/firebase/admin";
+import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
+import { assertHubCapability } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -42,6 +43,21 @@ export async function POST(req: NextRequest) {
   const username = typeof body.username === "string" ? body.username.trim() : "";
   if (uid !== decoded.uid) {
     return NextResponse.json({ error: "Token uid does not match body.uid" }, { status: 403 });
+  }
+
+  const hubSnap = await getFirestoreAdmin()?.collection("hubs").doc(hubId).get();
+  const hub = hubSnap?.data() ?? {};
+  if (!hubSnap?.exists || String(hub.lifecycle_state ?? "") === "deleting") {
+    return NextResponse.json({ error: "You do not have permission for this hub action." }, { status: 403 });
+  }
+  // Legacy password-only hubs intentionally retain their historical
+  // signed-in write behavior. Account-managed hubs require membership.
+  if (String(hub.role_mode ?? "") === "account") {
+    try {
+      await assertHubCapability(hubId, decoded.uid, "participate");
+    } catch {
+      return NextResponse.json({ error: "You do not have permission for this hub action." }, { status: 403 });
+    }
   }
 
   try {

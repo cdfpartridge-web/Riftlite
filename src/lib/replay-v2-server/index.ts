@@ -3,6 +3,7 @@ export * from "@/lib/replay-v2-server/constants";
 export * from "@/lib/replay-v2-server/contracts";
 export * from "@/lib/replay-v2-server/errors";
 export * from "@/lib/replay-v2-server/http";
+export * from "@/lib/replay-v2-server/hub-grants";
 export * from "@/lib/replay-v2-server/ids";
 export * from "@/lib/replay-v2-server/model";
 export * from "@/lib/replay-v2-server/projection";

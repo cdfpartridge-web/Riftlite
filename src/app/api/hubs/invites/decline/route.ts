@@ -23,20 +23,33 @@ export async function POST(req: NextRequest) {
   if ((targetUid && targetUid !== auth.decoded.uid) || (targetHandle && targetHandle !== profile.handleLower)) {
     return socialJson({ error: "Invite was sent to another profile" }, 403);
   }
-  if (String(invite.status ?? "") !== "open") {
-    await auth.db.collection("users").doc(auth.decoded.uid).collection("inbox").doc(inviteId).set({
-      status: String(invite.status ?? "closed"),
-      updatedAt: Date.now(),
-    }, { merge: true });
-    return socialJson({ ok: true });
-  }
-
+  const hubId = String(invite.hubId ?? "").trim();
+  if (!hubId) return socialJson({ error: "Invite is missing its hub" }, 409);
+  const hubRef = auth.db.collection("hubs").doc(hubId);
+  const inboxRef = auth.db.collection("users").doc(auth.decoded.uid).collection("inbox").doc(inviteId);
   const now = Date.now();
-  await inviteRef.set({ status: "declined", declinedBy: auth.decoded.uid, declinedAt: now }, { merge: true });
-  await auth.db.collection("users").doc(auth.decoded.uid).collection("inbox").doc(inviteId).set({
-    status: "declined",
-    updatedAt: now,
-  }, { merge: true });
+  await auth.db.runTransaction(async (tx) => {
+    const [currentInviteSnap, hubSnap] = await Promise.all([
+      tx.get(inviteRef),
+      tx.get(hubRef),
+    ]);
+    if (!currentInviteSnap.exists) {
+      tx.delete(inboxRef);
+      return;
+    }
+    if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+      tx.delete(inviteRef);
+      tx.delete(inboxRef);
+      return;
+    }
+    const currentStatus = String(currentInviteSnap.data()?.status ?? "closed");
+    if (currentStatus !== "open") {
+      tx.set(inboxRef, { status: currentStatus, updatedAt: now }, { merge: true });
+      return;
+    }
+    tx.set(inviteRef, { status: "declined", declinedBy: auth.decoded.uid, declinedAt: now }, { merge: true });
+    tx.set(inboxRef, { status: "declined", updatedAt: now }, { merge: true });
+  });
   return socialJson({ ok: true });
 }
 

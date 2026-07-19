@@ -40,10 +40,10 @@ export const FIXTURE_AD_SLOTS: AdSlotConfig[] = [
   {
     placement: "home-hero",
     mode: "sponsor",
-    eyebrow: "Featured Sponsor",
-    title: "Reserve this RiftLite headline placement",
-    body: "Direct sponsors can run branded art, a short message, and a tracked CTA here without cluttering the experience.",
-    ctaLabel: "Become A Sponsor",
+    eyebrow: "Partnerships",
+    title: "Partner with RiftLite",
+    body: "Have an idea for the Riftbound community? Let's build something great together.",
+    ctaLabel: "Start a conversation",
     ctaHref: "mailto:bmucasts@gmail.com",
   },
   {

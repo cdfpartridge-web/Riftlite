@@ -36,22 +36,44 @@ export async function POST(req: NextRequest) {
     return socialJson({ error: "Invite was sent to another profile" }, 403);
   }
   const hubId = String(invite.hubId ?? "");
-  const hubSnap = await auth.db.collection("hubs").doc(hubId).get();
-  const hubName = String(hubSnap.data()?.name ?? invite.hubName ?? hubId);
-  await auth.db.collection("hubs").doc(hubId).collection("members").doc(auth.decoded.uid).set({
-    uid: auth.decoded.uid,
-    role: "member",
-    handle: profile.handle,
-    displayName,
-    joinedAt: Date.now(),
-    updatedAt: Date.now(),
-  }, { merge: true });
-  await inviteRef.set({ status: "accepted", acceptedBy: auth.decoded.uid, acceptedAt: Date.now() }, { merge: true });
-  await auth.db.collection("users").doc(auth.decoded.uid).collection("inbox").doc(inviteId).set({
-    status: "accepted",
-    updatedAt: Date.now(),
-  }, { merge: true });
-  return socialJson({ ok: true, hubId, hub: { id: hubId, name: hubName, role: "member" } });
+  const hubRef = auth.db.collection("hubs").doc(hubId);
+  const memberRef = hubRef.collection("members").doc(auth.decoded.uid);
+  const inboxRef = auth.db.collection("users").doc(auth.decoded.uid).collection("inbox").doc(inviteId);
+  const now = Date.now();
+  const outcome = await auth.db.runTransaction(async (tx) => {
+    const [currentInviteSnap, hubSnap] = await Promise.all([
+      tx.get(inviteRef),
+      tx.get(hubRef),
+    ]);
+    const currentInvite = currentInviteSnap.data() ?? {};
+    if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+      return { status: "hub_unavailable" as const, hubName: "" };
+    }
+    if (!currentInviteSnap.exists || String(currentInvite.status ?? "") !== "open") {
+      return { status: "invite_closed" as const, hubName: "" };
+    }
+    if (Number(currentInvite.expiresAt ?? 0) < now) {
+      return { status: "invite_expired" as const, hubName: "" };
+    }
+    const hubName = String(hubSnap.data()?.name ?? currentInvite.hubName ?? hubId);
+    tx.set(memberRef, {
+      uid: auth.decoded.uid,
+      role: "member",
+      handle: profile.handle,
+      displayName,
+      joinedAt: now,
+      updatedAt: now,
+    }, { merge: true });
+    tx.set(inviteRef, { status: "accepted", acceptedBy: auth.decoded.uid, acceptedAt: now }, { merge: true });
+    tx.set(inboxRef, { status: "accepted", updatedAt: now }, { merge: true });
+    return { status: "accepted" as const, hubName };
+  });
+  if (outcome.status === "hub_unavailable") {
+    return socialJson({ error: "This hub is no longer available", code: "hub_unavailable" }, 410);
+  }
+  if (outcome.status === "invite_closed") return socialJson({ error: "Invite is no longer open" }, 409);
+  if (outcome.status === "invite_expired") return socialJson({ error: "Invite expired" }, 410);
+  return socialJson({ ok: true, hubId, hub: { id: hubId, name: outcome.hubName, role: "member" } });
 }
 
 async function readBody(req: NextRequest): Promise<Record<string, unknown>> {

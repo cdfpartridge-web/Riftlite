@@ -32,8 +32,9 @@ import type { CommunityMatch, MatchGame } from "@/lib/types";
 // the desktop gets the long-form fields, while keeping myBf/oppBf as
 // aliases so anything still reading the old shape keeps working.
 //
-// Costs: served from the cached match window (1 Firestore read per
-// 10-minute cache miss, shared with the rest of the website). The
+// Costs: served from the coalesced 30-minute server-process match cache.
+// A cold process reads the aggregate manifest and its bounded chunks once;
+// warm requests reuse the exact normalized window. The
 // desktop's own forceRefresh flag is honoured by hitting this endpoint
 // fresh — it doesn't bypass the server cache, but at desktop-poll
 // volume that's fine.

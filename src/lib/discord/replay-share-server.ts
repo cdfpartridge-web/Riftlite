@@ -63,9 +63,16 @@ export async function shareReplayToDiscordFeeds(input: {
     const configResults = await Promise.all(configs.map(async ({ config, channelId }) => {
       const shareKey = createHash("sha256").update(`${input.replayId}\0${hubId}\0${config.guildId}`).digest("hex");
       const shareRef = db.collection("replayDiscordShares").doc(shareKey);
+      const hubRef = db.collection("hubs").doc(hubId);
       const nonce = shareKey.slice(0, 25);
       const claim = await db.runTransaction(async (transaction) => {
-        const snapshot = await transaction.get(shareRef);
+        const [hubSnap, snapshot] = await Promise.all([
+          transaction.get(hubRef),
+          transaction.get(shareRef),
+        ]);
+        if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+          return "hub-unavailable" as const;
+        }
         const data = snapshot.data() ?? {};
         if (data.status === "posted") return "already-shared" as const;
         if (data.status === "posting" && Date.now() - Number(data.attemptedAt ?? 0) < 60_000) {
@@ -88,26 +95,48 @@ export async function shareReplayToDiscordFeeds(input: {
       try {
         const response = await postDiscordChannelMessage(channelId, content, { nonce });
         const messageId = response && typeof response === "object" && "id" in response ? String(response.id ?? "") : "";
-        await shareRef.set({ status: "posted", messageId, postedAt: Date.now(), updatedAt: Date.now(), error: FieldValue.delete() }, { merge: true });
+        await setShareStatusWhileHubActive(db, hubId, shareRef, {
+          status: "posted",
+          messageId,
+          postedAt: Date.now(),
+          updatedAt: Date.now(),
+          error: FieldValue.delete(),
+        });
         return "shared" as const;
       } catch (error) {
-        await shareRef.set({
+        await setShareStatusWhileHubActive(db, hubId, shareRef, {
           status: "failed",
           error: error instanceof Error ? error.message.slice(0, 300) : "Discord post failed.",
           updatedAt: Date.now(),
-        }, { merge: true });
+        });
         return "failed" as const;
       }
     }));
 
     const status = configResults.includes("failed")
       ? "failed"
-      : configResults.includes("shared")
-        ? "shared"
-        : configResults.includes("in-progress")
-          ? "in-progress"
-          : "already-shared";
+      : configResults.includes("hub-unavailable")
+        ? "not-member"
+        : configResults.includes("shared")
+          ? "shared"
+          : configResults.includes("in-progress")
+            ? "in-progress"
+            : "already-shared";
     results.push({ hubId, status });
   }
   return results;
+}
+
+async function setShareStatusWhileHubActive(
+  db: NonNullable<ReturnType<typeof getFirestoreAdmin>>,
+  hubId: string,
+  shareRef: FirebaseFirestore.DocumentReference,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const hubRef = db.collection("hubs").doc(hubId);
+  await db.runTransaction(async (transaction) => {
+    const hubSnap = await transaction.get(hubRef);
+    if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") return;
+    transaction.set(shareRef, data, { merge: true });
+  });
 }

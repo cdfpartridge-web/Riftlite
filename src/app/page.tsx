@@ -121,7 +121,7 @@ export default async function HomePage() {
           <div className="relative z-10 animate-fade-up space-y-8">
             <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-300/8 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.23em] text-cyan-100">
               <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(114,215,255,0.9)]" />
-              RiftLite 0.8.01 · Windows + macOS
+              RiftLite 0.9.00 · Windows + macOS
             </div>
             <div className="space-y-5">
               <h1
@@ -462,7 +462,7 @@ export default async function HomePage() {
               </div>
               <div className="flex shrink-0 flex-wrap gap-3">
                 <Button asChild size="lg">
-                  <Link href={downloadHref}>Download v0.8.01</Link>
+                  <Link href={downloadHref}>Download v0.9.00</Link>
                 </Button>
                 <Button asChild size="lg" variant="secondary">
                   <Link href={SITE_PATHS.guide}>See how it works</Link>

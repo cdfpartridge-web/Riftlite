@@ -39,9 +39,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ hu
       nextRole: role as "admin" | "member",
       targetIsHubOwner: ownerUids.some((ownerUid) => targetIdentityUids.includes(ownerUid)),
     });
-    const batch = auth.db.batch();
-    for (const member of existing) batch.set(member.ref, { role, updatedAt: Date.now() }, { merge: true });
-    await batch.commit();
+    await auth.db.runTransaction(async (tx) => {
+      const currentHubSnap = await tx.get(hubRef);
+      if (!currentHubSnap.exists || String(currentHubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+        throw new Error("This private hub is being deleted");
+      }
+      for (const member of existing) tx.set(member.ref, { role, updatedAt: Date.now() }, { merge: true });
+    });
     return socialJson({ ok: true });
   } catch (error) {
     return socialJson({ error: error instanceof Error ? error.message : "Could not update role" }, 403);

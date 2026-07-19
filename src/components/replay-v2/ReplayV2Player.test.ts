@@ -233,7 +233,46 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(opponentHand).not.toHaveTextContent("Replacement details unavailable");
   });
 
-  it("scales mulligan motion with the selected replay speed", async () => {
+  it("offers 6× and 10× and cycles the compact speed control through every option", async () => {
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_speed_options" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-control="speed"]')).toBeInTheDocument();
+    });
+    const speedControl = view.container.querySelector<HTMLButtonElement>('[data-control="speed"]');
+    for (const expected of [2, 4, 6, 10, 1]) {
+      fireEvent.click(speedControl!);
+      expect(speedControl).toHaveTextContent(`${expected}\u00d7`);
+    }
+
+    fireEvent.click(view.container.querySelector<HTMLButtonElement>('[data-control="more"]')!);
+    expect(view.container.querySelector('[data-control="speed-6"]')).toHaveTextContent("6×");
+    expect(view.container.querySelector('[data-control="speed-10"]')).toHaveTextContent("10×");
+    fireEvent.click(view.container.querySelector<HTMLButtonElement>('[data-control="speed-10"]')!);
+    expect(speedControl).toHaveTextContent("10×");
+  });
+
+  it("uses 6 and 0 as keyboard shortcuts for 6× and 10× playback", async () => {
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_speed_shortcuts" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-control="speed"]')).toBeInTheDocument();
+    });
+    const speedControl = view.container.querySelector<HTMLButtonElement>('[data-control="speed"]');
+
+    fireEvent.keyDown(window, { key: "6" });
+    expect(speedControl).toHaveTextContent("6×");
+    fireEvent.keyDown(window, { key: "0" });
+    expect(speedControl).toHaveTextContent("10×");
+
+    fireEvent.keyDown(window, { key: "?" });
+    expect(view.getByRole("dialog", { name: "Keyboard shortcuts" }))
+      .toHaveTextContent("1 / 2 / 4 / 6 / 0");
+    expect(view.getByRole("dialog", { name: "Keyboard shortcuts" }))
+      .toHaveTextContent("0 selects 10×");
+  });
+
+  it("scales mulligan motion with the selected 10× replay speed", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       replay: mulliganReplay(),
     }), {
@@ -248,15 +287,17 @@ describe("ReplayV2Player presentation prelude", () => {
     const speedControl = view.container.querySelector<HTMLButtonElement>('[data-control="speed"]');
     fireEvent.click(speedControl!);
     fireEvent.click(speedControl!);
-    expect(speedControl).toHaveTextContent("4×");
+    fireEvent.click(speedControl!);
+    fireEvent.click(speedControl!);
+    expect(speedControl).toHaveTextContent("10×");
 
     await advanceToMulligan(view);
 
     const selfHand = view.container.querySelector<HTMLElement>('[data-mulligan-player="self"]');
-    expect(selfHand?.style.getPropertyValue("--mulligan-duration")).toBe("512.5ms");
-    expect(selfHand?.style.getPropertyValue("--mulligan-short-duration")).toBe("387.5ms");
+    expect(selfHand?.style.getPropertyValue("--mulligan-duration")).toBe("205ms");
+    expect(selfHand?.style.getPropertyValue("--mulligan-short-duration")).toBe("155ms");
     const secondSlot = selfHand?.querySelectorAll<HTMLElement>("[data-mulligan-slot]")[1];
-    expect(secondSlot?.style.getPropertyValue("--mulligan-delay")).toBe("18.75ms");
+    expect(secondSlot?.style.getPropertyValue("--mulligan-delay")).toBe("7.5ms");
   });
 
   it("renders real rune cards and explicit duplicate markers without the old rune counter", async () => {

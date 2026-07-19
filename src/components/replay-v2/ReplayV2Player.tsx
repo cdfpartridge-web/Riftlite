@@ -66,7 +66,20 @@ import {
 const DESIGN_WIDTH = 1_920;
 const DESIGN_HEIGHT = 1_080;
 const ACTION_ANIMATION_MS = 430;
-const PLAYBACK_SPEEDS = [1, 2, 4] as const;
+const PLAYBACK_SPEEDS = [1, 2, 4, 6, 10] as const;
+type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number];
+const PLAYBACK_SPEED_SHORTCUTS: Readonly<Record<string, PlaybackSpeed>> = {
+  "0": 10,
+  "1": 1,
+  "2": 2,
+  "4": 4,
+  "6": 6,
+};
+
+function nextPlaybackSpeed(current: number): PlaybackSpeed {
+  const currentIndex = PLAYBACK_SPEEDS.findIndex((candidate) => candidate === current);
+  return PLAYBACK_SPEEDS[(currentIndex + 1) % PLAYBACK_SPEEDS.length] ?? PLAYBACK_SPEEDS[0];
+}
 const FIRST_GAME_PRELUDE: Array<Exclude<ReplaySceneKind, null>> = [
   "matchup",
   "battlefields",
@@ -174,7 +187,7 @@ export function ReplayV2Player({
   const [presentation, setPresentation] = useState<PresentationCursor | null>(null);
   const [completedPreludeGameId, setCompletedPreludeGameId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState<(typeof PLAYBACK_SPEEDS)[number]>(1);
+  const [speed, setSpeed] = useState<PlaybackSpeed>(1);
   const [showMore, setShowMore] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [discardOverlay, setDiscardOverlay] = useState<DiscardOverlayState>(null);
@@ -498,9 +511,10 @@ export function ReplayV2Player({
         setShowMore((value) => !value);
         return;
       }
-      if (keyboardEvent.key === "1" || keyboardEvent.key === "2" || keyboardEvent.key === "4") {
+      const shortcutSpeed = PLAYBACK_SPEED_SHORTCUTS[keyboardEvent.key];
+      if (shortcutSpeed) {
         keyboardEvent.preventDefault();
-        changeSpeed(Number(keyboardEvent.key));
+        changeSpeed(shortcutSpeed);
         return;
       }
       if (keyboardEvent.key !== "ArrowLeft" && keyboardEvent.key !== "ArrowRight") return;
@@ -760,7 +774,7 @@ function ReplayBoard({
   playing: boolean;
   replay: CanonicalReplayV2;
   sceneOverride: Exclude<ReplaySceneKind, null> | null;
-  speed: (typeof PLAYBACK_SPEEDS)[number];
+  speed: PlaybackSpeed;
   state: ReplayState;
   suppressCanonicalOpening: boolean;
   suppressMotion: boolean;
@@ -887,7 +901,7 @@ function DeckPeekOverlay({
   onCardHover: (card: ReplayCardState | null) => void;
   onCardSelect: (card: ReplayCardState) => void;
   presentation: DeckPeekPresentation;
-  speed: (typeof PLAYBACK_SPEEDS)[number];
+  speed: PlaybackSpeed;
 }) {
   const current = presentation.cards.find(({ card }) => card.id === presentation.currentCardId);
   const count = presentation.cards.length;
@@ -1682,7 +1696,7 @@ function SceneOverlay({
   players: ReplayPlayerPair;
   replay: CanonicalReplayV2;
   scene: Exclude<ReplaySceneKind, null>;
-  speed: (typeof PLAYBACK_SPEEDS)[number];
+  speed: PlaybackSpeed;
   state: ReplayState;
 }) {
   const game = gameForState(replay, state);
@@ -1947,7 +1961,7 @@ function SideboardingScene({
 }: {
   opponentName: string;
   opponentTransition?: SideboardTransition;
-  speed: (typeof PLAYBACK_SPEEDS)[number];
+  speed: PlaybackSpeed;
   transition: SideboardTransition;
 }) {
   const combined = Boolean(opponentTransition);
@@ -1980,7 +1994,7 @@ function SideboardTransitionRow({
   transition,
 }: {
   compact: boolean;
-  speed: (typeof PLAYBACK_SPEEDS)[number];
+  speed: PlaybackSpeed;
   transition: SideboardTransition;
 }) {
   const outgoingCount = transition.outgoing.reduce((total, entry) => total + entry.count, 0);
@@ -2047,7 +2061,7 @@ function SideboardDeltaCard({
   direction: "in" | "out";
   entry: SideboardCardQuantity;
   index: number;
-  speed: (typeof PLAYBACK_SPEEDS)[number];
+  speed: PlaybackSpeed;
 }) {
   return (
     <span
@@ -2092,7 +2106,7 @@ function MulliganSceneHand({
   faceDown?: boolean;
   label: string;
   playerId: string;
-  speed: (typeof PLAYBACK_SPEEDS)[number];
+  speed: PlaybackSpeed;
   transition: MulliganHandTransition;
 }) {
   const detailsAvailable = transition.detailLevel !== "unavailable";
@@ -2946,7 +2960,7 @@ function TransportControls({
         <div className={styles.timeReadout}>
           <b>{formatClock(currentMs)}</b><span>/ {formatClock(durationMs)}</span>
         </div>
-        <button className={styles.speedControl} data-control="speed" onClick={() => onChangeSpeed(speed === 1 ? 2 : speed === 2 ? 4 : 1)} type="button">
+        <button className={styles.speedControl} data-control="speed" onClick={() => onChangeSpeed(nextPlaybackSpeed(speed))} type="button">
           {speed}×
         </button>
         <button
@@ -3006,7 +3020,7 @@ function ShortcutHelp({ onClose }: { onClose: () => void }) {
     ["← / →", "Previous or next action"],
     ["Shift + ← / →", "Previous or next game"],
     ["Alt + ← / →", "Previous or next turn"],
-    ["1 / 2 / 4", "Set playback speed"],
+    ["1 / 2 / 4 / 6 / 0", "Set playback speed (0 selects 10×)"],
     ["M", "Show or hide More controls"],
     ["?", "Show this shortcut guide"],
     ["Esc", "Close the active panel"],
