@@ -528,6 +528,13 @@ export function battlefieldZoneForPlayer(
   player: ReplayPlayerState,
   fallback: ReplayBattlefieldZoneKey,
 ): ReplayBattlefieldZoneKey {
+  // TCGA's B1/B2 values are owner-relative and `turnOrderPosition` is not a
+  // physical seat. CentralArena projects each player's zone onto the physical
+  // battlefield; this helper only arranges the two selected battlefield cards.
+  const providerValue = player.fields.provider ?? player.boardFields.provider;
+  const provider = typeof providerValue === "string" ? normalizeKey(providerValue) : "";
+  if (provider === "tcga") return fallback;
+
   const seat = player.seat ?? player.fields.seat ?? player.boardFields.seat;
   const seatNumber = numberValue(seat);
   if (seatNumber === 0) return "battlefieldA";

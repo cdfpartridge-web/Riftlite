@@ -28,8 +28,8 @@ describe("replay upload helpers", () => {
       ],
     });
 
-    expect(metadata).toEqual({ captureId: "capture-123", messageCount: 2 });
-    expect(Object.keys(metadata)).toEqual(["captureId", "messageCount"]);
+    expect(metadata).toEqual({ captureId: "capture-123", messageCount: 2, platform: "atlas" });
+    expect(Object.keys(metadata)).toEqual(["captureId", "messageCount", "platform"]);
   });
 
   it("derives a canonical capture time from raw identity metadata", () => {
@@ -46,8 +46,58 @@ describe("replay upload helpers", () => {
     expect(metadata).toEqual({
       captureId: "capture-timestamped",
       messageCount: 0,
+      platform: "atlas",
       capturedAt: "2026-07-09T18:00:12.345Z",
     });
+  });
+
+  it("accepts the isolated TCGA provider envelope without exposing decoded data", () => {
+    const metadata = validateRawCaptureEnvelope({
+      schema: "riftlite-tcga-raw-capture",
+      version: 1,
+      capture: {
+        captureSessionId: "tcga_capture_123",
+        identity: {
+          firstSeenAt: Date.parse("2026-07-20T13:46:41.834Z"),
+          perspectivePlayerId: "DO-NOT-EXPOSE",
+        },
+        source: { schema: "riftlite-tcga-web-replay", version: 1 },
+        match: { result: "win", perspectivePoints: 8, opponentPoints: 5 },
+      },
+      messages: [{ parsed: { type: "PLAYER_DATA", payload: { private: "DO-NOT-EXPOSE" } } }],
+    });
+
+    expect(metadata).toEqual({
+      captureId: "tcga_capture_123",
+      messageCount: 1,
+      platform: "tcga",
+      capturedAt: "2026-07-20T13:46:41.834Z",
+    });
+    expect(JSON.stringify(metadata)).not.toContain("DO-NOT-EXPOSE");
+  });
+
+  it("keeps TCGA research and unresolved captures out of normal website uploads", () => {
+    const capture = (source: string, result?: string) => ({
+      schema: "riftlite-tcga-raw-capture",
+      version: 1,
+      capture: {
+        captureSessionId: "tcga_capture_123",
+        identity: { firstSeenAt: Date.parse("2026-07-20T13:46:41.834Z") },
+        source: { schema: source, version: 1 },
+        ...(result ? { match: { result } } : {}),
+      },
+      messages: [],
+    });
+
+    expect(() => validateRawCaptureEnvelope(
+      capture("riftlite-tcga-research-session", "win"),
+    )).toThrow(/completed TCGA Web Replay/i);
+    expect(() => validateRawCaptureEnvelope(
+      capture("riftlite-tcga-web-replay", "incomplete"),
+    )).toThrow(/completed TCGA Web Replay/i);
+    expect(() => validateRawCaptureEnvelope(
+      capture("riftlite-tcga-web-replay"),
+    )).toThrow(/completed TCGA Web Replay/i);
   });
 
   it.each([

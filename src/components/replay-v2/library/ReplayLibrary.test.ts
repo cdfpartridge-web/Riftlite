@@ -14,6 +14,20 @@ vi.mock("@/lib/firebase/client", () => ({ firebaseClientApp: {} }));
 
 import { ReplayLibrary } from "./ReplayLibrary";
 
+function publicReplay(replayId: string, title: string) {
+  return {
+    replayId,
+    visibility: "public",
+    status: "ready",
+    title,
+    platform: "atlas",
+    messageCount: 42,
+    capturedAt: "2026-07-09T12:00:00.000Z",
+    createdAt: "2026-07-10T12:00:00.000Z",
+    updatedAt: "2026-07-10T12:01:00.000Z",
+  };
+}
+
 describe("embedded replay library", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -131,7 +145,7 @@ describe("embedded replay library", () => {
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "No uploaded replays yet" })).toBeInTheDocument();
     });
-    expect(view.getByText("Enable automatic upload in RiftLite Settings and complete an Atlas game.")).toBeInTheDocument();
+    expect(view.getByText("Enable automatic upload in RiftLite Settings and complete a game on TCGA or RiftAtlas.")).toBeInTheDocument();
     expect(view.queryByText(/Upload your first raw capture above/i)).not.toBeInTheDocument();
     expect(view.getByRole("tab", { name: "My replays" })).toHaveAttribute("aria-selected", "true");
     expect(view.getByRole("tab", { name: "My replays" })).toBeEnabled();
@@ -196,6 +210,113 @@ describe("embedded replay library", () => {
     }
   });
 
+  it("loads successive public pages and deduplicates replay ids", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const cursor = new URL(String(input), "https://www.riftlite.com").searchParams.get("cursor");
+      return new Response(JSON.stringify(cursor ? {
+        items: [
+          publicReplay("rl2_second", "Second replay refreshed"),
+          publicReplay("rl2_third", "Third replay"),
+        ],
+        pageInfo: { hasMore: false, nextCursor: null },
+      } : {
+        items: [
+          publicReplay("rl2_first", "First replay"),
+          publicReplay("rl2_second", "Second replay"),
+        ],
+        pageInfo: { hasMore: true, nextCursor: "page-2" },
+      }), { headers: { "content-type": "application/json" }, status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(createElement(ReplayLibrary));
+    const loadMore = await view.findByRole("button", { name: "Load more replays" });
+    fireEvent.click(loadMore);
+
+    await waitFor(() => expect(view.getByRole("heading", { name: "Third replay" })).toBeInTheDocument());
+    expect(view.getByRole("heading", { name: "First replay" })).toBeInTheDocument();
+    expect(view.getByRole("heading", { name: "Second replay refreshed" })).toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Second replay" })).not.toBeInTheDocument();
+    expect(view.getByText("3 replays")).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Load more replays" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v2/replays?scope=public&cursor=page-2",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("keeps loaded public cards when loading more fails and allows a retry", async () => {
+    let pageAttempts = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const cursor = new URL(String(input), "https://www.riftlite.com").searchParams.get("cursor");
+      if (!cursor) {
+        return new Response(JSON.stringify({
+          items: [publicReplay("rl2_first", "First replay")],
+          pageInfo: { hasMore: true, nextCursor: "retry-page" },
+        }), { headers: { "content-type": "application/json" }, status: 200 });
+      }
+      pageAttempts += 1;
+      if (pageAttempts === 1) {
+        return new Response(JSON.stringify({ error: "Archive page is temporarily unavailable." }), {
+          headers: { "content-type": "application/json" },
+          status: 503,
+        });
+      }
+      return new Response(JSON.stringify({
+        items: [publicReplay("rl2_second", "Second replay")],
+        pageInfo: { hasMore: false, nextCursor: null },
+      }), { headers: { "content-type": "application/json" }, status: 200 });
+    }));
+
+    const view = render(createElement(ReplayLibrary));
+    fireEvent.click(await view.findByRole("button", { name: "Load more replays" }));
+
+    const retry = await view.findByRole("button", { name: "Try loading again" });
+    expect(view.getByRole("heading", { name: "First replay" })).toBeInTheDocument();
+    expect(view.getByText("Archive page is temporarily unavailable.")).toBeInTheDocument();
+    fireEvent.click(retry);
+
+    await waitFor(() => expect(view.getByRole("heading", { name: "Second replay" })).toBeInTheDocument());
+    expect(view.getByRole("heading", { name: "First replay" })).toBeInTheDocument();
+    expect(pageAttempts).toBe(2);
+  });
+
+  it("refreshes the public archive from page one and replaces its continuation cursor", async () => {
+    let firstPageRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "https://www.riftlite.com");
+      const cursor = url.searchParams.get("cursor");
+      if (cursor) {
+        return new Response(JSON.stringify({ items: [], pageInfo: { hasMore: false, nextCursor: null } }), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        });
+      }
+      firstPageRequests += 1;
+      return new Response(JSON.stringify({
+        items: [publicReplay(`rl2_page_${firstPageRequests}`, `Page ${firstPageRequests} replay`)],
+        pageInfo: { hasMore: true, nextCursor: `cursor-${firstPageRequests}` },
+      }), { headers: { "content-type": "application/json" }, status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(createElement(ReplayLibrary));
+    await view.findByRole("heading", { name: "Page 1 replay" });
+    fireEvent.click(view.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => expect(view.getByRole("heading", { name: "Page 2 replay" })).toBeInTheDocument());
+    expect(view.queryByRole("heading", { name: "Page 1 replay" })).not.toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Load more replays" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v2/replays?scope=public&cursor=cursor-2",
+      expect.objectContaining({ cache: "no-store" }),
+    ));
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/v2/replays?scope=public&cursor=cursor-1",
+      expect.anything(),
+    );
+  });
+
   it("filters public replays by player and opponent legend", async () => {
     const item = (replayId: string, title: string, playerLegend: string, opponentLegend: string) => ({
       replayId,
@@ -234,5 +355,32 @@ describe("embedded replay library", () => {
     expect(view.getByRole("heading", { name: "Akali vs Jinx" })).toBeInTheDocument();
     expect(view.queryByRole("heading", { name: "Akali vs Fiora" })).not.toBeInTheDocument();
     expect(view.getByText("1 of 3 replays")).toBeInTheDocument();
+  });
+
+  it("uses processed matchup identity when an old generated title is stale", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [{
+      replayId: "rl2_corrected_listing",
+      visibility: "public",
+      status: "ready",
+      title: "Unknown vs Renekton",
+      platform: "atlas",
+      messageCount: 42,
+      capturedAt: "2026-07-09T12:00:00.000Z",
+      createdAt: "2026-07-10T12:00:00.000Z",
+      updatedAt: "2026-07-10T12:01:00.000Z",
+      listing: {
+        version: 1,
+        playerName: "Player one",
+        opponentName: "Player two",
+        playerLegend: "Ambessa",
+        opponentLegend: "Renekton",
+        format: "bo3",
+        result: "win",
+      },
+    }] }), { headers: { "content-type": "application/json" }, status: 200 })));
+
+    const view = render(createElement(ReplayLibrary));
+    await waitFor(() => expect(view.getByRole("heading", { name: "Ambessa vs Renekton" })).toBeInTheDocument());
+    expect(view.queryByRole("heading", { name: "Unknown vs Renekton" })).not.toBeInTheDocument();
   });
 });

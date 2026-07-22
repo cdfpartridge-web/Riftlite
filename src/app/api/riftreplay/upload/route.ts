@@ -6,7 +6,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
+import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import { replayApiError, requireReplayUser } from "@/lib/replay-v2-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,14 +35,11 @@ const UploadSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const token = bearerToken(request.headers.get("authorization"));
-  if (!token) {
-    return NextResponse.json({ error: "Sign in to upload RiftLite replays." }, { status: 401 });
-  }
-
-  const decoded = await verifyFirebaseIdToken(token);
-  if (!decoded?.uid) {
-    return NextResponse.json({ error: "RiftLite account token was rejected." }, { status: 401 });
+  let ownerUid = "";
+  try {
+    ownerUid = await requireReplayUser(request);
+  } catch (error) {
+    return replayApiError(error);
   }
 
   const db = getFirestoreAdmin();
@@ -84,7 +82,7 @@ export async function POST(request: Request) {
   const batch = db.batch();
   batch.set(docRef, {
     replayId,
-    ownerUid: decoded.uid,
+    ownerUid,
     visibility,
     title: metadata.title || titleFromPayload(root) || "RiftLite Atlas replay",
     platform: metadata.platform || "atlas",
@@ -129,17 +127,18 @@ export async function POST(request: Request) {
   );
 }
 
-async function storeCompressedPayload(replayId: string, compressed: Buffer, payloadGzipBase64: string) {
+export async function storeCompressedPayload(replayId: string, compressed: Buffer, payloadGzipBase64: string) {
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     try {
       const blob = await put(`replays/${replayId}.json.gz`, compressed, {
-        access: "public",
+        access: "private",
         addRandomSuffix: false,
+        allowOverwrite: false,
         contentType: "application/gzip",
       });
       return {
-        provider: "vercel-blob",
-        blobUrl: blob.url,
+        provider: "vercel-blob-private",
+        blobUrl: "",
         blobPath: "pathname" in blob ? String(blob.pathname) : `replays/${replayId}.json.gz`,
         chunks: [] as string[],
       };
@@ -153,11 +152,6 @@ async function storeCompressedPayload(replayId: string, compressed: Buffer, payl
     blobPath: "",
     chunks: splitIntoChunks(payloadGzipBase64, CHUNK_CHAR_SIZE),
   };
-}
-
-function bearerToken(value: string | null) {
-  const match = /^Bearer\s+(.+)$/i.exec(value ?? "");
-  return match?.[1]?.trim() ?? "";
 }
 
 function splitIntoChunks(value: string, size: number) {

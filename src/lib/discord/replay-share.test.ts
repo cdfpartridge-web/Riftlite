@@ -100,6 +100,43 @@ describe("Discord replay sharing", () => {
     expect(summarizeReplayForDiscord(replay).score).toBe("1-0");
   });
 
+  it.each([
+    ["win", "self", "opp", "1-0"],
+    ["loss", "opp", "self", "0-1"],
+    ["draw", undefined, undefined, "0-0"],
+  ] as const)("uses the authoritative BO1 %s instead of legacy TCGA point totals", (
+    outcome,
+    winnerPlayerId,
+    loserPlayerId,
+    expected,
+  ) => {
+    const replay = fixture();
+    const game = replay.series.games[0]!;
+    replay.series.format = "bo1";
+    replay.series.bestOf = 1;
+    replay.series.games = [{
+      ...game,
+      result: {
+        resultEventId: "tcga-game-result",
+        ...(winnerPlayerId ? { winnerPlayerId } : {}),
+        ...(loserPlayerId ? { loserPlayerId } : {}),
+        finalScores: { self: 5, opp: 6 },
+      },
+    }];
+    replay.series.result = {
+      resultEventId: "tcga-series-result",
+      source: "desktop_match_metadata",
+      outcome,
+      ...(winnerPlayerId ? { winnerPlayerId } : {}),
+      ...(loserPlayerId ? { loserPlayerId } : {}),
+      // This is the legacy TCGA shape that caused Discord to report 5-6.
+      finalScores: { self: 5, opp: 6 },
+    };
+
+    expect(summarizeReplayForDiscord(replay).score).toBe(expected);
+    expect(isDiscordReplayResultResolved(replay)).toBe(true);
+  });
+
   it("keeps unresolved and partially scored matches out of Discord", () => {
     const replay = fixture();
     replay.series.games = [replay.series.games[0]!];

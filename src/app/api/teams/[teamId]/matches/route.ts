@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 
 import { normalizeMatch } from "@/lib/community/data";
-import { requireLinkedProfile, resolveTeamRef, socialJson } from "@/lib/social-hub";
+import { assertTeamRole, requireLinkedProfile, resolveTeamRef, socialJson } from "@/lib/social-hub";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,9 +19,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ team
   if (!snap) return socialJson({ error: "Team not found." }, 404);
 
   const team = snap.data() ?? {};
-  const memberSnap = await snap.ref.collection("members").doc(auth.decoded.uid).get();
-  if (String(team.visibility ?? "public") === "private" && !memberSnap.exists) {
-    return socialJson({ error: "You do not have access to this private team." }, 403);
+  if (String(team.visibility ?? "public") === "private") {
+    const role = await assertTeamRole(snap.id, auth.decoded.uid, ["owner", "admin", "member"]).catch(() => "");
+    if (!role) return socialJson({ error: "You do not have access to this private team." }, 403);
   }
 
   const limit = safeLimit(req.nextUrl.searchParams.get("limit"));

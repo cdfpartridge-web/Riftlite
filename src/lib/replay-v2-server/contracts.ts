@@ -21,6 +21,9 @@ export function replayVisibilityAllowsViewer(
 export const ReplayStatusSchema = z.enum(["uploading", "processing", "ready", "failed"]);
 export type ReplayStatus = z.infer<typeof ReplayStatusSchema>;
 
+export const ReplayPlatformSchema = z.enum(["atlas", "tcga"]);
+export type ReplayPlatform = z.infer<typeof ReplayPlatformSchema>;
+
 export const Sha256HexSchema = z
   .string()
   .trim()
@@ -62,7 +65,7 @@ export const InitReplaySchema = z
     bytes: z.number().int().min(1).max(MAX_RAW_GZIP_BYTES),
     visibility: ReplayVisibilitySchema.default("private"),
     title: z.string().trim().max(180).optional(),
-    platform: z.string().trim().max(40).default("atlas"),
+    platform: ReplayPlatformSchema.default("atlas"),
     localReplayId: OptionalIdentifierSchema,
     matchId: OptionalIdentifierSchema,
     seriesId: OptionalIdentifierSchema,

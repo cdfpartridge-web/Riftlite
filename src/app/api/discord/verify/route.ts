@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 
+import { linkedAccountUidFromCanonicalizedAuth } from "@/lib/account-link";
 import { completeDiscordVerification } from "@/lib/discord/bot";
 import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
 import { ensureUserProfile, profileIsComplete, requireUser, socialJson } from "@/lib/social/server";
@@ -10,7 +11,11 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if ("error" in auth) return auth.error;
-  if (!linkedReplayUid(auth.decoded)) return socialJson({ error: "Create or sign in to a recoverable RiftLite account first." }, 401);
+  if (!linkedAccountUidFromCanonicalizedAuth(
+    auth.authenticatedUid,
+    auth.decoded.uid,
+    linkedReplayUid(auth.decoded),
+  )) return socialJson({ error: "Create or sign in to a recoverable RiftLite account first." }, 401);
   const body = await readBody(req);
   const code = String(body.code ?? "").trim();
   if (!code) return socialJson({ error: "Verification code is required." }, 400);

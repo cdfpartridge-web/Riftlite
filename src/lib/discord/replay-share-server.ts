@@ -16,12 +16,16 @@ import {
   summarizeReplayForDiscord,
 } from "@/lib/discord/replay-share";
 import type { DiscordActiveDeckInput } from "@/lib/discord/replay-share";
+import {
+  aggregateReplayDiscordConfigResults,
+  type ReplayDiscordHubShareStatus,
+} from "@/lib/discord/replay-share-status";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 import { assertHubCapability, identityUidsFor } from "@/lib/social/server";
 
 export type ReplayDiscordHubShareResult = {
   hubId: string;
-  status: "shared" | "already-shared" | "in-progress" | "not-member" | "not-configured" | "failed";
+  status: ReplayDiscordHubShareStatus;
   message?: string;
 };
 
@@ -113,15 +117,7 @@ export async function shareReplayToDiscordFeeds(input: {
       }
     }));
 
-    const status = configResults.includes("failed")
-      ? "failed"
-      : configResults.includes("hub-unavailable")
-        ? "not-member"
-        : configResults.includes("shared")
-          ? "shared"
-          : configResults.includes("in-progress")
-            ? "in-progress"
-            : "already-shared";
+    const status = aggregateReplayDiscordConfigResults(configResults);
     results.push({ hubId, status });
   }
   return results;

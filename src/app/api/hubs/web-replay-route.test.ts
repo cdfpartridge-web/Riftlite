@@ -2,26 +2,30 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  requireUser: vi.fn(),
+  getFirestoreAdmin: vi.fn(),
   identityUidsFor: vi.fn(),
-  linkedReplayUid: vi.fn(),
+  requireFirebaseBearerUser: vi.fn(),
   readBoundedJson: vi.fn(),
   putHubWebReplay: vi.fn(),
   deleteHubWebReplay: vi.fn(),
 }));
 
 vi.mock("@/lib/social/server", () => ({
-  requireUser: mocks.requireUser,
   identityUidsFor: mocks.identityUidsFor,
-  socialJson: (body: Record<string, unknown>, status = 200) => Response.json(body, { status }),
 }));
 
-vi.mock("@/lib/replay-v2-server/identity", () => ({
-  linkedReplayUid: mocks.linkedReplayUid,
+vi.mock("@/lib/firebase/admin", () => ({
+  getFirestoreAdmin: mocks.getFirestoreAdmin,
 }));
 
 vi.mock("@/lib/replay-v2-server", () => ({
   MAX_VISIBILITY_JSON_BYTES: 8_192,
+  ReplayV2Error: class ReplayV2Error extends Error {
+    constructor(public status: number, public code: string, message: string) {
+      super(message);
+    }
+  },
+  requireFirebaseBearerUser: mocks.requireFirebaseBearerUser,
   readBoundedJson: mocks.readBoundedJson,
   putHubWebReplay: mocks.putHubWebReplay,
   deleteHubWebReplay: mocks.deleteHubWebReplay,
@@ -48,11 +52,8 @@ const REPLAY_ID = `rl2_${"e".repeat(32)}`;
 describe("private-hub Web Replay route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.requireUser.mockResolvedValue({
-      db: { id: "db" },
-      decoded: { uid: "account-uid", riftlite_linked_account: true },
-    });
-    mocks.linkedReplayUid.mockReturnValue("account-uid");
+    mocks.getFirestoreAdmin.mockReturnValue({ id: "db" });
+    mocks.requireFirebaseBearerUser.mockResolvedValue("account-uid");
     mocks.identityUidsFor.mockResolvedValue(["account-uid", "desktop-uid"]);
     mocks.readBoundedJson.mockResolvedValue({ replayId: REPLAY_ID });
   });
@@ -107,8 +108,29 @@ describe("private-hub Web Replay route", () => {
     );
   });
 
-  it("rejects anonymous-style Firebase identities before any grant lookup", async () => {
-    mocks.linkedReplayUid.mockReturnValue("");
+  it("verifies an untouched historical-alias bearer through the shared Replay V2 verifier", async () => {
+    mocks.requireFirebaseBearerUser.mockResolvedValue("account-uid");
+    mocks.putHubWebReplay.mockResolvedValue({
+      hubId: "hub-a",
+      matchId: "match-a",
+      replayId: REPLAY_ID,
+    });
+
+    const aliasRequest = request("PUT", { replayId: REPLAY_ID }, "historical-alias-token");
+    const response = (await linkWebReplay(aliasRequest, context()))!;
+
+    expect(response.status).toBe(200);
+    expect(mocks.requireFirebaseBearerUser).toHaveBeenCalledWith(aliasRequest);
+    expect(aliasRequest.headers.get("authorization")).toBe("Bearer historical-alias-token");
+    expect(mocks.putHubWebReplay).toHaveBeenCalledOnce();
+  });
+
+  it("rejects identities that the shared recoverable-account verifier rejects", async () => {
+    mocks.requireFirebaseBearerUser.mockRejectedValue({
+      status: 401,
+      code: "authentication_required",
+      message: "A linked RiftLite account token is required.",
+    });
 
     const response = (await linkWebReplay(request("PUT", { replayId: REPLAY_ID }), context()))!;
 
@@ -118,10 +140,10 @@ describe("private-hub Web Replay route", () => {
   });
 });
 
-function request(method: string, body?: Record<string, unknown>): NextRequest {
+function request(method: string, body?: Record<string, unknown>, token = "token"): NextRequest {
   return new NextRequest("http://localhost/api/hubs/hub-a/matches/match-a/web-replay", {
     method,
-    headers: { authorization: "Bearer token", ...(body ? { "content-type": "application/json" } : {}) },
+    headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 }

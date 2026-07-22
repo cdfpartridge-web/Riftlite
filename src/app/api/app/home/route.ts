@@ -21,8 +21,8 @@ const DEFAULT_FEATURED_VIDEOS: HomeFeaturedVideo[] = [
   },
   {
     title: "Featured RiftLite video",
-    url: "https://www.youtube.com/watch?v=XPvo24lfN9A",
-    embedUrl: "https://www.youtube-nocookie.com/embed/XPvo24lfN9A",
+    url: "https://www.youtube.com/watch?v=gUHFg8zSnSY",
+    embedUrl: "https://www.youtube-nocookie.com/embed/gUHFg8zSnSY",
   },
 ];
 

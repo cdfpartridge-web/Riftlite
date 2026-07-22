@@ -147,6 +147,20 @@ describe("replay board card interpretation", () => {
     expect(battlefieldZoneForPlayer(unknown, "battlefieldA")).toBe("battlefieldA");
   });
 
+  it("ignores legacy TCGA turn-order seats when arranging selected battlefields", () => {
+    const perspectiveSecond = {
+      ...replayPlayer("tcga-self", "BMU", {}, { provider: "tcga", turnOrderPosition: 1 }),
+      seat: 1,
+    };
+    const opponentFirst = {
+      ...replayPlayer("tcga-opponent", "P2892", {}, { provider: "tcga", turnOrderPosition: 0 }),
+      seat: 0,
+    };
+
+    expect(battlefieldZoneForPlayer(perspectiveSecond, "battlefieldA")).toBe("battlefieldA");
+    expect(battlefieldZoneForPlayer(opponentFirst, "battlefieldB")).toBe("battlefieldB");
+  });
+
   it("recognizes only explicit duplicate markers", () => {
     expect(isDuplicateCard({ ...card("boolean", "Copy"), fields: { isDuplicate: true } })).toBe(true);
     expect(isDuplicateCard({ ...card("string", "Copy"), fields: { isDuplicate: " TRUE " } })).toBe(true);

@@ -6,6 +6,7 @@ export const MAX_RAW_GZIP_BYTES = 4 * 1024 * 1024;
 export type RawCaptureUploadMetadata = {
   captureId: string;
   messageCount: number;
+  platform: "atlas" | "tcga";
   capturedAt?: string;
 };
 
@@ -22,12 +23,28 @@ export function isSupportedReplayFileName(fileName: string): boolean {
 }
 
 export function validateRawCaptureEnvelope(value: unknown): RawCaptureUploadMetadata {
-  if (!isRecord(value) || value.schema !== "riftreplay-raw-capture" || value.version !== 1) {
-    throw new Error("Choose a RiftLite raw-capture version 1 file.");
+  if (!isRecord(value) || value.version !== 1) {
+    throw new Error("Choose a supported RiftLite raw-capture version 1 file.");
   }
+  const platform = value.schema === "riftreplay-raw-capture"
+    ? "atlas"
+    : value.schema === "riftlite-tcga-raw-capture"
+      ? "tcga"
+      : null;
+  if (!platform) throw new Error("Choose a supported RiftLite raw-capture version 1 file.");
 
   if (!isRecord(value.capture)) {
     throw new Error("The raw capture is missing its capture identity.");
+  }
+  if (platform === "tcga") {
+    const source = isRecord(value.capture.source) ? value.capture.source : {};
+    const match = isRecord(value.capture.match) ? value.capture.match : {};
+    if (
+      source.schema !== "riftlite-tcga-web-replay" ||
+      !["win", "loss", "draw"].includes(String(match.result ?? ""))
+    ) {
+      throw new Error("Choose a completed TCGA Web Replay capture from the current RiftLite app.");
+    }
   }
 
   const captureId = value.capture.captureSessionId;
@@ -52,6 +69,7 @@ export function validateRawCaptureEnvelope(value: unknown): RawCaptureUploadMeta
   return {
     captureId: captureId.trim(),
     messageCount: value.messages.length,
+    platform,
     ...(capturedAt ? { capturedAt } : {}),
   };
 }

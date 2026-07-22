@@ -84,7 +84,7 @@ describe("desktop homepage config", () => {
     expect(body.featuredVideos).toHaveLength(2);
     expect(body.featuredVideos[0].title).toBe("Legacy first video");
     expect(body.featuredVideos[0].url).toBe("https://www.youtube.com/watch?v=abcdefghijk");
-    expect(body.featuredVideos[1].url).toBe("https://www.youtube.com/watch?v=XPvo24lfN9A");
+    expect(body.featuredVideos[1].url).toBe("https://www.youtube.com/watch?v=gUHFg8zSnSY");
   });
 
   it("preserves slot positions when one configured value is invalid", async () => {
@@ -140,7 +140,7 @@ describe("desktop homepage config", () => {
     expect(response.status).toBe(200);
     expect(body.featuredVideos.map((video: { url: string }) => video.url)).toEqual([
       "https://www.youtube.com/watch?v=4n0x_t-wprg",
-      "https://www.youtube.com/watch?v=XPvo24lfN9A",
+      "https://www.youtube.com/watch?v=gUHFg8zSnSY",
     ]);
   });
 });

@@ -55,6 +55,8 @@ describe("legacy private hub claim", () => {
 
     const response = await POST(request({ hubId: "legacy-hub", password: "correct horse" }));
 
+    expect(response).toBeDefined();
+    if (!response) throw new Error("Expected a claim response.");
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     expect(fake.readWrite("hubs/legacy-hub")).toMatchObject({
@@ -78,6 +80,8 @@ describe("legacy private hub claim", () => {
 
     const response = await POST(request({ hubId: "legacy-hub", password: "  legacy secret  " }));
 
+    expect(response).toBeDefined();
+    if (!response) throw new Error("Expected a claim response.");
     expect(response.status).toBe(200);
     expect(fake.readWrite("hubs/legacy-hub")).toMatchObject({
       owner_uid: "account-uid",
@@ -98,6 +102,8 @@ describe("legacy private hub claim", () => {
 
     const response = await POST(request({ hubId: "legacy-hub", password: "shared password" }));
 
+    expect(response).toBeDefined();
+    if (!response) throw new Error("Expected a claim response.");
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "This hub has already been claimed by another account." });
     expect(fake.writes.size).toBe(0);
@@ -114,17 +120,40 @@ describe("legacy private hub claim", () => {
 
     const response = await POST(request({ hubId: "legacy-hub", password: "legacy secret" }));
 
+    expect(response).toBeDefined();
+    if (!response) throw new Error("Expected a claim response.");
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
       error: "Create or sign in to a recoverable RiftLite account first.",
     });
     expect(fake.writes.size).toBe(0);
   });
+
+  it("accepts a historical desktop credential with a proven canonical association", async () => {
+    const fake = fakeDatabase({
+      name: "Legacy Hub",
+      password_hash: passwordHash("legacy secret"),
+      owner_uid: "desktop-uid",
+      created_by: "desktop-uid",
+      role_mode: "account",
+    });
+    mocks.linkedReplayUid.mockReturnValue("");
+    mocks.requireUser.mockResolvedValue({
+      ...auth(fake.db),
+      authenticatedUid: "desktop-uid",
+    });
+
+    const response = await POST(request({ hubId: "legacy-hub", password: "legacy secret" }));
+
+    expect(response?.status).toBe(200);
+    expect(fake.readWrite("hubs/legacy-hub")).toMatchObject({ owner_uid: "account-uid" });
+  });
 });
 
 function auth(db: ReturnType<typeof fakeDatabase>["db"]) {
   return {
     db,
+    authenticatedUid: "account-uid",
     decoded: {
       uid: "account-uid",
       name: "Rift Player",

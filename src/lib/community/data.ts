@@ -1491,11 +1491,23 @@ function privateHubMatchDocId(hubId: string, matchId: string): string {
   return encodeURIComponent(`${hubId.trim()}::${matchId.trim()}`);
 }
 
+export class PrivateHubAggregateEventError extends Error {
+  constructor(
+    message: string,
+    readonly code: "hub_unavailable" | "source_match_missing" | "source_match_forbidden",
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "PrivateHubAggregateEventError";
+  }
+}
+
 export async function recordPrivateHubAggregateEvent(event: {
   action: "upsert" | "delete";
   hubId: string;
   matchId: string;
   uid: string;
+  identityUids: readonly string[];
   username?: string;
 }): Promise<{
   privateMatchCount: number;
@@ -1514,35 +1526,74 @@ export async function recordPrivateHubAggregateEvent(event: {
   if (!hubId || !matchId || !uid) {
     throw new Error("hubId, matchId, and uid are required");
   }
+  const identityUids = new Set(
+    event.identityUids.map((candidate) => String(candidate ?? "").trim()).filter(Boolean),
+  );
+  if (!identityUids.has(uid)) {
+    throw new PrivateHubAggregateEventError(
+      "The aggregate owner is not associated with this account",
+      "source_match_forbidden",
+      403,
+    );
+  }
 
   const now = Date.now();
   const countersRef = db.collection(AGGREGATE_COLLECTION).doc(PRIVATE_COUNTER_DOC_ID);
   const aggregateRef = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID);
   const hubRef = db.collection("hubs").doc(hubId);
-  const matchRef = db
+  const sourceMatchRef = hubRef.collection("matches").doc(matchId);
+  const indexRef = db
     .collection(PRIVATE_MATCH_INDEX_COLLECTION)
     .doc(privateHubMatchDocId(hubId, matchId));
   const playerRef = db.collection(PRIVATE_PLAYER_INDEX_COLLECTION).doc(publicPlayerDocId(uid));
 
   return db.runTransaction(async (tx) => {
-    const [hubSnap, countersSnap, aggregateSnap, matchSnap, playerSnap] = await Promise.all([
+    const [hubSnap, sourceMatchSnap, countersSnap, aggregateSnap, indexSnap, playerSnap] = await Promise.all([
       tx.get(hubRef),
+      tx.get(sourceMatchRef),
       tx.get(countersRef),
       tx.get(aggregateRef),
-      tx.get(matchRef),
+      tx.get(indexRef),
       tx.get(playerRef),
     ]);
     if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
-      throw new Error("This private hub is no longer available");
+      throw new PrivateHubAggregateEventError(
+        "This private hub is no longer available",
+        "hub_unavailable",
+        409,
+      );
     }
     const counterData = countersSnap.data() ?? aggregateSnap.data() ?? {};
     let privateMatchCount = toNonNegativeInteger(counterData.privateMatchCount) ?? 0;
     let privatePlayerCount = toNonNegativeInteger(counterData.privatePlayerCount) ?? 0;
     const playerData = playerSnap.data() ?? {};
     const playerMatchCount = toNonNegativeInteger(playerData.matchCount) ?? 0;
+    const sourceOwnerUid = String(sourceMatchSnap.get("uid") ?? "").trim();
+    const indexedUid = String(indexSnap.get("uid") ?? "").trim();
 
     if (event.action === "upsert") {
-      if (matchSnap.exists) {
+      if (!sourceMatchSnap.exists) {
+        throw new PrivateHubAggregateEventError(
+          "The private-hub match must exist before it can be counted",
+          "source_match_missing",
+          409,
+        );
+      }
+      if (!sourceOwnerUid || !identityUids.has(sourceOwnerUid)) {
+        throw new PrivateHubAggregateEventError(
+          "You cannot count another player's private-hub match",
+          "source_match_forbidden",
+          403,
+        );
+      }
+      if (indexSnap.exists) {
+        if (!indexedUid || !identityUids.has(indexedUid)) {
+          throw new PrivateHubAggregateEventError(
+            "The existing private-hub aggregate belongs to another player",
+            "source_match_forbidden",
+            403,
+          );
+        }
         return { privateMatchCount, privatePlayerCount, alreadyPresent: true };
       }
       privateMatchCount += 1;
@@ -1550,23 +1601,44 @@ export async function recordPrivateHubAggregateEvent(event: {
       if (playerMatchCount === 0) {
         privatePlayerCount += 1;
       }
-      tx.set(matchRef, { hubId, matchId, uid, username: event.username ?? "", createdAt: now });
+      const sourceMatch = sourceMatchSnap.data() ?? {};
+      const authoritativeUsername = String(
+        sourceMatch.username ?? sourceMatch.owner_display_name ?? event.username ?? "",
+      ).trim();
+      tx.set(indexRef, { hubId, matchId, uid, username: authoritativeUsername, createdAt: now });
       tx.set(
         playerRef,
         {
           uid,
-          username: event.username ?? playerData.username ?? "",
+          username: authoritativeUsername || playerData.username || "",
           matchCount: nextPlayerMatchCount,
           updatedAt: now,
         },
         { merge: true },
       );
     } else {
-      if (!matchSnap.exists) {
+      // Normal match deletion removes the source document before asking this
+      // endpoint to decrement the counters. A redaction keeps the source
+      // document. Authorize either lifecycle from server-owned state instead
+      // of trusting the uid in the request body.
+      if (sourceMatchSnap.exists && (!sourceOwnerUid || !identityUids.has(sourceOwnerUid))) {
+        throw new PrivateHubAggregateEventError(
+          "You cannot remove another player's private-hub aggregate",
+          "source_match_forbidden",
+          403,
+        );
+      }
+      if (!indexSnap.exists) {
         return { privateMatchCount, privatePlayerCount, missing: true };
       }
+      if (!indexedUid || !identityUids.has(indexedUid)) {
+        throw new PrivateHubAggregateEventError(
+          "You cannot remove another player's private-hub aggregate",
+          "source_match_forbidden",
+          403,
+        );
+      }
       privateMatchCount = Math.max(0, privateMatchCount - 1);
-      const indexedUid = String(matchSnap.get("uid") ?? uid).trim() || uid;
       const indexedPlayerRef =
         indexedUid === uid
           ? playerRef
@@ -1587,7 +1659,7 @@ export async function recordPrivateHubAggregateEvent(event: {
           { merge: true },
         );
       }
-      tx.delete(matchRef);
+      tx.delete(indexRef);
     }
 
     const counterPayload = {

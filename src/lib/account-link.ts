@@ -28,6 +28,11 @@ export function accountIdHint(uid: string): string {
   return `${clean.slice(0, 6)}...${clean.slice(-4)}`;
 }
 
+export function discordAccountRecoveryUrl(sessionId: string, code: string): string {
+  const query = new URLSearchParams({ session: sessionId, code });
+  return `/api/auth/discord/start?${query}`;
+}
+
 export function desktopLinkAllowsIdentity(expectedUid: string, selectedUid: string): boolean {
   const expected = expectedUid.trim();
   const selected = selectedUid.trim();
@@ -61,6 +66,25 @@ export function desktopLinkPinnedExpectedUid(
   if (durable) return durable;
   if (authenticated && canonical && authenticated !== canonical) return canonical;
   return requested;
+}
+
+/**
+ * Resolve whether an already-verified request represents a recoverable
+ * RiftLite account. Provider claims are the normal proof. A raw Firebase UID
+ * that the server canonicalized to a different UID is also valid because that
+ * redirect can only come from RiftLite's server-owned immutable identity
+ * records. An unassociated anonymous UID still returns an empty string.
+ */
+export function linkedAccountUidFromCanonicalizedAuth(
+  authenticatedUid: unknown,
+  canonicalUid: unknown,
+  durableUid: unknown,
+): string {
+  const authenticated = String(authenticatedUid ?? "").trim();
+  const canonical = String(canonicalUid ?? "").trim();
+  const durable = String(durableUid ?? "").trim();
+  if (durable) return durable;
+  return authenticated && canonical && authenticated !== canonical ? canonical : "";
 }
 
 /**

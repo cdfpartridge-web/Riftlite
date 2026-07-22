@@ -12,12 +12,12 @@ export const metadata: Metadata = {
 export default async function LinkDevicePage({
   searchParams,
 }: {
-  searchParams: Promise<{ session?: string; code?: string; provider?: string }>;
+  searchParams: Promise<{ session?: string; code?: string; provider?: string; discord?: string }>;
 }) {
   const params = await searchParams;
   const sessionId = params.session ?? "";
   const code = params.code ?? "";
-  const preferredProvider = params.provider === "google" || params.provider === "email"
+  const preferredProvider = params.provider === "google" || params.provider === "email" || params.provider === "discord"
     ? params.provider
     : undefined;
 
@@ -29,7 +29,12 @@ export default async function LinkDevicePage({
         description="Use your RiftLite profile across the desktop app, web profiles, and private hubs."
       />
       {sessionId && code ? (
-        <AccountLinkClient code={code} preferredProvider={preferredProvider} sessionId={sessionId} />
+        <AccountLinkClient
+          code={code}
+          discordCompletion={params.discord === "complete"}
+          preferredProvider={preferredProvider}
+          sessionId={sessionId}
+        />
       ) : (
         <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 text-slate-300">
           This link is missing a desktop session. Start account linking from the RiftLite app.

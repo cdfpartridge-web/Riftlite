@@ -532,6 +532,51 @@
   gap: 17px;
 }
 
+.paginationPanel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid rgba(132, 231, 255, 0.11);
+  border-radius: 18px;
+  background: rgba(10, 16, 37, 0.72);
+}
+
+.paginationPanel p {
+  margin: 0;
+  color: #7f8dab;
+  font-size: 0.76rem;
+}
+
+.paginationPanel button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 17px;
+  border: 1px solid rgba(132, 231, 255, 0.24);
+  border-radius: 999px;
+  color: #dff8ff;
+  background: rgba(89, 167, 255, 0.11);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.paginationPanel button:hover:not(:disabled) {
+  border-color: rgba(132, 231, 255, 0.48);
+  background: rgba(89, 167, 255, 0.18);
+}
+
+.paginationPanel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .replayCard {
   position: relative;
   overflow: hidden;
@@ -774,6 +819,7 @@
   .replayGrid { grid-template-columns: 1fr; }
   .toolbar,
   .resultsHeading { align-items: stretch; flex-direction: column; }
+  .paginationPanel { align-items: stretch; flex-direction: column; }
   .tabs { display: grid; width: 100%; grid-template-columns: 1fr 1fr; }
   .toolbarActions { align-self: stretch; justify-content: flex-end; }
   .filters { grid-template-columns: 1fr 1fr; }

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { type NextRequest } from "next/server";
 
+import { linkedAccountUidFromCanonicalizedAuth } from "@/lib/account-link";
 import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
 import { primaryOwnerUid } from "@/lib/social/hub-lifecycle";
 import { bestProfileDisplayName, ensureUserProfile, findMembershipDocuments, hubIdFromName, identityUidsFor, profileIsComplete, repairHistoricalDesktopIdentityAssociations, requireUser, socialJson, type AccountProfile } from "@/lib/social/server";
@@ -11,7 +12,11 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if ("error" in auth) return auth.error;
-  if (!linkedReplayUid(auth.decoded)) return socialJson({ error: "Create or sign in to a recoverable RiftLite account first." }, 401);
+  if (!linkedAccountUidFromCanonicalizedAuth(
+    auth.authenticatedUid,
+    auth.decoded.uid,
+    linkedReplayUid(auth.decoded),
+  )) return socialJson({ error: "Create or sign in to a recoverable RiftLite account first." }, 401);
   const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? "", auth.decoded.email ?? "");
   if (!profileIsComplete(profile)) {
     return socialJson({ error: "Finish your RiftLite profile to open My Hubs.", code: "profile_incomplete" }, 409);
@@ -69,6 +74,11 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if ("error" in auth) return auth.error;
+  if (!linkedAccountUidFromCanonicalizedAuth(
+    auth.authenticatedUid,
+    auth.decoded.uid,
+    linkedReplayUid(auth.decoded),
+  )) return socialJson({ error: "Create or sign in to a recoverable RiftLite account first." }, 401);
   const body = await readBody(req);
   const action = String(body.action ?? "").trim().toLowerCase();
   const name = String(body.name ?? "").trim();

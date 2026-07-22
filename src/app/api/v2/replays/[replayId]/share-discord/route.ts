@@ -41,7 +41,6 @@ export async function POST(request: Request, context: RouteContext) {
     if (!parsed.success) throw new ReplayV2Error(400, "invalid_hubs", "Choose one or more valid private hubs.");
     const hubIds = Array.from(new Set(parsed.data.hubIds));
 
-    await updateReplayVisibility(ownerUid, replayId, "unlisted");
     const { record, bytes } = await readCanonicalReplay(replayId, ownerUid);
     if (record.status !== "ready" || !bytes) {
       throw new ReplayV2Error(409, "replay_processing", "Replay processing is still in progress.");
@@ -54,6 +53,7 @@ export async function POST(request: Request, context: RouteContext) {
         "The completed match result is not available yet. RiftLite will retry before posting this replay to Discord.",
       );
     }
+    await updateReplayVisibility(ownerUid, replayId, "unlisted");
     const results = await shareReplayToDiscordFeeds({
       ownerUid,
       replayId,

@@ -126,7 +126,7 @@ type MulliganCardSlot = {
 
 type MulliganHandTransition = {
   cards: ReplayCardState[];
-  detailLevel: "count" | "exact" | "unavailable";
+  detailLevel: "count" | "count_unresolved" | "exact" | "unavailable";
   replacementCount: number;
   slots: MulliganCardSlot[];
 };
@@ -1484,6 +1484,13 @@ function CentralArena({
   onCardSelect: (card: ReplayCardState) => void;
   players: ReplayPlayerPair;
 }) {
+  // TCGA's B1/B2 zones are relative to each card owner: B1 is that
+  // player's selected battlefield and B2 is their opponent's. Canonical
+  // Atlas lanes are already physical, so only TCGA needs per-player keys.
+  const tcgaOwnerRelativeLanes = [players.bottom, players.top].some((player) => {
+    const provider = player.fields.provider ?? player.boardFields.provider;
+    return typeof provider === "string" && provider.trim().toLowerCase() === "tcga";
+  });
   const preferredTopZone = battlefieldZoneForPlayer(players.top, "battlefieldB");
   const bottomZone = battlefieldZoneForPlayer(
     players.bottom,
@@ -1499,6 +1506,8 @@ function CentralArena({
       key: bottomZone,
       label: "Battlefield",
       owner: players.bottom,
+      bottomCardZone: tcgaOwnerRelativeLanes ? "battlefieldA" : bottomZone,
+      topCardZone: tcgaOwnerRelativeLanes ? "battlefieldB" : bottomZone,
     },
     {
       battlefield: battlefields[1],
@@ -1506,6 +1515,8 @@ function CentralArena({
       key: topZone,
       label: "Opponent's battlefield",
       owner: players.top,
+      bottomCardZone: tcgaOwnerRelativeLanes ? "battlefieldB" : topZone,
+      topCardZone: tcgaOwnerRelativeLanes ? "battlefieldA" : topZone,
     },
   ];
   return (
@@ -1520,7 +1531,7 @@ function CentralArena({
         >
             <span className={styles.centralLabel}>{lane.label}</span>
             <BattlefieldUnitRow
-              cards={zoneCards(players.top, [lane.key])}
+              cards={zoneCards(players.top, [lane.topCardZone])}
               onCardHover={onCardHover}
               onCardSelect={onCardSelect}
               orientation="top"
@@ -1542,7 +1553,7 @@ function CentralArena({
               )}
             </div>
             <BattlefieldUnitRow
-              cards={zoneCards(players.bottom, [lane.key])}
+              cards={zoneCards(players.bottom, [lane.bottomCardZone])}
               onCardHover={onCardHover}
               onCardSelect={onCardSelect}
               orientation="bottom"
@@ -2110,6 +2121,7 @@ function MulliganSceneHand({
   transition: MulliganHandTransition;
 }) {
   const detailsAvailable = transition.detailLevel !== "unavailable";
+  const cardIdentitiesAvailable = transition.detailLevel !== "count_unresolved" && detailsAvailable;
   const status = detailsAvailable
     ? transition.replacementCount
       ? `${transition.replacementCount} ${transition.replacementCount === 1 ? "card" : "cards"} replaced`
@@ -2137,7 +2149,7 @@ function MulliganSceneHand({
         {slots.map((slot, index) => (
           <span
             className={`${styles.mulliganCardSlot} ${
-              detailsAvailable ? "" : styles.mulliganCardUnresolved
+              cardIdentitiesAvailable ? "" : styles.mulliganCardUnresolved
             }`}
             data-mulligan-slot={slot.leaving || slot.entering ? "replacement" : "kept"}
             key={`${slot.kept?.id ?? slot.leaving?.id ?? "empty"}|${slot.entering?.id ?? index}`}
@@ -2146,7 +2158,7 @@ function MulliganSceneHand({
             {slot.kept ? (
               <span className={styles.mulliganCardKept} data-mulligan-card="kept">
                 <CardTile card={slot.kept} forceFaceDown={faceDown} size="scene" />
-                {detailsAvailable ? <i>Kept</i> : null}
+                {cardIdentitiesAvailable ? <i>Kept</i> : null}
               </span>
             ) : null}
             {slot.leaving ? (
@@ -2164,10 +2176,10 @@ function MulliganSceneHand({
           </span>
         ))}
         {!slots.length ? <em>Hand data is not available at this frame.</em> : null}
-        {!detailsAvailable && slots.length ? (
+        {!cardIdentitiesAvailable && slots.length ? (
           <span className={styles.mulliganUnknownBadge}>
             <Icon name="swap" />
-            Hand shuffled
+            {detailsAvailable ? "Replacement identities unavailable" : "Hand shuffled"}
           </span>
         ) : null}
       </div>
@@ -2226,6 +2238,10 @@ function transitionFromMulliganAction(
     ))
     .at(-1);
   if (!actionEvent || actionEvent.kind !== "action") {
+    const redrawCount = loggedMulliganRedrawCount(replay, game, playerId);
+    if (redrawCount !== undefined) {
+      return unresolvedCountMulliganTransition(openingCards, redrawCount);
+    }
     return unavailableMulliganTransition(openingCards);
   }
 
@@ -2316,6 +2332,45 @@ function unavailableMulliganTransition(cards: ReplayCardState[]): MulliganHandTr
     replacementCount: 0,
     slots: [],
   };
+}
+
+function unresolvedCountMulliganTransition(
+  cards: ReplayCardState[],
+  replacementCount: number,
+): MulliganHandTransition {
+  const finalHand = cards.slice(0, 8);
+  return {
+    cards: finalHand,
+    detailLevel: "count_unresolved",
+    replacementCount: Math.max(0, Math.min(8, replacementCount)),
+    slots: finalHand.map((card) => ({ kept: card })),
+  };
+}
+
+function loggedMulliganRedrawCount(
+  replay: CanonicalReplayV2,
+  game: CanonicalReplayV2["series"]["games"][number],
+  playerId: string,
+): number | undefined {
+  let completed = false;
+  let redrawCount: number | undefined;
+  for (const event of replay.events) {
+    if (
+      event.index < game.eventStartIndex ||
+      event.index > game.eventEndIndex ||
+      event.gameId !== game.id ||
+      event.kind !== "log"
+    ) continue;
+    for (const entry of event.entries) {
+      if (entry.authorPlayerId !== playerId) continue;
+      if (entry.fields.mulliganCompleted === true) completed = true;
+      const count = entry.fields.mulliganRedrawCount;
+      if (typeof count === "number" && Number.isFinite(count) && count >= 0) {
+        redrawCount = Math.trunc(count);
+      }
+    }
+  }
+  return redrawCount ?? (completed ? 0 : undefined);
 }
 
 function countOnlyMulliganTransition(
@@ -3368,17 +3423,31 @@ function presentationOpeningEventIndex(
   const mulligan = game.phases.find((phase) => phase.phase === "mulligan");
   if (!mulligan) return presentationSetupEventIndex(replay, game);
   const start = Math.max(game.eventStartIndex, mulligan.startEventIndex);
-  const end = Math.min(game.eventEndIndex, mulligan.endEventIndex);
+  const inGame = game.phases.find((phase) => phase.phase === "in_game");
+  const firstInGameSnapshot = inGame
+    ? replay.events.find((event) => event.index >= inGame.startEventIndex && event.kind === "snapshot")
+    : undefined;
+  const end = Math.min(
+    game.eventEndIndex,
+    Math.max(mulligan.endEventIndex, firstInGameSnapshot?.index ?? mulligan.endEventIndex),
+  );
+  const requireBothHands = isConsentedDualPerspectiveReplay(replay);
+  let anyHandIndex: number | undefined;
   for (let index = start; index <= end; index += 1) {
     try {
       const state = seekReplayByEventIndex(replay, index).state;
       const players = resolveReplayPlayers(replay, state);
-      if (handCards(players.bottom).length || handCards(players.top).length) return index;
+      const perspectiveHandAvailable = handCards(players.bottom).length > 0;
+      const opponentHandAvailable = handCards(players.top).length > 0;
+      if (perspectiveHandAvailable && (!requireBothHands || opponentHandAvailable)) return index;
+      if (anyHandIndex === undefined && (perspectiveHandAvailable || opponentHandAvailable)) {
+        anyHandIndex = index;
+      }
     } catch {
       // Keep looking for the first projectable opening-hand state.
     }
   }
-  return Math.max(0, Math.min(replay.events.length - 1, end));
+  return Math.max(0, Math.min(replay.events.length - 1, anyHandIndex ?? end));
 }
 
 function presentationStageLabel(stage: Exclude<ReplaySceneKind, null>): string {

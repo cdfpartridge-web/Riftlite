@@ -2,10 +2,10 @@ import "server-only";
 
 import { gzipSync, gunzipSync } from "node:zlib";
 
-import { Timestamp, type DocumentSnapshot, type Firestore } from "firebase-admin/firestore";
+import { FieldPath, Timestamp, type DocumentSnapshot, type Firestore } from "firebase-admin/firestore";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
-import { normalizeRawCaptureV1, parseRawCaptureV1 } from "@/lib/replay-v2";
+import { normalizeReplayProviderCapture } from "@/lib/replay-v2/provider-normalization";
 import { assessReplayPublicationQuality } from "@/lib/replay-v2/replay-quality";
 import { summarizeReplayForListing, type ReplayListingMetadata } from "@/lib/replay-v2/replay-listing";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2/types";
@@ -17,6 +17,7 @@ import {
   MAX_REPLAY_LIST_LIMIT,
   REPLAY_COLLECTION,
   REPLAY_OWNER_COLLECTION,
+  REPLAY_PROCESSING_RETRY_STATUS,
   REPLAY_PUBLIC_COLLECTION,
 } from "@/lib/replay-v2-server/constants";
 import {
@@ -36,6 +37,7 @@ import {
   sanitizeCanonicalReplay,
   sortReplaySummariesByCapturedAt,
 } from "@/lib/replay-v2-server/projection";
+import { identityUidsFor } from "@/lib/social/server";
 
 export type InitReplayResult = {
   record: ReplayRecord;
@@ -43,18 +45,51 @@ export type InitReplayResult = {
   uploadRequired: boolean;
 };
 
+export type ReplayListPage = {
+  items: ReplaySummary[];
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
 export async function initReplay(ownerUid: string, input: InitReplayInput): Promise<InitReplayResult> {
   const db = replayDb();
+  const ownerUids = await replayOwnerIdentityUids(db, ownerUid);
   const replayId = deterministicReplayId(ownerUid, input.captureId);
   const replayRef = db.collection(REPLAY_COLLECTION).doc(replayId);
-  const ownerRef = ownerReplayRef(db, ownerUid, replayId);
+  // Replay ids created before account linking were derived from the desktop
+  // Firebase uid. Once that uid is immutably associated with a recoverable
+  // account, retries arrive under the canonical uid. Probe only those proven
+  // identities so an idempotent retry resumes the original permanent link
+  // instead of creating a second replay for the same capture.
+  const historicalReplayRefs = [...ownerUids]
+    .filter((identityUid) => identityUid !== ownerUid)
+    .map((identityUid) => db.collection(REPLAY_COLLECTION).doc(
+      deterministicReplayId(identityUid, input.captureId),
+    ));
 
   const result = await db.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(replayRef);
+    const canonicalSnapshot = await transaction.get(replayRef);
+    const historicalSnapshots = !canonicalSnapshot.exists && historicalReplayRefs.length
+      ? await transaction.getAll(...historicalReplayRefs)
+      : [];
+    const historicalSnapshotIndex = historicalSnapshots.findIndex((candidate) => candidate.exists);
+    const replayDocumentRef = canonicalSnapshot.exists || historicalSnapshotIndex < 0
+      ? replayRef
+      : historicalReplayRefs[historicalSnapshotIndex];
+    const snapshot = canonicalSnapshot.exists || historicalSnapshotIndex < 0
+      ? canonicalSnapshot
+      : historicalSnapshots[historicalSnapshotIndex];
     if (snapshot.exists) {
       const existing = replayRecord(snapshot);
-      if (existing.ownerUid !== ownerUid || existing.captureId !== input.captureId) {
+      if (!ownerUids.has(existing.ownerUid) || existing.captureId !== input.captureId) {
         throw new ReplayV2Error(409, "replay_id_conflict", "Replay identity conflicts with an existing replay.");
+      }
+      if (existing.platform !== input.platform) {
+        throw new ReplayV2Error(
+          409,
+          "capture_provider_conflict",
+          "This capture id is already registered for a different replay provider.",
+        );
       }
       if (existing.expectedRaw.sha256 !== input.sha256 || existing.expectedRaw.bytes !== input.bytes) {
         throw new ReplayV2Error(
@@ -66,15 +101,24 @@ export async function initReplay(ownerUid: string, input: InitReplayInput): Prom
       if (input.capturedAt && !timestampIso(existing.capturedAt)) {
         const capturedAt = replayCapturedAtTimestamp(input.capturedAt);
         const backfilled: ReplayRecord = { ...existing, capturedAt };
-        transaction.update(replayRef, { capturedAt });
-        transaction.set(ownerRef, projectReplaySummaryRecord(backfilled, true));
+        transaction.update(replayDocumentRef, { capturedAt });
+        transaction.set(
+          ownerReplayRef(db, ownerUid, existing.replayId),
+          projectReplaySummaryRecord(backfilled, true),
+        );
         if (backfilled.visibility === "public" && backfilled.status === "ready") {
           transaction.set(
-            db.collection(REPLAY_PUBLIC_COLLECTION).doc(replayId),
+            db.collection(REPLAY_PUBLIC_COLLECTION).doc(existing.replayId),
             projectReplaySummaryRecord(backfilled, false),
           );
         }
         return { record: backfilled, created: false };
+      }
+      if (replayDocumentRef.path !== replayRef.path) {
+        transaction.set(
+          ownerReplayRef(db, ownerUid, existing.replayId),
+          projectReplaySummaryRecord(existing, true),
+        );
       }
       return { record: existing, created: false };
     }
@@ -88,7 +132,7 @@ export async function initReplay(ownerUid: string, input: InitReplayInput): Prom
       captureId: input.captureId,
       visibility: input.visibility,
       status: "uploading",
-      title: input.title ?? "RiftLite Atlas replay",
+      title: input.title ?? (input.platform === "tcga" ? "RiftLite TCGA replay" : "RiftLite Atlas replay"),
       platform: input.platform,
       localReplayId: input.localReplayId ?? "",
       matchId: input.matchId ?? "",
@@ -105,7 +149,7 @@ export async function initReplay(ownerUid: string, input: InitReplayInput): Prom
       updatedAt: now,
     };
     transaction.create(replayRef, created);
-    transaction.set(ownerRef, projectReplaySummaryRecord(created, true));
+    transaction.set(ownerReplayRef(db, ownerUid, replayId), projectReplaySummaryRecord(created, true));
     return { record: created, created: true };
   });
 
@@ -119,8 +163,9 @@ export async function uploadRawReplay(
   declaration: { sha256: string; bytes: number },
 ): Promise<ReplayRecord> {
   const db = replayDb();
+  const ownerUids = await replayOwnerIdentityUids(db, ownerUid);
   const bytes = Buffer.from(bytesInput);
-  const before = await ownedReplay(db, ownerUid, replayId);
+  const before = await ownedReplay(db, ownerUids, replayId);
   assertExpectedUpload(before, declaration);
   if (before.rawArtifact) return before;
 
@@ -140,7 +185,7 @@ export async function uploadRawReplay(
   return db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(replayRef);
     const current = replayRecord(snapshot);
-    assertOwner(current, ownerUid);
+    assertOwner(current, ownerUids);
     assertExpectedUpload(current, declaration);
     if (current.rawArtifact) return current;
 
@@ -167,13 +212,14 @@ export async function uploadRawReplay(
 
 export async function completeReplay(ownerUid: string, replayId: string): Promise<ReplayRecord> {
   const db = replayDb();
+  const ownerUids = await replayOwnerIdentityUids(db, ownerUid);
   const replayRef = db.collection(REPLAY_COLLECTION).doc(replayId);
   const generation = createArtifactGeneration("canonical");
 
   const claim = await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(replayRef);
     const current = replayRecord(snapshot);
-    assertOwner(current, ownerUid);
+    assertOwner(current, ownerUids);
     if (current.status === "ready" && current.canonicalArtifact) {
       return { record: current, outcome: "ready" as const };
     }
@@ -207,13 +253,13 @@ export async function completeReplay(ownerUid: string, replayId: string): Promis
   });
   if (claim.outcome === "ready") return claim.record;
   if (claim.outcome === "processing") {
-    return waitForExistingCompletion(db, ownerUid, replayId, claim.generation);
+    return waitForExistingCompletion(db, ownerUids, replayId, claim.generation);
   }
 
   try {
     const rawBytes = await readImmutableArtifact(db, claim.record.rawArtifact!);
     const rawPayload = decodeRawCapture(rawBytes);
-    const canonical = normalizeCapture(rawPayload, claim.record.captureId, replayId);
+    const canonical = normalizeCapture(rawPayload, claim.record.captureId, replayId, claim.record.platform);
     const quality = assessReplayPublicationQuality(canonical);
     if (!quality.publishable) {
       throw new ReplayV2Error(
@@ -241,6 +287,7 @@ export async function completeReplay(ownerUid: string, replayId: string): Promis
     return await finalizeCanonicalGeneration(
       db,
       ownerUid,
+      ownerUids,
       replayId,
       generation,
       pointer,
@@ -248,7 +295,7 @@ export async function completeReplay(ownerUid: string, replayId: string): Promis
       listing,
     );
   } catch (error) {
-    await markProcessingFailed(db, ownerUid, replayId, generation, error);
+    await markProcessingFailed(db, ownerUid, ownerUids, replayId, generation, error);
     throw error instanceof ReplayV2Error
       ? error
       : new ReplayV2Error(500, "processing_failed", "Replay processing failed.");
@@ -257,7 +304,7 @@ export async function completeReplay(ownerUid: string, replayId: string): Promis
 
 async function waitForExistingCompletion(
   db: Firestore,
-  ownerUid: string,
+  ownerUids: ReadonlySet<string>,
   replayId: string,
   generation: string,
 ): Promise<ReplayRecord> {
@@ -265,7 +312,7 @@ async function waitForExistingCompletion(
     await delay(delayMs);
     const snapshot = await db.collection(REPLAY_COLLECTION).doc(replayId).get();
     const current = replayRecord(snapshot);
-    assertOwner(current, ownerUid);
+    assertOwner(current, ownerUids);
     if (current.status === "ready" && current.canonicalArtifact) return current;
     if (current.status === "failed") {
       throw new ReplayV2Error(
@@ -275,10 +322,18 @@ async function waitForExistingCompletion(
       );
     }
     if (current.status !== "processing" || current.processingGeneration !== generation) {
-      throw new ReplayV2Error(409, "processing_superseded", "Replay processing changed. Retry shortly.");
+      throw new ReplayV2Error(
+        REPLAY_PROCESSING_RETRY_STATUS,
+        "processing_superseded",
+        "Replay processing changed. Retry shortly.",
+      );
     }
   }
-  throw new ReplayV2Error(409, "replay_processing", "Replay processing is already in progress. Retry shortly.");
+  throw new ReplayV2Error(
+    REPLAY_PROCESSING_RETRY_STATUS,
+    "replay_processing",
+    "Replay processing is already in progress. Retry shortly.",
+  );
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -300,7 +355,7 @@ export async function readCanonicalReplay(
 
 export async function readOwnerRawReplay(ownerUid: string, replayId: string): Promise<{ record: ReplayRecord; bytes: Buffer }> {
   const db = replayDb();
-  const record = await ownedReplay(db, ownerUid, replayId);
+  const record = await ownedReplay(db, await replayOwnerIdentityUids(db, ownerUid), replayId);
   if (!record.rawArtifact) {
     throw new ReplayV2Error(404, "raw_replay_missing", "Raw replay has not been uploaded.");
   }
@@ -316,11 +371,12 @@ export async function updateReplayVisibility(
   visibility: ReplayVisibility,
 ): Promise<ReplayRecord> {
   const db = replayDb();
+  const ownerUids = await replayOwnerIdentityUids(db, ownerUid);
   const replayRef = db.collection(REPLAY_COLLECTION).doc(replayId);
   return db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(replayRef);
     const current = replayRecord(snapshot);
-    assertOwner(current, ownerUid);
+    assertOwner(current, ownerUids);
     const now = Timestamp.now();
     const updated: ReplayRecord = { ...current, visibility, updatedAt: now };
     transaction.update(replayRef, { visibility, updatedAt: now });
@@ -337,30 +393,47 @@ export async function updateReplayVisibility(
 
 export async function listOwnerReplays(ownerUid: string, limit: number): Promise<ReplaySummary[]> {
   const db = replayDb();
-  const snapshot = await db
-    .collection(REPLAY_OWNER_COLLECTION)
-    .doc(ownerUid)
-    .collection("items")
-    .orderBy("createdAt", "desc")
-    .limit(MAX_REPLAY_LIST_LIMIT)
-    .get();
-  const summaries = snapshot.docs.map((document) => serializeSummary(document.data(), true));
+  const ownerIndexUids = await replayOwnerIndexUids(db, ownerUid);
+  const snapshots = await Promise.all(ownerIndexUids.map((indexUid) => (
+    db.collection(REPLAY_OWNER_COLLECTION)
+      .doc(indexUid)
+      .collection("items")
+      .orderBy("createdAt", "desc")
+      .limit(MAX_REPLAY_LIST_LIMIT)
+      .get()
+  )));
+  const summaries = Array.from(new Map(snapshots
+    .flatMap((snapshot) => snapshot.docs.map((document) => serializeSummary(document.data(), true)))
+    .filter((summary) => summary.replayId)
+    .map((summary) => [summary.replayId, summary])).values());
   return sortReplaySummariesByCapturedAt(
     await hydrateReplayListings(db, summaries, true),
   ).slice(0, limit);
 }
 
-export async function listPublicReplays(limit: number): Promise<ReplaySummary[]> {
+export async function listPublicReplays(limit: number, cursorValue = ""): Promise<ReplayListPage> {
+  const cursor = decodeReplayListCursor(cursorValue);
   const db = replayDb();
-  const snapshot = await db
+  let query = db
     .collection(REPLAY_PUBLIC_COLLECTION)
     .orderBy("createdAt", "desc")
-    .limit(MAX_REPLAY_LIST_LIMIT)
-    .get();
-  const summaries = snapshot.docs.map((document) => serializeSummary(document.data(), false));
-  return sortReplaySummariesByCapturedAt(
+    .orderBy(FieldPath.documentId(), "desc");
+  if (cursor) {
+    query = query.startAfter(cursor.createdAt, cursor.replayId);
+  }
+  const snapshot = await query.limit(limit + 1).get();
+  const hasMore = snapshot.docs.length > limit;
+  const pageDocuments = snapshot.docs.slice(0, limit);
+  const summaries = pageDocuments.map((document) => serializeSummary(document.data(), false));
+  const items = sortReplaySummariesByCapturedAt(
     await hydrateReplayListings(db, summaries, false),
-  ).slice(0, limit);
+  );
+  const lastDocument = hasMore ? pageDocuments.at(-1) : undefined;
+  return {
+    items,
+    hasMore,
+    nextCursor: lastDocument ? encodeReplayListCursor(lastDocument) : null,
+  };
 }
 
 export function serializeReplay(record: ReplayRecord, ownerView: boolean): ReplaySummary {
@@ -370,6 +443,7 @@ export function serializeReplay(record: ReplayRecord, ownerView: boolean): Repla
 async function finalizeCanonicalGeneration(
   db: Firestore,
   ownerUid: string,
+  ownerUids: ReadonlySet<string>,
   replayId: string,
   generation: string,
   canonicalArtifact: NonNullable<ReplayRecord["canonicalArtifact"]>,
@@ -380,10 +454,14 @@ async function finalizeCanonicalGeneration(
   return db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(replayRef);
     const current = replayRecord(snapshot);
-    assertOwner(current, ownerUid);
+    assertOwner(current, ownerUids);
     if (current.processingGeneration !== generation) {
       if (current.status === "ready" && current.canonicalArtifact) return current;
-      throw new ReplayV2Error(409, "processing_superseded", "Replay processing was superseded by a newer attempt.");
+      throw new ReplayV2Error(
+        REPLAY_PROCESSING_RETRY_STATUS,
+        "processing_superseded",
+        "Replay processing was superseded by a newer attempt.",
+      );
     }
 
     const now = Timestamp.now();
@@ -422,6 +500,7 @@ async function finalizeCanonicalGeneration(
 async function markProcessingFailed(
   db: Firestore,
   ownerUid: string,
+  ownerUids: ReadonlySet<string>,
   replayId: string,
   generation: string,
   error: unknown,
@@ -432,7 +511,7 @@ async function markProcessingFailed(
     const snapshot = await transaction.get(replayRef);
     if (!snapshot.exists) return;
     const current = replayRecord(snapshot);
-    if (current.ownerUid !== ownerUid || current.processingGeneration !== generation) return;
+    if (!ownerUids.has(current.ownerUid) || current.processingGeneration !== generation) return;
     const now = Timestamp.now();
     const updated: ReplayRecord = {
       ...current,
@@ -461,35 +540,41 @@ function decodeRawCapture(compressed: Buffer): unknown {
   }
 }
 
-function normalizeCapture(rawPayload: unknown, captureId: string, replayId: string) {
+function normalizeCapture(rawPayload: unknown, captureId: string, replayId: string, platform: string) {
   try {
-    const parsed = parseRawCaptureV1(rawPayload);
-    if (parsed.captureId !== captureId) {
+    if (platform !== "atlas" && platform !== "tcga") {
+      throw new ReplayV2Error(422, "unsupported_replay_provider", "Replay provider is not supported.");
+    }
+    const normalized = normalizeReplayProviderCapture(rawPayload, platform, replayId);
+    if (normalized.captureId !== captureId) {
       throw new ReplayV2Error(
         422,
         "capture_id_mismatch",
         "Raw replay capture id does not match the initialized replay.",
       );
     }
-    const normalized = normalizeRawCaptureV1(rawPayload);
-    return sanitizeCanonicalReplay({ ...normalized, id: replayId });
+    return sanitizeCanonicalReplay(normalized.replay);
   } catch (error) {
     if (error instanceof ReplayV2Error) throw error;
     throw new ReplayV2Error(422, "normalization_failed", "Raw replay could not be normalized.");
   }
 }
 
-async function ownedReplay(db: Firestore, ownerUid: string, replayId: string): Promise<ReplayRecord> {
+async function ownedReplay(db: Firestore, ownerUids: ReadonlySet<string>, replayId: string): Promise<ReplayRecord> {
   const snapshot = await db.collection(REPLAY_COLLECTION).doc(replayId).get();
   const record = replayRecord(snapshot);
-  assertOwner(record, ownerUid);
+  assertOwner(record, ownerUids);
   return record;
 }
 
 async function readableReplay(db: Firestore, replayId: string, viewerUid: string): Promise<ReplayRecord> {
   const snapshot = await db.collection(REPLAY_COLLECTION).doc(replayId).get();
   const record = replayRecord(snapshot);
-  const directlyReadable = replayVisibilityAllowsViewer(record.visibility, record.ownerUid, viewerUid);
+  let directlyReadable = replayVisibilityAllowsViewer(record.visibility, record.ownerUid, viewerUid);
+  if (!directlyReadable && viewerUid) {
+    const viewerUids = await replayOwnerIdentityUids(db, viewerUid);
+    directlyReadable = viewerUids.has(record.ownerUid);
+  }
   const readableThroughPrivateHub = !directlyReadable && record.visibility === "private"
     ? await privateReplayHubAccessAllowsViewer(db, record, viewerUid)
     : false;
@@ -519,8 +604,8 @@ function replayRecord(snapshot: DocumentSnapshot): ReplayRecord {
   return data as ReplayRecord;
 }
 
-function assertOwner(record: ReplayRecord, ownerUid: string): void {
-  if (record.ownerUid !== ownerUid) {
+function assertOwner(record: ReplayRecord, ownerUids: ReadonlySet<string>): void {
+  if (!ownerUids.has(record.ownerUid)) {
     throw new ReplayV2Error(403, "replay_owner_required", "Only the replay owner may perform this action.");
   }
 }
@@ -539,8 +624,93 @@ function replayDb(): Firestore {
   return db;
 }
 
+async function replayOwnerIdentityUids(db: Firestore, ownerUid: string): Promise<Set<string>> {
+  const normalizedOwnerUid = String(ownerUid ?? "").trim();
+  if (!normalizedOwnerUid) return new Set();
+  const identityUids = await identityUidsFor(normalizedOwnerUid, db);
+  return new Set([normalizedOwnerUid, ...identityUids]);
+}
+
+/**
+ * Query historical owner indexes only while their reference migration is not
+ * durably complete. Proven aliases remain valid for per-record ownership even
+ * after completion, but completed indexes need not be scanned on every list.
+ */
+async function replayOwnerIndexUids(db: Firestore, ownerUid: string): Promise<string[]> {
+  const ownerUids = [...await replayOwnerIdentityUids(db, ownerUid)];
+  const aliasStates = await Promise.all(ownerUids.map(async (uid) => ({
+    uid,
+    data: (await db.collection("identityAliases").doc(uid).get().catch(() => null))?.data() ?? {},
+  })));
+  return aliasStates
+    .filter(({ uid, data }) => (
+      uid === ownerUid ||
+      !Number.isFinite(Number(data.migrationCompletedAt)) ||
+      Number(data.migrationCompletedAt) <= 0 ||
+      Boolean(String(data.migrationError ?? "").trim())
+    ))
+    .map(({ uid }) => uid);
+}
+
 function ownerReplayRef(db: Firestore, ownerUid: string, replayId: string) {
   return db.collection(REPLAY_OWNER_COLLECTION).doc(ownerUid).collection("items").doc(replayId);
+}
+
+type ReplayListCursor = {
+  createdAt: Timestamp;
+  replayId: string;
+};
+
+function encodeReplayListCursor(document: DocumentSnapshot): string {
+  const createdAt = timestampValue(document.data()?.createdAt);
+  if (!createdAt || !isSafeReplayCursorId(document.id)) {
+    throw new ReplayV2Error(500, "replay_cursor_invalid", "Replay pagination metadata is invalid.");
+  }
+  return Buffer.from(JSON.stringify({
+    v: 1,
+    s: createdAt.seconds,
+    n: createdAt.nanoseconds,
+    id: document.id,
+  }), "utf8").toString("base64url");
+}
+
+function decodeReplayListCursor(value: string): ReplayListCursor | null {
+  const encoded = value.trim();
+  if (!encoded) return null;
+  try {
+    if (encoded.length > 512 || !/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error("invalid encoding");
+    const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as Record<string, unknown>;
+    if (
+      parsed.v !== 1 ||
+      !Number.isSafeInteger(parsed.s) ||
+      !Number.isInteger(parsed.n) ||
+      Number(parsed.n) < 0 ||
+      Number(parsed.n) > 999_999_999 ||
+      !isSafeReplayCursorId(parsed.id)
+    ) {
+      throw new Error("invalid cursor payload");
+    }
+    return {
+      createdAt: new Timestamp(Number(parsed.s), Number(parsed.n)),
+      replayId: parsed.id,
+    };
+  } catch {
+    throw new ReplayV2Error(400, "invalid_replay_cursor", "Replay pagination cursor is invalid.");
+  }
+}
+
+function timestampValue(value: unknown): Timestamp | null {
+  if (value instanceof Timestamp) return value;
+  if (value instanceof Date && Number.isFinite(value.getTime())) return Timestamp.fromDate(value);
+  if (value && typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
+    const date = value.toDate();
+    if (date instanceof Date && Number.isFinite(date.getTime())) return Timestamp.fromDate(date);
+  }
+  return null;
+}
+
+function isSafeReplayCursorId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 160 && !/[\/\u0000-\u001f\u007f]/.test(value);
 }
 
 function serializeSummary(data: Record<string, unknown>, ownerView: boolean): ReplaySummary {

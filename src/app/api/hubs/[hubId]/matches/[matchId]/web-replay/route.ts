@@ -2,14 +2,16 @@ import { type NextRequest } from "next/server";
 
 import {
   MAX_VISIBILITY_JSON_BYTES,
+  ReplayV2Error,
   deleteHubWebReplay,
   noStoreJson,
   putHubWebReplay,
   readBoundedJson,
   replayApiError,
+  requireFirebaseBearerUser,
 } from "@/lib/replay-v2-server";
-import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
-import { identityUidsFor, requireUser, socialJson } from "@/lib/social/server";
+import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import { identityUidsFor } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,27 +21,24 @@ type RouteContext = {
 };
 
 export async function PUT(request: NextRequest, context: RouteContext) {
-  const auth = await requireUser(request);
-  if ("error" in auth) return auth.error;
-  if (!linkedReplayUid(auth.decoded)) {
-    return socialJson(
-      { error: "A linked RiftLite account is required.", code: "authentication_required" },
-      401,
-    );
-  }
-
   try {
+    // Verify the untouched bearer token. `requireUser()` canonicalizes the UID
+    // in its decoded-token copy, which removes the historical desktop alias
+    // needed by the Replay V2 association verifier.
+    const accountUid = await requireFirebaseBearerUser(request);
+    const db = getFirestoreAdmin();
+    if (!db) throw new ReplayV2Error(503, "firebase_unavailable", "Firebase admin is not configured.");
     const [{ hubId, matchId }, body, identityUids] = await Promise.all([
       context.params,
       readBoundedJson(request, MAX_VISIBILITY_JSON_BYTES),
-      identityUidsFor(auth.decoded.uid, auth.db),
+      identityUidsFor(accountUid, db),
     ]);
     const replayId = isRecord(body) ? stringValue(body.replayId) : "";
-    const result = await putHubWebReplay(auth.db, {
+    const result = await putHubWebReplay(db, {
       hubId,
       matchId,
       replayId,
-      actorUid: auth.decoded.uid,
+      actorUid: accountUid,
       identityUids,
     });
     return noStoreJson({
@@ -53,24 +52,18 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
-  const auth = await requireUser(request);
-  if ("error" in auth) return auth.error;
-  if (!linkedReplayUid(auth.decoded)) {
-    return socialJson(
-      { error: "A linked RiftLite account is required.", code: "authentication_required" },
-      401,
-    );
-  }
-
   try {
+    const accountUid = await requireFirebaseBearerUser(request);
+    const db = getFirestoreAdmin();
+    if (!db) throw new ReplayV2Error(503, "firebase_unavailable", "Firebase admin is not configured.");
     const [{ hubId, matchId }, identityUids] = await Promise.all([
       context.params,
-      identityUidsFor(auth.decoded.uid, auth.db),
+      identityUidsFor(accountUid, db),
     ]);
-    const result = await deleteHubWebReplay(auth.db, {
+    const result = await deleteHubWebReplay(db, {
       hubId,
       matchId,
-      actorUid: auth.decoded.uid,
+      actorUid: accountUid,
       identityUids,
     });
     return noStoreJson({ ok: true, ...result });

@@ -9,6 +9,8 @@ import {
   desktopLinkPinnedExpectedUid,
   desktopLinkSessionOwnedBy,
   desktopLinkSignInIsVerified,
+  discordAccountRecoveryUrl,
+  linkedAccountUidFromCanonicalizedAuth,
   shouldAutomaticallyFinishAccountAction,
 } from "@/lib/account-link";
 import {
@@ -35,6 +37,9 @@ describe("desktop account linking", () => {
       handle: "BMU",
     })).toBe("BMU (@BMU)");
     expect(accountIdHint("firebase-account-123456")).toBe("fireba...3456");
+    expect(discordAccountRecoveryUrl("session-1", "ABC 123")).toBe(
+      "/api/auth/discord/start?session=session-1&code=ABC+123",
+    );
   });
 
   it("allows a new device to choose an account but pins reconnects to the existing UID", () => {
@@ -77,6 +82,24 @@ describe("desktop account linking", () => {
       "",
       "remembered-account",
     )).toBe("remembered-account");
+  });
+
+  it("accepts durable providers and proven canonical aliases but not anonymous identities", () => {
+    expect(linkedAccountUidFromCanonicalizedAuth(
+      "google-account",
+      "google-account",
+      "google-account",
+    )).toBe("google-account");
+    expect(linkedAccountUidFromCanonicalizedAuth(
+      "desktop-alias",
+      "account-canonical",
+      "",
+    )).toBe("account-canonical");
+    expect(linkedAccountUidFromCanonicalizedAuth(
+      "anonymous-uid",
+      "anonymous-uid",
+      "",
+    )).toBe("");
   });
 
   it("allows only idempotent source-to-canonical identity bindings", () => {

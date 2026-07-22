@@ -21,6 +21,7 @@ import {
   repairHistoricalDesktopIdentityAssociations,
   profileIsComplete,
   repairCachedProfileMatch,
+  resolveTeamRole,
   validHandle,
 } from "@/lib/social/server";
 import type { CommunityMatch } from "@/lib/types";
@@ -287,6 +288,47 @@ describe("social profile helpers", () => {
     });
   });
 
+  it("retries a failed historical reference migration even after an older release stamped the backfill complete", async () => {
+    const fake = fakeRetryableIdentityMigrationDatabase();
+
+    await expect(repairHistoricalDesktopIdentityAssociations("account-a", fake.db)).resolves.toEqual([]);
+    expect(fake.read("identityAliases/desktop-raw")).toMatchObject({
+      canonicalUid: "account-a",
+      migrationError: "injected migration batch failure",
+    });
+    expect(fake.read("users/account-a")).toMatchObject({
+      desktopIdentityBackfillVersion: 0,
+      desktopIdentityBackfillPendingSources: ["desktop-raw"],
+    });
+    expect(fake.read("replayV2/replay-old")).toMatchObject({ ownerUid: "desktop-raw" });
+
+    await expect(repairHistoricalDesktopIdentityAssociations("account-a", fake.db))
+      .resolves.toEqual(["desktop-raw"]);
+    expect(fake.read("identityAliases/desktop-raw")).toMatchObject({
+      canonicalUid: "account-a",
+      migrationCompletedAt: expect.any(Number),
+    });
+    expect(fake.read("identityAliases/desktop-raw")).not.toHaveProperty("migrationError");
+    expect(fake.read("users/account-a")).toMatchObject({
+      desktopIdentityBackfillVersion: 1,
+      desktopIdentityBackfilledSources: 1,
+      desktopIdentityBackfillPendingSources: [],
+    });
+    expect(fake.read("replayV2/replay-old")).toMatchObject({
+      ownerUid: "account-a",
+      previousOwnerUid: "desktop-raw",
+    });
+    expect(fake.read("replayV2Owners/account-a/items/replay-old")).toMatchObject({
+      ownerUid: "account-a",
+    });
+    expect(fake.read("matches/public-match-old")).toMatchObject({
+      uid: "account-a",
+      owner_uid: "account-a",
+      previousUid: "desktop-raw",
+      owner_display_name: "Account A",
+    });
+  });
+
   it("excludes a stale alias that is immutably bound to another canonical account", async () => {
     const documents = new Map<string, Record<string, unknown>>([
       ["users/account-a", { identityAliases: ["desktop-a", "stale-desktop"] }],
@@ -307,6 +349,21 @@ describe("social profile helpers", () => {
     } as unknown as Firestore;
 
     await expect(identityUidsFor("account-a", db)).resolves.toEqual(["account-a", "desktop-a"]);
+  });
+
+  it("resolves the strongest team role across a canonical account and its proven alias", async () => {
+    const db = fakeTeamIdentityDatabase({ ownerUid: "another-account" }, {
+      "account-a": { uid: "account-a", role: "member" },
+      "desktop-a": { uid: "desktop-a", role: "admin" },
+    });
+
+    await expect(resolveTeamRole("team-a", "account-a", db)).resolves.toBe("admin");
+  });
+
+  it("retains team ownership while the owner record still names a proven desktop alias", async () => {
+    const db = fakeTeamIdentityDatabase({ ownerUid: "desktop-a" }, {});
+
+    await expect(resolveTeamRole("team-a", "account-a", db)).resolves.toBe("owner");
   });
 });
 
@@ -367,4 +424,207 @@ function fakeIdentityBindingDatabase() {
       linkSessions = sessions.map((session) => ({ ...session }));
     },
   };
+}
+
+function fakeRetryableIdentityMigrationDatabase() {
+  const documents = new Map<string, Record<string, unknown>>([
+    ["users/account-a", {
+      canonicalUid: "account-a",
+      handle: "AccountA",
+      handleLower: "accounta",
+      displayName: "Account A",
+      profileComplete: true,
+      onboardingVersion: 1,
+      desktopIdentityBackfillVersion: 1,
+    }],
+    ["desktopLinkSessions/session-1", {
+      status: "complete",
+      desktopUid: "desktop-raw",
+      linkedUid: "account-a",
+    }],
+    ["replayV2/replay-old", {
+      replayId: "replay-old",
+      ownerUid: "desktop-raw",
+      title: "Historical replay",
+    }],
+    ["replayV2Owners/desktop-raw/items/replay-old", {
+      replayId: "replay-old",
+      ownerUid: "desktop-raw",
+      title: "Historical replay",
+    }],
+    ["matches/public-match-old", {
+      uid: "desktop-raw",
+      owner_uid: "desktop-raw",
+      username: "Old Desktop Player",
+      result: "Win",
+    }],
+  ]);
+  let migrationBatchFailuresRemaining = 1;
+
+  type Ref = {
+    id: string;
+    path: string;
+    parent: { parent?: Ref; id: string };
+    get: () => Promise<Snapshot>;
+    set: (data: Record<string, unknown>, options?: { merge?: boolean }) => Promise<void>;
+    collection: (name: string) => Collection;
+  };
+  type Snapshot = {
+    id: string;
+    exists: boolean;
+    ref: Ref;
+    data: () => Record<string, unknown> | undefined;
+  };
+  type Collection = {
+    id: string;
+    path: string;
+    doc: (id: string) => Ref;
+    get: () => Promise<{ docs: Snapshot[] }>;
+    where: (field: string, operator: string, value: unknown) => Query;
+  };
+  type Query = {
+    limit: (limit: number) => Query;
+    get: () => Promise<{ docs: Snapshot[] }>;
+  };
+
+  const mergeDocument = (
+    path: string,
+    data: Record<string, unknown>,
+    merge = false,
+  ) => {
+    const next = merge ? { ...(documents.get(path) ?? {}) } : {};
+    for (const [key, value] of Object.entries(data)) {
+      const transformName = value && typeof value === "object" ? value.constructor?.name : "";
+      if (transformName === "DeleteTransform") {
+        delete next[key];
+      } else if (transformName === "ArrayUnionTransform") {
+        const elements = (value as { elements?: unknown[] }).elements ?? [];
+        next[key] = [...new Set([...(Array.isArray(next[key]) ? next[key] as unknown[] : []), ...elements])];
+      } else {
+        next[key] = value;
+      }
+    }
+    documents.set(path, next);
+  };
+  const collectionDocuments = (path: string): Snapshot[] => {
+    const prefix = `${path}/`;
+    return [...documents.keys()]
+      .filter((candidate) => candidate.startsWith(prefix) && !candidate.slice(prefix.length).includes("/"))
+      .map((candidate) => snapshotFor(candidate));
+  };
+  const snapshotFor = (path: string): Snapshot => {
+    const ref = refFor(path);
+    return {
+      id: ref.id,
+      exists: documents.has(path),
+      ref,
+      data: () => documents.get(path),
+    };
+  };
+  const queryFor = (path: string, field: string, value: unknown): Query => {
+    let resultLimit = Number.POSITIVE_INFINITY;
+    const query: Query = {
+      limit: (limit) => {
+        resultLimit = limit;
+        return query;
+      },
+      get: async () => ({
+        docs: collectionDocuments(path)
+          .filter((snapshot) => snapshot.data()?.[field] === value)
+          .slice(0, resultLimit),
+      }),
+    };
+    return query;
+  };
+  const collectionFor = (path: string, id = path.split("/").at(-1) ?? path): Collection => ({
+    id,
+    path,
+    doc: (documentId) => refFor(`${path}/${documentId}`),
+    get: async () => ({ docs: collectionDocuments(path) }),
+    where: (field, _operator, value) => queryFor(path, field, value),
+  });
+  const refFor = (path: string): Ref => {
+    const parts = path.split("/");
+    const parentDocumentPath = parts.slice(0, -2).join("/");
+    return {
+      id: parts.at(-1) ?? path,
+      path,
+      parent: {
+        id: parts.at(-2) ?? "",
+        ...(parentDocumentPath ? { parent: refFor(parentDocumentPath) } : {}),
+      },
+      get: async () => snapshotFor(path),
+      set: async (data, options) => mergeDocument(path, data, options?.merge === true),
+      collection: (name) => collectionFor(`${path}/${name}`, name),
+    };
+  };
+
+  const db = {
+    collection: (name: string) => collectionFor(name, name),
+    collectionGroup: () => ({
+      where: () => ({ get: async () => ({ docs: [] }) }),
+    }),
+    getAll: async (...refs: Ref[]) => Promise.all(refs.map((ref) => ref.get())),
+    runTransaction: async <T>(callback: (tx: {
+      get: (ref: Ref) => Promise<Snapshot>;
+      set: (ref: Ref, data: Record<string, unknown>, options?: { merge?: boolean }) => void;
+    }) => Promise<T>) => callback({
+      get: (ref) => ref.get(),
+      set: (ref, data, options) => mergeDocument(ref.path, data, options?.merge === true),
+    }),
+    batch: () => {
+      const writes: Array<{ ref: Ref; data: Record<string, unknown>; merge: boolean }> = [];
+      return {
+        set: (ref: Ref, data: Record<string, unknown>, options?: { merge?: boolean }) => {
+          writes.push({ ref, data, merge: options?.merge === true });
+        },
+        commit: async () => {
+          if (migrationBatchFailuresRemaining > 0) {
+            migrationBatchFailuresRemaining -= 1;
+            throw new Error("injected migration batch failure");
+          }
+          for (const write of writes) mergeDocument(write.ref.path, write.data, write.merge);
+        },
+      };
+    },
+  } as unknown as Firestore;
+
+  return {
+    db,
+    read: (path: string) => documents.get(path) ?? {},
+  };
+}
+
+function fakeTeamIdentityDatabase(
+  team: Record<string, unknown>,
+  members: Record<string, Record<string, unknown>>,
+): Firestore {
+  const documents = new Map<string, Record<string, unknown>>([
+    ["users/account-a", { canonicalUid: "account-a", identityAliases: ["account-a", "desktop-a"] }],
+    ["users/desktop-a", { canonicalUid: "account-a", identityAliases: ["account-a", "desktop-a"] }],
+    ["identityAliases/account-a", { sourceUid: "account-a", canonicalUid: "account-a" }],
+    ["identityAliases/desktop-a", { sourceUid: "desktop-a", canonicalUid: "account-a" }],
+    ["teams/team-a", { id: "team-a", ...team }],
+    ...Object.entries(members).map(([uid, data]) => [
+      `teams/team-a/members/${uid}`,
+      data,
+    ] as [string, Record<string, unknown>]),
+  ]);
+  type Ref = {
+    path: string;
+    get: () => Promise<{ exists: boolean; data: () => Record<string, unknown> | undefined }>;
+    collection: (name: string) => { doc: (id: string) => Ref };
+  };
+  const refFor = (path: string): Ref => ({
+    path,
+    get: async () => ({
+      exists: documents.has(path),
+      data: () => documents.get(path),
+    }),
+    collection: (name: string) => ({ doc: (id: string) => refFor(`${path}/${name}/${id}`) }),
+  });
+  return {
+    collection: (name: string) => ({ doc: (id: string) => refFor(`${name}/${id}`) }),
+    getAll: async (...refs: Ref[]) => Promise.all(refs.map((ref) => ref.get())),
+  } as unknown as Firestore;
 }

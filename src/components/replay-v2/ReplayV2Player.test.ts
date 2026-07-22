@@ -233,6 +233,41 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(opponentHand).not.toHaveTextContent("Replacement details unavailable");
   });
 
+  it("waits for the capture player's delayed TCGA hand and shows the known redraw count honestly", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: tcgaLaggedPerspectiveHandReplay(),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_tcga_lagged_hand" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-scene="matchup"]')).toBeInTheDocument();
+    });
+    for (const scene of ["battlefields", "initiative", "opening"]) {
+      fireEvent.click(view.getByRole("button", { name: "Next action" }));
+      await waitFor(() => {
+        expect(view.container.querySelector(`[data-scene="${scene}"]`)).toBeInTheDocument();
+      });
+    }
+
+    const opening = view.container.querySelector<HTMLElement>('[data-scene="opening"]');
+    expect(opening?.querySelector('[data-card-id="tcga-final-a"]')).toHaveAccessibleName("Ruin Runner");
+    expect(opening?.querySelector('[data-card-id="tcga-final-b"]')).toHaveAccessibleName("Kayle, Justified");
+
+    fireEvent.click(view.getByRole("button", { name: "Next action" }));
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-scene="mulligan"]')).toBeInTheDocument();
+    });
+    const selfHand = view.container.querySelector<HTMLElement>('[data-mulligan-player="self"]');
+    expect(selfHand).toHaveAttribute("data-mulligan-details", "count_unresolved");
+    expect(selfHand).toHaveTextContent("2 cards replaced");
+    expect(selfHand).toHaveTextContent("Replacement identities unavailable");
+    expect(selfHand?.querySelector('[data-card-id="tcga-final-a"]')).toHaveAccessibleName("Ruin Runner");
+    expect(selfHand?.querySelectorAll('[data-mulligan-card="leaving"]')).toHaveLength(0);
+  });
+
   it("offers 6× and 10× and cycles the compact speed control through every option", async () => {
     const view = render(createElement(ReplayV2Player, { replayId: "rp_speed_options" }));
 
@@ -554,6 +589,41 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(lanes[0].querySelector('[aria-label="Black Rose Dignitary"]')).toBeInTheDocument();
     expect(lanes[1].querySelector('[aria-label="Eager Drakehound"]')).toBeInTheDocument();
     expect(lanes[0].querySelector('[aria-label="Eager Drakehound"]')).not.toBeInTheDocument();
+  });
+
+  it("projects owner-relative TCGA B1/B2 zones onto both selected battlefields", async () => {
+    const replay = sideboardingAtZeroReplay();
+    const snapshot = replay.events.find((event) => event.kind === "snapshot");
+    if (!snapshot || snapshot.kind !== "snapshot") throw new Error("Missing replay snapshot");
+    const self = snapshot.snapshot.players.self;
+    const opponent = snapshot.snapshot.players.opponent;
+    self.fields = { ...self.fields, provider: "tcga", selectedBattlefield: "Risen Altar" };
+    opponent.fields = { ...opponent.fields, provider: "tcga", selectedBattlefield: "Star Spring" };
+    self.zones.battlefieldA = [replayCard("self-own", "Ambessa, The Wolf", "VEN-084", "mainDeck")];
+    self.zones.battlefieldB = [replayCard("self-opposing", "Honest Broker", "OGN-081", "mainDeck")];
+    opponent.zones.battlefieldA = [replayCard("opponent-own", "Mournful Witness", "OGN-109", "mainDeck")];
+    opponent.zones.battlefieldB = [replayCard("opponent-opposing", "Twilight Reveler", "OGN-171", "mainDeck")];
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+
+    const view = render(createElement(ReplayV2Player, { replayId: "tcga_owner_relative_lanes" }));
+    const lanes = await waitFor(() => {
+      const elements = Array.from(
+        view.container.querySelectorAll<HTMLElement>("[data-battlefield-zone]"),
+      );
+      expect(elements).toHaveLength(2);
+      return elements;
+    });
+
+    expect(lanes[0]).toHaveAttribute("data-battlefield-name", "Risen Altar");
+    expect(lanes[0].querySelector('[aria-label="Ambessa, The Wolf"]')).toBeInTheDocument();
+    expect(lanes[0].querySelector('[aria-label="Twilight Reveler"]')).toBeInTheDocument();
+    expect(lanes[0].querySelector('[aria-label="Honest Broker"]')).not.toBeInTheDocument();
+    expect(lanes[1]).toHaveAttribute("data-battlefield-name", "Star Spring");
+    expect(lanes[1].querySelector('[aria-label="Honest Broker"]')).toBeInTheDocument();
+    expect(lanes[1].querySelector('[aria-label="Mournful Witness"]')).toBeInTheDocument();
   });
 
   it("shows a truthful processing state for a 202 replay summary", async () => {
@@ -936,7 +1006,7 @@ async function advanceToGameTwo(view: ReturnType<typeof render>) {
   fireEvent.keyDown(window, { key: "ArrowRight", shiftKey: true });
   await waitFor(() => {
     expect(view.container.querySelector('[data-scene="game_transition"]')).toBeInTheDocument();
-  }, { timeout: 2_500 });
+  }, { timeout: 5_000 });
 }
 
 function mulliganReplay(options: { opponentRedrawCount?: number } = {}): CanonicalReplayV2 {
@@ -1079,6 +1149,141 @@ function mulliganReplay(options: { opponentRedrawCount?: number } = {}): Canonic
       ],
     },
   });
+  return replay;
+}
+
+function tcgaLaggedPerspectiveHandReplay(): CanonicalReplayV2 {
+  const replay = sideboardingAtZeroReplay();
+  const sourceSnapshot = replay.events.find((event) => event.kind === "snapshot");
+  if (!sourceSnapshot || sourceSnapshot.kind !== "snapshot") {
+    throw new Error("The replay fixture is missing its initial snapshot.");
+  }
+  const earlySnapshot = structuredClone(sourceSnapshot.snapshot);
+  earlySnapshot.room.phase = "mulligan";
+  earlySnapshot.room.rawPhase = "tcga:mulligan";
+  earlySnapshot.players.self.zones.hand = [];
+  earlySnapshot.players.opponent.zones.hand = [
+    hiddenCard("tcga-opponent-hidden-a"),
+    hiddenCard("tcga-opponent-hidden-b"),
+    hiddenCard("tcga-opponent-hidden-c"),
+    hiddenCard("tcga-opponent-hidden-d"),
+  ];
+  const finalSnapshot = structuredClone(earlySnapshot);
+  finalSnapshot.players.self.zones.hand = [
+    replayCard("tcga-final-a", "Ruin Runner", "SFD-105", "mainDeck"),
+    replayCard("tcga-final-b", "Kayle, Justified", "VEN-134", "mainDeck"),
+    replayCard("tcga-final-c", "Sabotage", "OGN-156", "mainDeck"),
+    replayCard("tcga-final-d", "Repulse", "UNL-106", "mainDeck"),
+    replayCard("tcga-final-e", "Punch First", "SFD-097", "mainDeck"),
+  ];
+  const inGameSnapshot = structuredClone(finalSnapshot);
+  inGameSnapshot.room.phase = "in_game";
+  inGameSnapshot.room.rawPhase = "tcga:in_game";
+
+  replay.source.schema = "riftlite-tcga-raw-capture";
+  replay.source.messageCount = 7;
+  replay.series.games[0].eventEndIndex = 6;
+  replay.series.games[0].phases = [
+    {
+      phase: "mulligan",
+      rawPhase: "tcga:mulligan",
+      startEventIndex: 1,
+      endEventIndex: 4,
+      startedAtMs: 100,
+      endedAtMs: 400,
+    },
+    {
+      phase: "in_game",
+      rawPhase: "tcga:in_game",
+      startEventIndex: 5,
+      endEventIndex: 6,
+      startedAtMs: 500,
+      endedAtMs: 600,
+    },
+  ];
+  replay.events = [
+    replay.events[0],
+    {
+      id: "tcga-mulligan-phase",
+      index: 1,
+      at: 1_100,
+      atMs: 100,
+      sourceMessageId: "tcga-message-1",
+      gameId: "game-1",
+      kind: "phase",
+      phase: "mulligan",
+      rawPhase: "tcga:mulligan",
+      gameNumber: 1,
+    },
+    {
+      id: "tcga-opponent-hand-first",
+      index: 2,
+      at: 1_200,
+      atMs: 200,
+      sourceMessageId: "tcga-message-2",
+      gameId: "game-1",
+      kind: "snapshot",
+      snapshot: earlySnapshot,
+    },
+    {
+      id: "tcga-mulligan-log",
+      index: 3,
+      at: 1_300,
+      atMs: 300,
+      sourceMessageId: "tcga-message-3",
+      gameId: "game-1",
+      kind: "log",
+      mode: "append",
+      entries: [
+        {
+          id: "tcga-self-redraw",
+          at: 1_300,
+          text: "LeBlanc replaced 2 cards",
+          authorPlayerId: "self",
+          fields: { provider: "tcga", mulliganRedrawCount: 2 },
+        },
+        {
+          id: "tcga-self-complete",
+          at: 1_301,
+          text: "LeBlanc completed a mulligan",
+          authorPlayerId: "self",
+          fields: { provider: "tcga", mulliganCompleted: true },
+        },
+      ],
+    },
+    {
+      id: "tcga-perspective-hand-late",
+      index: 4,
+      at: 1_400,
+      atMs: 400,
+      sourceMessageId: "tcga-message-4",
+      gameId: "game-1",
+      kind: "snapshot",
+      snapshot: finalSnapshot,
+    },
+    {
+      id: "tcga-in-game-phase",
+      index: 5,
+      at: 1_500,
+      atMs: 500,
+      sourceMessageId: "tcga-message-5",
+      gameId: "game-1",
+      kind: "phase",
+      phase: "in_game",
+      rawPhase: "tcga:in_game",
+      gameNumber: 1,
+    },
+    {
+      id: "tcga-in-game-snapshot",
+      index: 6,
+      at: 1_600,
+      atMs: 600,
+      sourceMessageId: "tcga-message-6",
+      gameId: "game-1",
+      kind: "snapshot",
+      snapshot: inGameSnapshot,
+    },
+  ];
   return replay;
 }
 

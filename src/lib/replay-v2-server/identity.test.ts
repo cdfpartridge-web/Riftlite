@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
+import { linkedReplayUid, serverAssociatedReplayUid } from "@/lib/replay-v2-server/identity";
 
 describe("Replay V2 linked account identity", () => {
   it.each(["phone", "google.com", "github.com"])("accepts durable Firebase identity %s", (provider) => {
@@ -68,5 +68,38 @@ describe("Replay V2 linked account identity", () => {
     })).toBe("");
     expect(linkedReplayUid({ uid: "account-123" })).toBe("");
     expect(linkedReplayUid(null)).toBe("");
+  });
+
+  it("accepts only exact server-owned legacy alias and custom self associations", () => {
+    expect(serverAssociatedReplayUid({
+      uid: "legacy-desktop",
+      firebase: { identities: {}, sign_in_provider: "anonymous" },
+    }, {
+      sourceUid: "legacy-desktop",
+      canonicalUid: "account-123",
+    })).toBe("account-123");
+
+    expect(serverAssociatedReplayUid({
+      uid: "account-123",
+      firebase: { identities: {}, sign_in_provider: "custom" },
+    }, {
+      sourceUid: "account-123",
+      canonicalUid: "account-123",
+    })).toBe("account-123");
+
+    expect(serverAssociatedReplayUid({
+      uid: "anonymous-123",
+      firebase: { identities: {}, sign_in_provider: "anonymous" },
+    }, {
+      sourceUid: "anonymous-123",
+      canonicalUid: "anonymous-123",
+    })).toBe("");
+    expect(serverAssociatedReplayUid({
+      uid: "account-123",
+      firebase: { identities: {}, sign_in_provider: "custom" },
+    }, {
+      sourceUid: "another-account",
+      canonicalUid: "account-123",
+    })).toBe("");
   });
 });

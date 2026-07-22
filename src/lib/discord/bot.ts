@@ -151,45 +151,68 @@ export async function createDiscordVerificationSession(input: {
 export async function completeDiscordVerification(code: string, uid: string, profile: { handle?: string; displayName?: string }) {
   const db = requireDb();
   const ref = db.collection("discordVerificationSessions").doc(code);
-  const snap = await ref.get();
-  if (!snap.exists) throw new Error("Discord verification link was not found.");
-  const data = snap.data() ?? {};
-  if (String(data.status ?? "") !== "pending") throw new Error("Discord verification link has already been used.");
-  if (Number(data.expiresAt ?? 0) < Date.now()) throw new Error("Discord verification link has expired.");
-
-  const guildId = String(data.guildId ?? "");
-  const discordUserId = String(data.discordUserId ?? "");
-  if (!guildId || !discordUserId) throw new Error("Discord verification link is missing guild/user data.");
-
   const now = Date.now();
   const handle = String(profile.handle ?? "");
   const displayName = bestProfileDisplayName(uid, profile.displayName, handle);
-  const link = {
-    uid,
-    guildId,
-    discordUserId,
-    discordUsername: String(data.discordUsername ?? ""),
-    handle,
-    displayName,
-    linkedAt: now,
-    updatedAt: now,
-  };
-  const linkId = discordLinkId(guildId, discordUserId);
-  await db.collection("discordLinks").doc(linkId).set(link, { merge: true });
-  await db.collection("users").doc(uid).set({
-    discordLinked: true,
-    discordLinkedAt: now,
-    discordLastGuildId: guildId,
-    discordLastUserId: discordUserId,
-  }, { merge: true });
-  await ref.set({ status: "complete", uid, completedAt: now }, { merge: true });
+  // Redeeming this code establishes an account-recovery identity, so the
+  // one-time state and every resulting identity write must commit atomically.
+  // A same-account retry is idempotent (for example after a lost response),
+  // while a concurrent different-account redemption fails after Firestore
+  // retries the transaction against the completed session.
+  const completed = await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) throw new Error("Discord verification link was not found.");
+    const data = snap.data() ?? {};
+    const status = String(data.status ?? "");
+    const completedUid = String(data.uid ?? "").trim();
+    if (status === "complete") {
+      if (completedUid !== uid) throw new Error("Discord verification link has already been used.");
+    } else if (status !== "pending") {
+      throw new Error("Discord verification link has already been used.");
+    }
+    if (status === "pending" && Number(data.expiresAt ?? 0) < now) {
+      throw new Error("Discord verification link has expired.");
+    }
 
-  const config = await getDiscordGuildConfig(guildId);
+    const guildId = String(data.guildId ?? "");
+    const discordUserId = String(data.discordUserId ?? "");
+    if (!guildId || !discordUserId) throw new Error("Discord verification link is missing guild/user data.");
+
+    const linkRef = db.collection("discordLinks").doc(discordLinkId(guildId, discordUserId));
+    const existingLink = status === "complete"
+      ? (await transaction.get(linkRef)).data() ?? {}
+      : {};
+    const link = status === "complete" && String(existingLink.uid ?? "").trim() === uid
+      ? existingLink
+      : {
+      uid,
+      guildId,
+      discordUserId,
+      discordUsername: String(data.discordUsername ?? ""),
+      handle,
+      displayName,
+      linkedAt: Number(data.completedAt ?? now) || now,
+      updatedAt: now,
+    };
+    if (status === "pending") {
+      transaction.set(linkRef, link, { merge: true });
+      transaction.set(db.collection("users").doc(uid), {
+        discordLinked: true,
+        discordLinkedAt: now,
+        discordLastGuildId: guildId,
+        discordLastUserId: discordUserId,
+      }, { merge: true });
+      transaction.set(ref, { status: "complete", uid, completedAt: now }, { merge: true });
+    }
+    return { guildId, discordUserId, link };
+  });
+
+  const config = await getDiscordGuildConfig(completed.guildId);
   let roleAssigned = false;
   if (config?.verifiedRoleId) {
-    roleAssigned = await assignDiscordRole(guildId, discordUserId, config.verifiedRoleId).then(() => true).catch(() => false);
+    roleAssigned = await assignDiscordRole(completed.guildId, completed.discordUserId, config.verifiedRoleId).then(() => true).catch(() => false);
   }
-  return { link, roleAssigned, configuredRole: Boolean(config?.verifiedRoleId) };
+  return { link: completed.link, roleAssigned, configuredRole: Boolean(config?.verifiedRoleId) };
 }
 
 export async function getLinkedRiftLiteUid(guildId: string, discordUserId: string) {
