@@ -57,7 +57,30 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
   const games: ReplayGame[] = [];
   const rawFormat = inferSeriesFormat(parsed);
   const desktopMatch = parsed.source.capture?.match;
-  const format = rawFormat === "unknown" && desktopMatch ? desktopMatch.format : rawFormat;
+  const desktopSingleGameFormatOverride = canUseReviewedSingleGameFormat(
+    parsed,
+    rawFormat,
+    desktopMatch,
+  );
+  const format = desktopSingleGameFormatOverride
+    ? "bo1"
+    : rawFormat === "unknown" && desktopMatch
+      ? desktopMatch.format
+      : rawFormat;
+  if (desktopSingleGameFormatOverride) {
+    diagnostics.push({
+      id: stableId(
+        "diagnostic",
+        parsed.captureId,
+        "desktop_match_format_override",
+        rawFormat,
+        desktopMatch?.format,
+      ),
+      severity: "info",
+      code: "desktop_match_format_override",
+      message: "The reviewed single-game match result was used over the provider room's BO3 default.",
+    });
+  }
   const perspectivePlayerId = inferPerspectivePlayerId(parsed);
   const packets = rebasePacketsForTimeline(parsed.packets);
   const intents = collectIntents(packets);
@@ -469,6 +492,7 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
     participants,
     perspectivePlayerId,
     rawFormat,
+    allowFormatOverride: desktopSingleGameFormatOverride,
   });
 
   const seriesStart = games[0]?.startedAt ?? parsed.startedAt;
@@ -507,6 +531,7 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
 }
 
 function applyDesktopMatchResults({
+  allowFormatOverride,
   captureId,
   desktopMatch,
   diagnostics,
@@ -516,6 +541,7 @@ function applyDesktopMatchResults({
   perspectivePlayerId,
   rawFormat,
 }: {
+  allowFormatOverride: boolean;
   captureId: string;
   desktopMatch: RawCaptureMatchV1 | undefined;
   diagnostics: ReplayDiagnostic[];
@@ -526,7 +552,11 @@ function applyDesktopMatchResults({
   rawFormat: ReplaySeriesFormat;
 }): ReplaySeriesResult | undefined {
   if (!desktopMatch) return;
-  if (rawFormat !== "unknown" && desktopMatch.format !== rawFormat) {
+  if (
+    !allowFormatOverride &&
+    rawFormat !== "unknown" &&
+    desktopMatch.format !== rawFormat
+  ) {
     diagnostics.push({
       id: stableId("diagnostic", captureId, "desktop_match_metadata_unmatched", desktopMatch.format, rawFormat),
       severity: "warning",
@@ -837,6 +867,25 @@ function inferSeriesFormat(parsed: ParsedRawCapture): ReplaySeriesFormat {
   if (lifecycleFormat === "bo3" || capture?.match?.format === "bo3" || sawLaterGame) return "bo3";
   if (lifecycleFormat === "bo1" || sawBo1 || capture?.match?.format === "bo1") return "bo1";
   return "unknown";
+}
+
+function canUseReviewedSingleGameFormat(
+  parsed: ParsedRawCapture,
+  rawFormat: ReplaySeriesFormat,
+  desktopMatch: RawCaptureMatchV1 | undefined,
+): boolean {
+  if (
+    rawFormat !== "bo3" ||
+    desktopMatch?.format !== "bo1" ||
+    desktopMatch.result === "incomplete" ||
+    desktopMatch.games.length !== 1 ||
+    desktopMatch.games[0]?.gameNumber !== 1
+  ) {
+    return false;
+  }
+  return parsed.packets.every(
+    (packet) => (observeGamePacket(packet).explicitGameNumber ?? 1) <= 1,
+  );
 }
 
 function rebasePacketsForTimeline(packets: ParsedReplayPacket[]): ParsedReplayPacket[] {

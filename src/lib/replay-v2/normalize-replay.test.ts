@@ -207,6 +207,60 @@ describe("normalizeRawCaptureV1", () => {
     expect(unsafe.diagnostics.some((entry) => entry.code === "terminal_result_unknown")).toBe(true);
   });
 
+  it("uses a reviewed single-game BO1 result over an Atlas room's BO3 default", () => {
+    const capture = syntheticTerminalScoreCapture(7);
+    if (!capture.capture) throw new Error("Expected capture metadata");
+    capture.capture.lifecycle = {
+      ...(capture.capture.lifecycle ?? {}),
+      matchFormat: "bo3",
+    };
+    capture.capture.match = {
+      format: "bo1",
+      result: "win",
+      score: { perspective: 1, opponent: 0 },
+      games: [{
+        gameNumber: 1,
+        result: "win",
+        perspectivePoints: 7,
+        opponentPoints: 5,
+      }],
+    };
+    capture.messages = capture.messages.map((message) => {
+      if (typeof message.raw !== "string") return message;
+      const payload = JSON.parse(message.raw) as Record<string, unknown>;
+      if (payload.sessionDoc && typeof payload.sessionDoc === "object") {
+        payload.sessionDoc = {
+          ...(payload.sessionDoc as Record<string, unknown>),
+          matchFormat: "bo3",
+        };
+      }
+      return { ...message, raw: JSON.stringify(payload) };
+    });
+
+    const replay = normalizeRawCaptureV1(capture);
+
+    expect(replay.series.format).toBe("bo1");
+    expect(replay.series.bestOf).toBe(1);
+    expect(replay.series.games).toHaveLength(1);
+    expect(replay.series.games[0].result).toMatchObject({
+      winnerPlayerId: "player-local",
+      loserPlayerId: "player-opponent",
+      finalScores: { "player-local": 7, "player-opponent": 5 },
+    });
+    expect(replay.series.result).toMatchObject({
+      source: "desktop_match_metadata",
+      outcome: "win",
+      finalScores: { "player-local": 1, "player-opponent": 0 },
+    });
+    expect(replay.diagnostics).toContainEqual(expect.objectContaining({
+      code: "desktop_match_format_override",
+      severity: "info",
+    }));
+    expect(replay.diagnostics.some(
+      (entry) => entry.code === "desktop_match_metadata_unmatched",
+    )).toBe(false);
+  });
+
   it("fills a desktop-confirmed 0-2 BO3 without embedding player identifiers in the metadata", () => {
     const replay = normalizeRawCaptureV1(desktopResultBo3Capture());
 

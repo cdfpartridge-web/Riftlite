@@ -4,12 +4,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   isDiscordReplayResultResolvedMock,
+  normalizeReplayProviderCaptureMock,
   readCanonicalReplayMock,
+  readOwnerRawReplayMock,
   shareReplayToDiscordFeedsMock,
   updateReplayVisibilityMock,
 } = vi.hoisted(() => ({
   isDiscordReplayResultResolvedMock: vi.fn(),
+  normalizeReplayProviderCaptureMock: vi.fn(),
   readCanonicalReplayMock: vi.fn(),
+  readOwnerRawReplayMock: vi.fn(),
   shareReplayToDiscordFeedsMock: vi.fn(),
   updateReplayVisibilityMock: vi.fn(),
 }));
@@ -20,6 +24,10 @@ vi.mock("@/lib/discord/replay-share-server", () => ({
 
 vi.mock("@/lib/discord/replay-share", () => ({
   isDiscordReplayResultResolved: isDiscordReplayResultResolvedMock,
+}));
+
+vi.mock("@/lib/replay-v2/provider-normalization", () => ({
+  normalizeReplayProviderCapture: normalizeReplayProviderCaptureMock,
 }));
 
 vi.mock("@/lib/replay-v2-server", () => {
@@ -34,10 +42,12 @@ vi.mock("@/lib/replay-v2-server", () => {
   }
   return {
     MAX_CANONICAL_JSON_BYTES: 64 * 1024 * 1024,
+    MAX_RAW_JSON_BYTES: 64 * 1024 * 1024,
     ReplayV2Error: MockReplayV2Error,
     isReplayId: () => true,
     readBoundedJson: (request: Request) => request.json(),
     readCanonicalReplay: readCanonicalReplayMock,
+    readOwnerRawReplay: readOwnerRawReplayMock,
     replayApiError: (error: unknown) => {
       const failure = error as { status?: number; code?: string; message?: string };
       return Response.json({ error: failure.code, message: failure.message }, {
@@ -99,6 +109,37 @@ describe("Discord replay share eligibility", () => {
     expect(updateReplayVisibilityMock).toHaveBeenCalledWith("owner-1", REPLAY_ID, "unlisted");
     expect(updateReplayVisibilityMock.mock.invocationCallOrder[0]).toBeLessThan(
       shareReplayToDiscordFeedsMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("recovers an older unresolved canonical from its reviewed raw capture", async () => {
+    const canonical = { schema: "riftlite-canonical-replay", version: 2, marker: "old" };
+    const refreshed = { schema: "riftlite-canonical-replay", version: 2, marker: "refreshed" };
+    const rawPayload = { schema: "riftreplay-raw-capture", version: 1 };
+    readCanonicalReplayMock.mockResolvedValue({
+      record: { platform: "atlas", status: "ready" },
+      bytes: gzipSync(Buffer.from(JSON.stringify(canonical))),
+    });
+    readOwnerRawReplayMock.mockResolvedValue({
+      record: { captureId: "capture-1", platform: "atlas" },
+      bytes: gzipSync(Buffer.from(JSON.stringify(rawPayload))),
+    });
+    normalizeReplayProviderCaptureMock.mockReturnValue({
+      captureId: "capture-1",
+      replay: refreshed,
+    });
+    isDiscordReplayResultResolvedMock.mockImplementation(
+      (replay: { marker?: string }) => replay.marker === "refreshed",
+    );
+
+    const response = await shareRequest();
+
+    expect(response.status).toBe(200);
+    expect(readOwnerRawReplayMock).toHaveBeenCalledWith("owner-1", REPLAY_ID);
+    expect(normalizeReplayProviderCaptureMock)
+      .toHaveBeenCalledWith(rawPayload, "atlas", REPLAY_ID);
+    expect(shareReplayToDiscordFeedsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ replay: refreshed }),
     );
   });
 });

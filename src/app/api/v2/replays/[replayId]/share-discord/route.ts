@@ -6,12 +6,15 @@ import { z } from "zod";
 import { shareReplayToDiscordFeeds } from "@/lib/discord/replay-share-server";
 import { isDiscordReplayResultResolved } from "@/lib/discord/replay-share";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
+import { normalizeReplayProviderCapture } from "@/lib/replay-v2/provider-normalization";
 import {
   MAX_CANONICAL_JSON_BYTES,
+  MAX_RAW_JSON_BYTES,
   ReplayV2Error,
   isReplayId,
   readBoundedJson,
   readCanonicalReplay,
+  readOwnerRawReplay,
   replayApiError,
   requireReplayUser,
   updateReplayVisibility,
@@ -45,7 +48,32 @@ export async function POST(request: Request, context: RouteContext) {
     if (record.status !== "ready" || !bytes) {
       throw new ReplayV2Error(409, "replay_processing", "Replay processing is still in progress.");
     }
-    const replay = JSON.parse(gunzipSync(bytes, { maxOutputLength: MAX_CANONICAL_JSON_BYTES }).toString("utf8")) as CanonicalReplayV2;
+    let replay = JSON.parse(
+      gunzipSync(bytes, { maxOutputLength: MAX_CANONICAL_JSON_BYTES }).toString("utf8"),
+    ) as CanonicalReplayV2;
+    if (!isDiscordReplayResultResolved(replay)) {
+      // A ready canonical can predate a result-normalization fix. Re-read the
+      // immutable owner raw artifact so an automatic desktop retry can recover
+      // without replacing the replay URL or requiring another upload.
+      try {
+        const raw = await readOwnerRawReplay(ownerUid, replayId);
+        if (raw.record.platform !== "atlas" && raw.record.platform !== "tcga") {
+          throw new Error("Unsupported replay provider.");
+        }
+        const rawPayload = JSON.parse(
+          gunzipSync(raw.bytes, { maxOutputLength: MAX_RAW_JSON_BYTES }).toString("utf8"),
+        ) as unknown;
+        const refreshed = normalizeReplayProviderCapture(
+          rawPayload,
+          raw.record.platform,
+          replayId,
+        ).replay;
+        if (isDiscordReplayResultResolved(refreshed)) replay = refreshed;
+      } catch {
+        // Preserve the normal pending-result response when the old raw
+        // artifact cannot be recovered or still has no reviewed result.
+      }
+    }
     if (!isDiscordReplayResultResolved(replay)) {
       throw new ReplayV2Error(
         409,
