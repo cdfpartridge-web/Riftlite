@@ -130,6 +130,223 @@ describe("replay analysis mode", () => {
     });
   });
 
+  it("reveals a guaranteed Atlas hand departure when a played card becomes public", () => {
+    const firstHidden = hiddenCard("__hidden_zone__:opponent:hand:0");
+    const secondHidden = hiddenCard("__hidden_zone__:opponent:hand:1");
+    const revealed = opponentPublicCard("card_atlas_1", "Irresistible Faefolk", "UNL-112");
+    const state = analysisState([firstHidden, secondHidden]);
+    const replay = analysisReplay([
+      markerEvent(0),
+      actionEvent(1, [{
+        id: "remove-anonymous-card",
+        op: "zone_remove",
+        playerId: "opponent",
+        zone: "hand",
+        cardIds: [secondHidden.id],
+      }, {
+        id: "insert-public-card",
+        op: "zone_insert",
+        playerId: "opponent",
+        zone: "base",
+        index: 0,
+        cards: [revealed],
+      }], "move_card"),
+    ]);
+
+    const result = revealFutureKnownHandCards(replay, 0, state);
+
+    expect(result.inferredCardIds).toHaveLength(1);
+    expect(result.state.players.opponent.zones.hand).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        cardCode: "UNL-112",
+        isPlaceholder: false,
+        name: "Irresistible Faefolk",
+        fields: expect.objectContaining({ analysisKnowledge: "future_reveal" }),
+      }),
+      expect.objectContaining({ isPlaceholder: true }),
+    ]));
+  });
+
+  it("reveals a guaranteed Atlas hand departure that becomes public on the chain", () => {
+    const hidden = hiddenCard("__hidden_zone__:opponent:hand:0");
+    const state = analysisState([hidden]);
+    const replay = analysisReplay([
+      markerEvent(0),
+      actionEvent(1, [{
+        id: "insert-chain-card",
+        op: "chain_insert",
+        index: 0,
+        entries: [{
+          id: "chain-entry",
+          fields: {
+            byPlayerId: "opponent",
+            card: {
+              id: "chain-card",
+              name: "Stacked Deck",
+              cardCode: "OGN-183",
+              ownerPlayerId: "opponent",
+              source: "mainDeck",
+              isPlaceholder: false,
+            },
+            fromZone: "hand",
+          },
+        }],
+      }, {
+        id: "remove-chain-card-from-hand",
+        op: "zone_remove",
+        playerId: "opponent",
+        zone: "hand",
+        cardIds: [hidden.id],
+      }], "chain_add"),
+    ]);
+
+    const result = revealFutureKnownHandCards(replay, 0, state);
+
+    expect(result.inferredCardIds).toEqual([hidden.id]);
+    expect(result.state.players.opponent.zones.hand[0]).toMatchObject({
+      cardCode: "OGN-183",
+      isPlaceholder: false,
+      name: "Stacked Deck",
+    });
+  });
+
+  it("keeps Atlas cards hidden when a later draw makes the departing card ambiguous", () => {
+    const firstHidden = hiddenCard("__hidden_zone__:opponent:hand:0");
+    const secondHidden = hiddenCard("__hidden_zone__:opponent:hand:1");
+    const laterDraw = hiddenCard("__hidden_zone__:opponent:hand:2");
+    const revealed = opponentPublicCard("card_atlas_2", "Fresh Draw", "TST-102");
+    const state = analysisState([firstHidden, secondHidden]);
+    const replay = analysisReplay([
+      markerEvent(0),
+      actionEvent(1, [{
+        id: "draw-anonymous-card",
+        op: "zone_insert",
+        playerId: "opponent",
+        zone: "hand",
+        index: 2,
+        cards: [laterDraw],
+      }], "draw_card"),
+      actionEvent(2, [{
+        id: "remove-ambiguous-card",
+        op: "zone_remove",
+        playerId: "opponent",
+        zone: "hand",
+        cardIds: [laterDraw.id],
+      }, {
+        id: "insert-ambiguous-public-card",
+        op: "zone_insert",
+        playerId: "opponent",
+        zone: "base",
+        index: 0,
+        cards: [revealed],
+      }], "move_card"),
+    ]);
+
+    const result = revealFutureKnownHandCards(replay, 0, state);
+
+    expect(result.inferredCardIds).toEqual([]);
+    expect(result.state.players.opponent.zones.hand).toEqual([
+      expect.objectContaining({ id: firstHidden.id, isPlaceholder: true }),
+      expect.objectContaining({ id: secondHidden.id, isPlaceholder: true }),
+    ]);
+  });
+
+  it("keeps Atlas positions aligned after a later draw is played first", () => {
+    const firstHidden = hiddenCard("__hidden_zone__:opponent:hand:0");
+    const secondHidden = hiddenCard("__hidden_zone__:opponent:hand:1");
+    const laterDraw = hiddenCard("__hidden_zone__:opponent:hand:2");
+    const drawnCard = opponentPublicCard("card_atlas_drawn", "Fresh Draw", "TST-102");
+    const anchorCard = opponentPublicCard("card_atlas_anchor", "Stacked Deck", "OGN-183");
+    const state = analysisState([firstHidden, secondHidden]);
+    const replay = analysisReplay([
+      markerEvent(0),
+      actionEvent(1, [{
+        id: "draw-at-end",
+        op: "zone_insert",
+        playerId: "opponent",
+        zone: "hand",
+        index: 2,
+        cards: [laterDraw],
+      }], "draw_card"),
+      actionEvent(2, [{
+        id: "play-later-draw",
+        op: "zone_remove",
+        playerId: "opponent",
+        zone: "hand",
+        cardIds: [laterDraw.id],
+      }, {
+        id: "show-later-draw",
+        op: "zone_insert",
+        playerId: "opponent",
+        zone: "base",
+        index: 0,
+        cards: [drawnCard],
+      }], "move_card"),
+      actionEvent(3, [{
+        id: "play-anchor-card",
+        op: "zone_remove",
+        playerId: "opponent",
+        zone: "hand",
+        cardIds: [secondHidden.id],
+      }, {
+        id: "show-anchor-card",
+        op: "zone_insert",
+        playerId: "opponent",
+        zone: "base",
+        index: 1,
+        cards: [anchorCard],
+      }], "move_card"),
+    ]);
+
+    const result = revealFutureKnownHandCards(replay, 0, state);
+
+    expect(result.inferredCardIds).toEqual([secondHidden.id]);
+    expect(result.state.players.opponent.zones.hand).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: firstHidden.id, isPlaceholder: true }),
+      expect.objectContaining({
+        cardCode: "OGN-183",
+        id: secondHidden.id,
+        isPlaceholder: false,
+        name: "Stacked Deck",
+      }),
+    ]));
+  });
+
+  it("does not carry Atlas positional identities across a replacement snapshot", () => {
+    const hidden = hiddenCard("__hidden_zone__:opponent:hand:0");
+    const replacement = analysisState([
+      hiddenCard("__hidden_zone__:opponent:hand:0"),
+    ]);
+    const revealed = opponentPublicCard("card_after_snapshot", "Replacement Card", "TST-777");
+    const state = analysisState([hidden]);
+    const replay = analysisReplay([
+      markerEvent(0),
+      snapshotEvent(1, replacement),
+      actionEvent(2, [{
+        id: "remove-replacement-card",
+        op: "zone_remove",
+        playerId: "opponent",
+        zone: "hand",
+        cardIds: [hidden.id],
+      }, {
+        id: "show-replacement-card",
+        op: "zone_insert",
+        playerId: "opponent",
+        zone: "base",
+        index: 0,
+        cards: [revealed],
+      }], "move_card"),
+    ]);
+
+    const result = revealFutureKnownHandCards(replay, 0, state);
+
+    expect(result.inferredCardIds).toEqual([]);
+    expect(result.state.players.opponent.zones.hand[0]).toMatchObject({
+      id: hidden.id,
+      isPlaceholder: true,
+    });
+  });
+
   it("uses combined open-hand information directly without creating inferences", () => {
     const state = analysisState([publicCard("already-known", "Open Card", "TST-001")]);
     const replay = analysisReplay([markerEvent(0)]);
@@ -543,6 +760,13 @@ function publicCard(id: string, name: string, cardCode: string): ReplayCardState
   };
 }
 
+function opponentPublicCard(id: string, name: string, cardCode: string): ReplayCardState {
+  const card = publicCard(id, name, cardCode);
+  card.ownerPlayerId = "opponent";
+  card.fields.ownerPlayerId = "opponent";
+  return card;
+}
+
 function markerEvent(index: number): ReplayEvent {
   return {
     id: `phase-${index}`,
@@ -561,6 +785,7 @@ function markerEvent(index: number): ReplayEvent {
 function actionEvent(
   index: number,
   operations: ReplayActionEvent["patch"]["operations"],
+  actionType = "test",
 ): ReplayActionEvent {
   return {
     id: `action-${index}`,
@@ -570,8 +795,8 @@ function actionEvent(
     sourceMessageId: `message-${index}`,
     gameId: "game-1",
     kind: "action",
-    actionType: "test",
-    action: {},
+    actionType,
+    action: { type: actionType },
     confirmation: {
       status: "confirmed",
       authority: "authoritative_patch_commit",

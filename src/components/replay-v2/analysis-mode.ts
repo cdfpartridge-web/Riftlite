@@ -56,6 +56,20 @@ type TrackedHiddenCard = {
   playerId: string;
 };
 
+type AnonymousAtlasHandCohort = {
+  playerId: string;
+  slots: Array<string | null>;
+};
+
+type AnonymousAtlasHandEvidence = {
+  hiddenRemoved: number;
+  mutations: Array<
+    | { count: number; index: number; kind: "insert" }
+    | { indices: number[]; kind: "remove" }
+  >;
+  publicCards: ReplayCardState[];
+};
+
 /**
  * Creates a transient analysis branch. The canonical replay and its checkpoints
  * are never mutated; all inferred identities and user changes live in this
@@ -96,11 +110,23 @@ export function revealFutureKnownHandCards(
 ): { inferredCardIds: string[]; state: ReplayState } {
   const state = cloneReplayState(anchorState);
   const tracked = new Map<string, TrackedHiddenCard>();
+  const anonymousAtlasHands = new Map<string, AnonymousAtlasHandCohort>();
   for (const player of Object.values(anchorState.players)) {
     for (const [zone, cards] of Object.entries(player.zones)) {
       if (!isHandZone(zone)) continue;
       for (const card of cards) {
         if (card.isPlaceholder) {
+          if (isAnonymousAtlasHandCardId(card.id)) {
+            const cohort = anonymousAtlasHands.get(player.id) ?? {
+              playerId: player.id,
+              slots: [],
+            };
+            const cardIndex = anonymousAtlasHandIndex(card.id) ?? cohort.slots.length;
+            while (cohort.slots.length <= cardIndex) cohort.slots.push(null);
+            cohort.slots[cardIndex] = card.id;
+            anonymousAtlasHands.set(player.id, cohort);
+            continue;
+          }
           tracked.set(card.id, {
             active: true,
             allowProjectionGaps: isStableTcgaCardId(card.id),
@@ -110,7 +136,7 @@ export function revealFutureKnownHandCards(
       }
     }
   }
-  if (!tracked.size) return { inferredCardIds: [], state };
+  if (!tracked.size && !anonymousAtlasHands.size) return { inferredCardIds: [], state };
 
   const inferred = new Map<string, ReplayCardState>();
   let futureState = cloneReplayState(anchorState);
@@ -129,6 +155,26 @@ export function revealFutureKnownHandCards(
 
     const previousState = futureState;
     futureState = reduceReplayEvent(futureState, event);
+
+    const anonymousEvidence = anonymousAtlasHandEvidence(event);
+    for (const cohort of anonymousAtlasHands.values()) {
+      if (event.kind === "snapshot") {
+        cohort.slots = Array<string | null>(
+          anonymousAtlasHandCount(futureState, cohort.playerId),
+        ).fill(null);
+        continue;
+      }
+      reconcileAnonymousAtlasHand(
+        cohort,
+        anonymousAtlasHandCount(previousState, cohort.playerId),
+      );
+      const evidence = anonymousEvidence.get(cohort.playerId);
+      if (evidence) applyAnonymousAtlasHandEvidence(cohort, evidence, inferred);
+      reconcileAnonymousAtlasHand(
+        cohort,
+        anonymousAtlasHandCount(futureState, cohort.playerId),
+      );
+    }
 
     for (const [cardId, tracking] of tracked) {
       if (!tracking.active || inferred.has(cardId)) continue;
@@ -167,7 +213,7 @@ export function revealFutureKnownHandCards(
     location.card.exhausted = false;
     location.card.isPlaceholder = false;
     location.card.fields = {
-      ...cloneObject(publicCard.fields),
+      ...cloneObject(publicCard.fields ?? {}),
       ownerPlayerId: location.card.ownerPlayerId ?? publicCard.ownerPlayerId ?? location.player.id,
       source,
       isPlaceholder: false,
@@ -176,6 +222,176 @@ export function revealFutureKnownHandCards(
   }
 
   return { inferredCardIds: [...inferred.keys()], state };
+}
+
+function anonymousAtlasHandEvidence(
+  event: CanonicalReplayV2["events"][number],
+): Map<string, AnonymousAtlasHandEvidence> {
+  const result = new Map<string, AnonymousAtlasHandEvidence>();
+  if (event.kind !== "action") return result;
+
+  const evidenceFor = (playerId: string) => {
+    const evidence = result.get(playerId) ?? {
+      hiddenRemoved: 0,
+      mutations: [],
+      publicCards: [],
+    };
+    result.set(playerId, evidence);
+    return evidence;
+  };
+
+  for (const operation of event.patch.operations) {
+    if (operation.op === "zone_remove" && isHandZone(operation.zone)) {
+      const indices = operation.cardIds.flatMap((cardId) => {
+        const index = anonymousAtlasHandIndex(cardId);
+        return index === undefined ? [] : [index];
+      });
+      if (indices.length) {
+        const evidence = evidenceFor(operation.playerId);
+        evidence.hiddenRemoved += indices.length;
+        evidence.mutations.push({ indices, kind: "remove" });
+      }
+      continue;
+    }
+    if (operation.op === "zone_insert") {
+      const evidence = evidenceFor(operation.playerId);
+      if (isHandZone(operation.zone)) {
+        const hiddenAdded = operation.cards.filter(
+          (card) => card.isPlaceholder && isAnonymousAtlasHandCardId(card.id),
+        ).length;
+        if (hiddenAdded) {
+          evidence.mutations.push({
+            count: hiddenAdded,
+            index: operation.index,
+            kind: "insert",
+          });
+        }
+      }
+      for (const card of operation.cards) {
+        if (
+          event.actionType === "move_card" &&
+          hasPublicIdentity(card) &&
+          (!card.ownerPlayerId || card.ownerPlayerId === operation.playerId)
+        ) {
+          evidence.publicCards.push(card);
+        }
+      }
+      continue;
+    }
+    if (operation.op === "zone_move") {
+      const evidence = evidenceFor(operation.from.playerId);
+      if (
+        isHandZone(operation.from.zone) &&
+        isAnonymousAtlasHandCardId(operation.cardId)
+      ) {
+        const index = anonymousAtlasHandIndex(operation.cardId);
+        evidence.hiddenRemoved += 1;
+        if (index !== undefined) {
+          evidence.mutations.push({ indices: [index], kind: "remove" });
+        }
+        if (operation.card && hasPublicIdentity(operation.card)) {
+          evidence.publicCards.push(operation.card);
+        }
+      }
+      if (
+        isHandZone(operation.to.zone) &&
+        operation.card?.isPlaceholder &&
+        isAnonymousAtlasHandCardId(operation.card.id)
+      ) {
+        evidenceFor(operation.to.playerId).mutations.push({
+          count: 1,
+          index: operation.to.index,
+          kind: "insert",
+        });
+      }
+      continue;
+    }
+    if (operation.op !== "chain_insert") continue;
+    for (const entry of operation.entries) {
+      const fromZone = textField(entry.fields.fromZone);
+      const card = replayCardFromJson(entry.fields.card);
+      const playerId = textField(entry.fields.byPlayerId) ?? card?.ownerPlayerId;
+      if (
+        playerId &&
+        fromZone &&
+        isHandZone(fromZone) &&
+        card &&
+        hasPublicIdentity(card)
+      ) {
+        evidenceFor(playerId).publicCards.push(card);
+      }
+    }
+  }
+
+  for (const evidence of result.values()) {
+    evidence.publicCards = uniquePublicCards(evidence.publicCards);
+  }
+  return result;
+}
+
+function applyAnonymousAtlasHandEvidence(
+  cohort: AnonymousAtlasHandCohort,
+  evidence: AnonymousAtlasHandEvidence,
+  inferred: Map<string, ReplayCardState>,
+): void {
+  const removedAnchorCardIds: string[] = [];
+  for (const mutation of evidence.mutations) {
+    if (mutation.kind === "insert") {
+      const index = Math.max(0, Math.min(mutation.index, cohort.slots.length));
+      cohort.slots.splice(index, 0, ...Array<string | null>(mutation.count).fill(null));
+      continue;
+    }
+    for (const index of [...mutation.indices].sort((left, right) => right - left)) {
+      if (index < 0 || index >= cohort.slots.length) continue;
+      const [removedCardId] = cohort.slots.splice(index, 1);
+      if (removedCardId) removedAnchorCardIds.unshift(removedCardId);
+    }
+  }
+
+  if (
+    removedAnchorCardIds.length === evidence.hiddenRemoved &&
+    evidence.publicCards.length === evidence.hiddenRemoved
+  ) {
+    for (let index = 0; index < evidence.hiddenRemoved; index += 1) {
+      inferred.set(removedAnchorCardIds[index], evidence.publicCards[index]);
+    }
+  }
+}
+
+function reconcileAnonymousAtlasHand(
+  cohort: AnonymousAtlasHandCohort,
+  nextHiddenCount: number,
+): void {
+  if (nextHiddenCount === cohort.slots.length) return;
+  cohort.slots = Array<string | null>(nextHiddenCount).fill(null);
+}
+
+function anonymousAtlasHandCount(state: ReplayState, playerId: string): number {
+  const player = state.players[playerId];
+  if (!player) return 0;
+  return Object.entries(player.zones).reduce((count, [zone, cards]) => (
+    isHandZone(zone)
+      ? count + cards.filter(
+          (card) => card.isPlaceholder && isAnonymousAtlasHandCardId(card.id),
+        ).length
+      : count
+  ), 0);
+}
+
+function uniquePublicCards(cards: ReplayCardState[]): ReplayCardState[] {
+  const seen = new Set<string>();
+  return cards.filter((card) => {
+    const key = `${card.id}|${card.cardCode ?? ""}|${card.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function replayCardFromJson(value: unknown): ReplayCardState | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const card = cloneCard(value as ReplayCardState);
+  return typeof card.id === "string" && typeof card.name === "string" ? card : undefined;
 }
 
 export function applyReplayAnalysisOperation(
@@ -708,6 +924,17 @@ function normalizeZone(value: string): string {
 
 function isStableTcgaCardId(cardId: string): boolean {
   return /^tcga_card_[a-f0-9]{16}$/i.test(cardId);
+}
+
+function isAnonymousAtlasHandCardId(cardId: string): boolean {
+  return /^__hidden_zone__:[^:]+:hand:\d+$/i.test(cardId);
+}
+
+function anonymousAtlasHandIndex(cardId: string): number | undefined {
+  const match = cardId.match(/^__hidden_zone__:[^:]+:hand:(\d+)$/i);
+  if (!match) return undefined;
+  const index = Number(match[1]);
+  return Number.isSafeInteger(index) ? index : undefined;
 }
 
 function zoneFamily(value: string): string {
