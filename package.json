@@ -18,12 +18,13 @@
     "report:pageviews": "node scripts/page-view-report.mjs",
     "report:app-usage": "node scripts/app-usage-report.mjs",
     "report:marketing": "node scripts/marketing-report.mjs",
+    "replay:tcga:preview": "tsx scripts/build-tcga-replay-preview.ts",
     "repair:profile-names": "node scripts/repair-profile-display-names.mjs",
     "repair:private-counters": "node scripts/backfill-private-community-counters.mjs",
     "discord:register": "node scripts/register-discord-commands.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.90.0",
+    "@anthropic-ai/sdk": "^0.112.4",
     "@portabletext/react": "^6.0.3",
     "@radix-ui/react-slot": "^1.2.4",
     "@sanity/image-url": "^2.1.1",
@@ -62,6 +63,7 @@
     "playwright": "^1.59.1",
     "sharp": "^0.34.5",
     "tailwindcss": "^4.2.2",
+    "tsx": "^4.22.4",
     "typescript": "^5.9.3",
     "vitest": "^4.1.4"
   }

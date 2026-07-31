@@ -1,9 +1,12 @@
 import { gunzipSync } from "node:zlib";
 
+import { get } from "@vercel/blob";
 import type { DocumentData, DocumentReference } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
-import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
+import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import { canonicalIdentityUid } from "@/lib/identity-server";
+import { optionalReplayUser } from "@/lib/replay-v2-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,9 +34,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const metadata = doc.data() ?? {};
   const visibility = String(metadata.visibility ?? "private");
   if (visibility === "private") {
-    const token = bearerToken(request.headers.get("authorization"));
-    const decoded = token ? await verifyFirebaseIdToken(token) : null;
-    if (!decoded?.uid || decoded.uid !== metadata.ownerUid) {
+    const [viewerUid, ownerUid] = await Promise.all([
+      optionalReplayUser(request),
+      canonicalIdentityUid(String(metadata.ownerUid ?? ""), db),
+    ]);
+    if (!viewerUid || !ownerUid || viewerUid !== ownerUid) {
       return NextResponse.json({ error: "Replay is private." }, { status: 403 });
     }
   }
@@ -68,11 +73,19 @@ export async function GET(request: NextRequest, context: RouteContext) {
   );
 }
 
-async function readCompressedPayload(
+export async function readCompressedPayload(
   docRef: DocumentReference<DocumentData>,
   metadata: Record<string, unknown>,
 ) {
   const blobUrl = String(metadata.blobUrl ?? "");
+  const blobPath = String(metadata.blobPath ?? "");
+  if (metadata.storageProvider === "vercel-blob-private" && blobPath) {
+    const result = await get(blobPath, { access: "private" });
+    if (!result || result.statusCode !== 200 || !result.stream) {
+      throw new Error("Private replay blob could not be read.");
+    }
+    return Buffer.from(await new Response(result.stream).arrayBuffer());
+  }
   if (metadata.storageProvider === "vercel-blob" && blobUrl) {
     const response = await fetch(blobUrl, { cache: "no-store" });
     if (!response.ok) {
@@ -97,11 +110,6 @@ function publicMetadata(metadata: Record<string, unknown>) {
     messageCount: Number(metadata.messageCount ?? 0),
     createdAt: serializeTimestamp(metadata.createdAt),
   };
-}
-
-function bearerToken(value: string | null) {
-  const match = /^Bearer\s+(.+)$/i.exec(value ?? "");
-  return match?.[1]?.trim() ?? "";
 }
 
 function serializeTimestamp(value: unknown) {

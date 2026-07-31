@@ -43,14 +43,14 @@ const commands = [
       },
       {
         name: "feed_channel",
-        description: "Channel for opted-in match and unlisted replay feed posts.",
+        description: "Channel reserved for the RiftLite match feed.",
         type: 7,
         required: false,
         channel_types: [0, 5],
       },
       {
         name: "reports_channel",
-        description: "Channel for weekly RiftLite testing reports.",
+        description: "Channel for reports and opted-in replay links.",
         type: 7,
         required: false,
         channel_types: [0, 5],

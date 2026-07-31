@@ -5,14 +5,16 @@ import { randomUUID } from "node:crypto";
 import { FieldValue, type Firestore } from "firebase-admin/firestore";
 import { type NextRequest } from "next/server";
 
+import { linkedAccountUidFromCanonicalizedAuth } from "@/lib/account-link";
+import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
 import {
   bestProfileDisplayName,
   buildSearchPrefixes,
   cleanDisplayName,
-  cleanHandle,
   ensureUserProfile,
   handleLower,
   requireUser,
+  resolveTeamRole,
   socialJson,
   type AccountProfile
 } from "@/lib/social/server";
@@ -44,6 +46,14 @@ const BUILT_IN_MODERATOR_HANDLES = new Set(["bmu", "bmucasts"]);
 export async function requireLinkedProfile(req: NextRequest): Promise<LinkedSocialAuth | { error: ReturnType<typeof socialJson> }> {
   const auth = await requireUser(req);
   if ("error" in auth && auth.error) return { error: auth.error };
+  const linkedUid = linkedAccountUidFromCanonicalizedAuth(
+    auth.authenticatedUid,
+    auth.decoded.uid,
+    linkedReplayUid(auth.decoded),
+  );
+  if (!linkedUid) {
+    return { error: socialJson({ error: "Create or sign in to a recoverable RiftLite account first." }, 401) };
+  }
   const profile = await ensureUserProfile(auth.decoded.uid, auth.decoded.name ?? auth.decoded.email ?? "", auth.decoded.email ?? "");
   if (!profile.handleLower) {
     return { error: socialJson({ error: "Link your RiftLite profile and claim a handle before using Social Hub." }, 403) };
@@ -268,11 +278,8 @@ export function normalizeApplicationStatus(value: unknown): "pending" | "accepte
 }
 
 export async function assertTeamRole(teamId: string, uid: string, roles: Array<"owner" | "admin" | "member">) {
-  const authDb = (await import("@/lib/firebase/admin")).getFirestoreAdmin();
-  if (!authDb) throw new Error("Firebase admin is not configured");
-  const snap = await authDb.collection("teams").doc(teamId).collection("members").doc(uid).get();
-  const role = normalizeTeamRole(snap.data()?.role);
-  if (!snap.exists || !roles.includes(role)) {
+  const role = await resolveTeamRole(teamId, uid);
+  if (!role || !roles.includes(role)) {
     throw new Error("You do not have permission for this team action.");
   }
   return role;

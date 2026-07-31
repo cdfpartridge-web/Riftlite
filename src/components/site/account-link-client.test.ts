@@ -14,12 +14,13 @@ describe("desktop-link URL privacy", () => {
   });
 
   it("removes the session, code, and provider query immediately after mounting", async () => {
-    window.history.replaceState({}, "", "/link-device?session=session-secret&code=ABC123&provider=email");
+    window.history.replaceState({}, "", "/link-device?session=session-secret&code=ABC123&provider=discord&discord=complete");
 
     render(createElement(AccountLinkClient, {
       sessionId: "session-secret",
       code: "ABC123",
-      preferredProvider: "email",
+      discordCompletion: true,
+      preferredProvider: "discord",
     }));
 
     await waitFor(() => expect(window.location.href).toMatch(/\/link-device$/));

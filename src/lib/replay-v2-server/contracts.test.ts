@@ -55,6 +55,16 @@ describe("replay v2 init contract", () => {
     expect(VisibilityUpdateSchema.safeParse({ visibility: "friends" }).success).toBe(false);
   });
 
+  it("accepts only isolated replay providers", () => {
+    const declaration = {
+      captureId: "capture-provider",
+      sha256: "a".repeat(64),
+      bytes: 1,
+    };
+    expect(InitReplaySchema.parse({ ...declaration, platform: "tcga" }).platform).toBe("tcga");
+    expect(InitReplaySchema.safeParse({ ...declaration, platform: "unknown" }).success).toBe(false);
+  });
+
   it("allows anonymous link viewing only for unlisted and public replays", () => {
     expect(replayVisibilityAllowsViewer("private", "owner-1", "")).toBe(false);
     expect(replayVisibilityAllowsViewer("private", "owner-1", "owner-1")).toBe(true);

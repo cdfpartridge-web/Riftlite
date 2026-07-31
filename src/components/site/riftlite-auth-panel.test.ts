@@ -9,6 +9,7 @@ const firebaseHarness = vi.hoisted(() => ({
   sendEmailVerification: vi.fn(),
   sendPasswordResetEmail: vi.fn(),
   signInWithEmailAndPassword: vi.fn(),
+  signInWithCustomToken: vi.fn(),
   signInWithPopup: vi.fn(),
   signOut: vi.fn(),
 }));
@@ -25,6 +26,7 @@ vi.mock("firebase/auth", () => ({
   sendEmailVerification: firebaseHarness.sendEmailVerification,
   sendPasswordResetEmail: firebaseHarness.sendPasswordResetEmail,
   signInWithEmailAndPassword: firebaseHarness.signInWithEmailAndPassword,
+  signInWithCustomToken: firebaseHarness.signInWithCustomToken,
   signInWithPopup: firebaseHarness.signInWithPopup,
   signOut: firebaseHarness.signOut,
 }));
@@ -189,6 +191,53 @@ describe("RiftLite desktop account sign in", () => {
     fireEvent.click(retryButton);
 
     await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+  });
+
+  it("offers Discord only as recovery for a desktop link", () => {
+    const view = render(createElement(RiftLiteAuthPanel, {
+      desktopLink,
+      preferredProvider: "discord",
+    }));
+
+    const link = view.getByRole("link", { name: "Continue with Discord" });
+    expect(link).toHaveAttribute("href", "/api/auth/discord/start?session=session-1&code=ABC123");
+    expect(view.getByText(/restores an existing RiftLite account/i)).toBeInTheDocument();
+    expect(firebaseHarness.signInWithCustomToken).not.toHaveBeenCalled();
+  });
+
+  it("exchanges a completed Discord proof and loads the existing account", async () => {
+    const account = testUser("legacy-discord-account", false, { providerId: "custom" });
+    firebaseHarness.signInWithCustomToken.mockImplementation(async () => {
+      firebaseHarness.auth.currentUser = account;
+      firebaseHarness.listener?.(account);
+      return { user: account };
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/auth/discord/token") {
+        return jsonResponse({ customToken: "discord-custom-token", uid: account.uid });
+      }
+      if (String(input) === "/api/account/profile") {
+        return jsonResponse({ profile: completeProfile(account.uid) });
+      }
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onReady = vi.fn(async () => ({ message: "Desktop connected." }));
+
+    const view = render(createElement(RiftLiteAuthPanel, {
+      desktopLink,
+      discordCompletion: true,
+      onReady,
+      preferredProvider: "discord",
+      readyTitle: "RiftLite is linked",
+    }));
+
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    expect(firebaseHarness.signInWithCustomToken).toHaveBeenCalledWith(
+      firebaseHarness.auth,
+      "discord-custom-token",
+    );
+    expect(view.getByRole("heading", { name: "RiftLite is linked" })).toBeInTheDocument();
   });
 
   it("creates an email account directly and blocks desktop linking until verification", async () => {

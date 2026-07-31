@@ -4,6 +4,8 @@ import type { ReplayCardState, ReplayPlayerState, ReplayState } from "@/lib/repl
 
 import {
   attachedToCardId,
+  banishedCards,
+  banishedTransitions,
   battlefieldCards,
   battlefieldZoneForPlayer,
   boardZones,
@@ -145,6 +147,20 @@ describe("replay board card interpretation", () => {
     expect(battlefieldZoneForPlayer(seatOne, "battlefieldA")).toBe("battlefieldB");
     expect(battlefieldZoneForPlayer(seatB, "battlefieldA")).toBe("battlefieldB");
     expect(battlefieldZoneForPlayer(unknown, "battlefieldA")).toBe("battlefieldA");
+  });
+
+  it("ignores legacy TCGA turn-order seats when arranging selected battlefields", () => {
+    const perspectiveSecond = {
+      ...replayPlayer("tcga-self", "BMU", {}, { provider: "tcga", turnOrderPosition: 1 }),
+      seat: 1,
+    };
+    const opponentFirst = {
+      ...replayPlayer("tcga-opponent", "P2892", {}, { provider: "tcga", turnOrderPosition: 0 }),
+      seat: 0,
+    };
+
+    expect(battlefieldZoneForPlayer(perspectiveSecond, "battlefieldA")).toBe("battlefieldA");
+    expect(battlefieldZoneForPlayer(opponentFirst, "battlefieldB")).toBe("battlefieldB");
   });
 
   it("recognizes only explicit duplicate markers", () => {
@@ -344,6 +360,30 @@ describe("replay board card interpretation", () => {
       runeArea: [card("rune", "Mind Rune", "OGN-089", "rune")],
     });
     expect(boardZones(player).map((zone) => zone.key)).toEqual(["base"]);
+  });
+
+  it("tracks Atlas-style banished aliases without rendering them as board lanes", () => {
+    const opponent = replayPlayer("opponent", "Fiora", {});
+    const previousPlayer = replayPlayer("self", "LeBlanc", {
+      banished: [],
+      base: [card("base-card", "Watchful Sentry", "OGN-096")],
+    });
+    const currentPlayer = replayPlayer("self", "LeBlanc", {
+      base: [card("base-card", "Watchful Sentry", "OGN-096")],
+      exile: [card("exiled-card", "Daring Poro", "OGN-135")],
+      removed: [card("removed-card", "Repulse", "UNL-106")],
+    });
+    const previous = replayState(previousPlayer, opponent);
+    const current = replayState(currentPlayer, opponent);
+
+    expect(banishedCards(currentPlayer).map((entry) => entry.id))
+      .toEqual(["exiled-card", "removed-card"]);
+    expect(banishedTransitions(previous, current)).toMatchObject([{
+      playerId: "self",
+      playerName: "LeBlanc",
+      cards: [{ id: "exiled-card" }, { id: "removed-card" }],
+    }]);
+    expect(boardZones(currentPlayer).map((zone) => zone.key)).toEqual(["base"]);
   });
 });
 

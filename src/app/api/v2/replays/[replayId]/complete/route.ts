@@ -1,5 +1,6 @@
 import {
   ReplayV2Error,
+  REPLAY_PROCESSING_RETRY_STATUS,
   completeReplay,
   isReplayId,
   noStoreJson,
@@ -25,7 +26,11 @@ export async function POST(request: Request, context: RouteContext) {
     const ownerUid = await requireReplayUser(request);
     const record = await completeReplay(ownerUid, replayId);
     if (record.status !== "ready" || !record.canonicalArtifact) {
-      throw new ReplayV2Error(409, "replay_processing", "Replay processing is still in progress. Retry shortly.");
+      throw new ReplayV2Error(
+        REPLAY_PROCESSING_RETRY_STATUS,
+        "replay_processing",
+        "Replay processing is still in progress. Retry shortly.",
+      );
     }
     return noStoreJson({
       replay: serializeReplay(record, true),

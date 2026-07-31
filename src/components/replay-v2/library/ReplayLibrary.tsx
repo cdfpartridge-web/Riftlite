@@ -111,8 +111,12 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
   const [publicReplays, setPublicReplays] = useState<ReplaySummary[]>([]);
   const [myReplays, setMyReplays] = useState<ReplaySummary[]>([]);
   const [publicLoading, setPublicLoading] = useState(true);
+  const [publicLoadingMore, setPublicLoadingMore] = useState(false);
   const [mineLoading, setMineLoading] = useState(false);
   const [publicError, setPublicError] = useState("");
+  const [publicMoreError, setPublicMoreError] = useState("");
+  const [publicNextCursor, setPublicNextCursor] = useState<string | null>(null);
+  const [publicHasMore, setPublicHasMore] = useState(false);
   const [mineError, setMineError] = useState("");
   const [embeddedOwnerUnavailable, setEmbeddedOwnerUnavailable] = useState(false);
   const [prepared, setPrepared] = useState<PreparedReplayUpload | null>(null);
@@ -159,18 +163,37 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
     );
   }, [auth]);
 
-  const loadPublicReplays = useCallback(async () => {
-    setPublicLoading(true);
-    setPublicError("");
+  const loadPublicReplays = useCallback(async (cursor: string | null = null) => {
+    const append = Boolean(cursor);
+    if (append) {
+      setPublicLoadingMore(true);
+      setPublicMoreError("");
+    } else {
+      setPublicLoading(true);
+      setPublicError("");
+      setPublicMoreError("");
+      setPublicNextCursor(null);
+      setPublicHasMore(false);
+    }
     try {
-      const response = await fetch("/api/v2/replays?scope=public", { cache: "no-store" });
+      const endpoint = cursor
+        ? `/api/v2/replays?scope=public&cursor=${encodeURIComponent(cursor)}`
+        : "/api/v2/replays?scope=public";
+      const response = await fetch(endpoint, { cache: "no-store" });
       const payload = await readJson(response);
       if (!response.ok) throw new Error(apiError(payload, "Public replays are unavailable right now."));
-      setPublicReplays(readReplayItems(payload));
+      const items = readReplayItems(payload);
+      const pageInfo = readReplayPageInfo(payload);
+      setPublicReplays((current) => append ? mergeReplayItems(current, items) : items);
+      setPublicNextCursor(pageInfo.nextCursor);
+      setPublicHasMore(pageInfo.hasMore);
     } catch (error) {
-      setPublicError(errorMessage(error, "Public replays are unavailable right now."));
+      const message = errorMessage(error, "Public replays are unavailable right now.");
+      if (append) setPublicMoreError(message);
+      else setPublicError(message);
     } finally {
-      setPublicLoading(false);
+      if (append) setPublicLoadingMore(false);
+      else setPublicLoading(false);
     }
   }, []);
 
@@ -282,7 +305,7 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
           sha256: prepared.sha256,
           bytes: prepared.bytes.byteLength,
           visibility,
-          platform: "atlas",
+          platform: prepared.platform,
           messageCount: prepared.messageCount,
           ...(prepared.capturedAt ? { capturedAt: prepared.capturedAt } : {}),
         }),
@@ -462,7 +485,7 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
           <div>
             <h1>Every match, rebuilt as a living board.</h1>
             <p>
-              Watch deterministic Atlas replays, share a permanent link, or turn a RiftLite raw capture into a
+              Watch deterministic Atlas and TCGA replays, share a permanent link, or turn a RiftLite raw capture into a
               private replay in a few clicks.
             </p>
           </div>
@@ -502,7 +525,7 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
           <div className={styles.toolbarActions}>
             <button
               className={styles.refreshButton}
-              disabled={loading || (scope === "mine" && !user && !embedded)}
+              disabled={loading || publicLoadingMore || (scope === "mine" && !user && !embedded)}
               onClick={() => void (scope === "public" ? loadPublicReplays() : loadMyReplays(user))}
               type="button"
             >
@@ -614,6 +637,21 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
                 ))}
               </div>
             ) : null}
+            {!loading && !listError && scope === "public" && sourceReplays.length > 0 && (publicHasMore || publicMoreError) ? (
+              <div className={styles.paginationPanel}>
+                <p>
+                  {publicMoreError || `${publicReplays.length} replays loaded. Keep exploring the public archive.`}
+                </p>
+                <button
+                  disabled={publicLoadingMore || !publicNextCursor}
+                  onClick={() => void loadPublicReplays(publicNextCursor)}
+                  type="button"
+                >
+                  {publicLoadingMore ? <LoaderCircle aria-hidden="true" className={styles.spinning} size={16} /> : null}
+                  {publicLoadingMore ? "Loading more…" : publicMoreError ? "Try loading again" : "Load more replays"}
+                </button>
+              </div>
+            ) : null}
           </section>
         ) : null}
       </section>
@@ -719,7 +757,7 @@ function UploadPanel({
       <div className={styles.uploadIntro}>
         <span className={styles.sectionKicker}>Manual upload</span>
         <h2>Turn a capture into a replay</h2>
-        <p>Choose a RiftLite raw-capture v1 file. JSON is compressed locally before the private source is sent.</p>
+        <p>Choose a RiftLite Atlas or TCGA raw-capture v1 file. JSON is compressed locally before the private source is sent.</p>
       </div>
 
       <label
@@ -825,7 +863,7 @@ function ReplayCard({
 
       <div className={styles.cardBody}>
         <p className={styles.cardMeta}>{formatReplayDate(replay.capturedAt || replay.createdAt)} · {replay.platform || "Atlas"}</p>
-        <h3>{replay.title || "RiftLite Atlas replay"}</h3>
+        <h3>{replayCardTitle(replay)}</h3>
         {replay.listing ? (
           <div className={styles.cardMatchup}>
             <strong>{replay.listing.playerLegend} <span>vs</span> {replay.listing.opponentLegend}</strong>
@@ -890,6 +928,20 @@ function StatusPill({ status }: { status: ReplayStatus }) {
   return <span className={`${styles.statusPill} ${styles[`status_${status}`]}`}>{labels[status]}</span>;
 }
 
+function replayCardTitle(replay: ReplaySummary): string {
+  const suppliedTitle = replay.title.trim();
+  const listing = replay.listing;
+  const listingLegendsAreKnown = listing && [listing.playerLegend, listing.opponentLegend]
+    .every((legend) => legend.trim() && !/^unknown(?: legend)?$/i.test(legend.trim()));
+  const suppliedTitleIsGenerated = !suppliedTitle ||
+    /^riftlite (?:atlas|tcga) replay$/i.test(suppliedTitle) ||
+    /^.+\s+vs\s+.+$/i.test(suppliedTitle);
+  if (listingLegendsAreKnown && suppliedTitleIsGenerated) {
+    return `${listing.playerLegend} vs ${listing.opponentLegend}`;
+  }
+  return suppliedTitle || (replay.platform === "tcga" ? "RiftLite TCGA replay" : "RiftLite Atlas replay");
+}
+
 function ReplayGridSkeleton() {
   return (
     <div aria-label="Loading replays" className={styles.replayGrid}>
@@ -915,7 +967,7 @@ function EmptyLibrary({ embedded, scope }: { embedded: boolean; scope: ReplaySco
   const message = scope === "public"
     ? "Public, processed RiftLite replays will appear here."
     : embedded
-      ? "Enable automatic upload in RiftLite Settings and complete an Atlas game."
+      ? "Enable automatic upload in RiftLite Settings and complete a game on TCGA or RiftAtlas."
       : "Upload your first raw capture above. It starts private by default.";
   return (
     <div className={styles.emptyPanel}>
@@ -1047,7 +1099,11 @@ function readReplayItems(payload: Record<string, unknown>): ReplaySummary[] {
       replayId: value.replayId,
       visibility: value.visibility,
       status: value.status,
-      title: typeof value.title === "string" ? value.title : "RiftLite Atlas replay",
+      title: typeof value.title === "string"
+        ? value.title
+        : value.platform === "tcga"
+          ? "RiftLite TCGA replay"
+          : "RiftLite Atlas replay",
       platform: typeof value.platform === "string" ? value.platform : "atlas",
       messageCount: typeof value.messageCount === "number" ? value.messageCount : null,
       ...(listing ? { listing } : {}),
@@ -1059,6 +1115,23 @@ function readReplayItems(payload: Record<string, unknown>): ReplaySummary[] {
         : {}),
     }];
   });
+}
+
+function readReplayPageInfo(payload: Record<string, unknown>): { hasMore: boolean; nextCursor: string | null } {
+  if (!isRecord(payload.pageInfo)) return { hasMore: false, nextCursor: null };
+  const nextCursor = typeof payload.pageInfo.nextCursor === "string" && payload.pageInfo.nextCursor
+    ? payload.pageInfo.nextCursor
+    : null;
+  return {
+    hasMore: payload.pageInfo.hasMore === true && Boolean(nextCursor),
+    nextCursor,
+  };
+}
+
+function mergeReplayItems(current: ReplaySummary[], incoming: ReplaySummary[]): ReplaySummary[] {
+  const merged = new Map(current.map((replay) => [replay.replayId, replay]));
+  for (const replay of incoming) merged.set(replay.replayId, replay);
+  return [...merged.values()];
 }
 
 function readListingMetadata(value: unknown): ReplayListingMetadata | undefined {

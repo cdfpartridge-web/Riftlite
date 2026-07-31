@@ -11,10 +11,12 @@ import {
 export function AccountLinkClient({
   sessionId,
   code,
+  discordCompletion = false,
   preferredProvider,
 }: {
   sessionId: string;
   code: string;
+  discordCompletion?: boolean;
   preferredProvider?: AuthProviderHint;
 }) {
   const desktopLink = useMemo(() => ({ sessionId, code }), [sessionId, code]);
@@ -45,6 +47,7 @@ export function AccountLinkClient({
       actionLabel="Finish linking"
       description="Sign in once, choose your RiftLite name, and this desktop will link automatically. Existing local matches stay on the app."
       desktopLink={desktopLink}
+      discordCompletion={discordCompletion}
       onReady={complete}
       preferredProvider={preferredProvider}
       readyTitle="RiftLite is linked"

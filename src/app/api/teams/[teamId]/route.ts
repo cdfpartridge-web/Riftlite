@@ -26,14 +26,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ team
   const snap = await resolveTeamRef(auth.db, teamId);
   if (!snap) return socialJson({ error: "Team not found." }, 404);
   const team = fullTeamFromDoc(snap.id, snap.data() ?? {});
+  const myRole = await assertTeamRole(snap.id, auth.decoded.uid, ["owner", "admin", "member"]).catch(() => "");
+  if (team.visibility === "private" && !myRole) return socialJson({ error: "You do not have access to this private team." }, 403);
   const memberSnap = await snap.ref.collection("members").orderBy("joinedAt", "asc").limit(100).get();
-  const myMember = memberSnap.docs.find((doc) => doc.id === auth.decoded.uid);
-  if (team.visibility === "private" && !myMember) return socialJson({ error: "You do not have access to this private team." }, 403);
   return socialJson({
     ok: true,
     team,
     members: memberSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-    myRole: myMember ? String(myMember.data().role ?? "member") : ""
+    myRole
   });
 }
 

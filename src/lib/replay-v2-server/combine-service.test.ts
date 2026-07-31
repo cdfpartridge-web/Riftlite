@@ -127,6 +127,22 @@ describe("combined replay persistence", () => {
     );
   });
 
+  it("rejects TCGA sources before creating a combined replay", async () => {
+    const tcga = sourceResponse(LEFT_ID);
+    tcga.record = { ...tcga.record, platform: "tcga" };
+    readCanonicalReplayMock.mockImplementation(async (replayId: string) => (
+      replayId === LEFT_ID ? tcga : sourceResponse(replayId)
+    ));
+
+    await expect(createCombinedReplay("owner-1", LEFT_ID, RIGHT_ID)).rejects.toMatchObject({
+      status: 422,
+      code: "source_replay_provider_unsupported",
+    });
+    expect(getFirestoreAdminMock).not.toHaveBeenCalled();
+    expect(storeImmutableArtifactMock).not.toHaveBeenCalled();
+    expect(combineCanonicalReplaysMock).not.toHaveBeenCalled();
+  });
+
   it("returns an existing deterministic result without storing another artifact", async () => {
     const firstFake = fakeReplayDb();
     getFirestoreAdminMock.mockReturnValue(firstFake.db);

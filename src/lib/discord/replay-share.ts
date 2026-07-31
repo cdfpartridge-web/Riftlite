@@ -130,6 +130,26 @@ export function formatDiscordDeckTitle(title: string): string {
 
 function replayScore(replay: CanonicalReplayV2, playerIds: string[]): string {
   const seriesResult = replay.series.result;
+  // A BO1 report is a game result, not the in-game Riftbound point total.
+  // Older TCGA canonicals stored those board points in series.finalScores, so
+  // prefer the authoritative winner/outcome before consulting that legacy
+  // field. Player order is perspective-first throughout Discord reporting.
+  if (replay.series.format === "bo1") {
+    if (seriesResult?.winnerPlayerId === playerIds[0]) return "1-0";
+    if (seriesResult?.winnerPlayerId === playerIds[1]) return "0-1";
+    if (seriesResult?.loserPlayerId === playerIds[0]) return "0-1";
+    if (seriesResult?.loserPlayerId === playerIds[1]) return "1-0";
+    if (seriesResult?.outcome === "win") return "1-0";
+    if (seriesResult?.outcome === "loss") return "0-1";
+    if (seriesResult?.outcome === "draw") return "0-0";
+
+    const finalResult = replay.series.games.at(-1)?.result;
+    if (finalResult?.winnerPlayerId === playerIds[0]) return "1-0";
+    if (finalResult?.winnerPlayerId === playerIds[1]) return "0-1";
+    if (finalResult?.loserPlayerId === playerIds[0]) return "0-1";
+    if (finalResult?.loserPlayerId === playerIds[1]) return "1-0";
+    return "Pending";
+  }
   if (seriesResult) {
     const left = seriesResult.finalScores[playerIds[0]];
     const right = seriesResult.finalScores[playerIds[1]];
@@ -146,11 +166,6 @@ function replayScore(replay: CanonicalReplayV2, playerIds: string[]): string {
       return `${wins.get(playerIds[0]) ?? 0}-${wins.get(playerIds[1]) ?? 0}`;
     }
     return "Pending";
-  }
-  const finalResult = replay.series.games.at(-1)?.result;
-  if (replay.series.format === "bo1" && finalResult?.winnerPlayerId) {
-    if (finalResult.winnerPlayerId === playerIds[0]) return "1-0";
-    if (finalResult.winnerPlayerId === playerIds[1]) return "0-1";
   }
   return "Pending";
 }

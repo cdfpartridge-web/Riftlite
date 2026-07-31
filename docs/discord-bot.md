@@ -10,6 +10,7 @@ Set these on Vercel and in `.env.local` for local command registration:
 DISCORD_APPLICATION_ID=your_discord_application_id
 DISCORD_PUBLIC_KEY=your_discord_interactions_public_key
 DISCORD_COMMUNITY_BOT_TOKEN=your_discord_bot_token
+DISCORD_CLIENT_SECRET=your_discord_oauth_client_secret
 RIFTLITE_BOT_API_TOKEN=a_long_random_internal_token
 ```
 
@@ -30,6 +31,14 @@ DISCORD_GUILD_ID=your_test_discord_server_id
 ```text
 https://www.riftlite.com/api/discord/bot/interactions
 ```
+
+6. Add this OAuth2 redirect for legacy Discord-linked RiftLite account recovery:
+
+```text
+https://www.riftlite.com/api/auth/discord/callback
+```
+
+Set `DISCORD_OAUTH_REDIRECT_URI` only when a preview or local environment uses a separately registered callback URL. Account recovery requests only the Discord `identify` scope and can reconnect only an existing Discord-to-RiftLite link; it does not silently merge accounts.
 
 For preview testing, use the Vercel preview URL instead.
 
@@ -121,7 +130,7 @@ Shows recent synced matches from the connected hub.
 
 ## Opt-in replay feed
 
-RiftLite desktop users can explicitly select joined private hubs under **Account → Replay and account connection** and enable Discord replay sharing. For each newly completed Atlas replay:
+RiftLite desktop users can explicitly select joined private hubs under **Account → Replay and account connection** and enable Discord replay sharing. For each newly completed Atlas or TCGA replay:
 
 1. the processed replay is set to **Unlisted**—anyone with the permanent link can watch, but it is excluded from public replay listings;
 2. the website verifies the replay owner is still a member of every selected hub;

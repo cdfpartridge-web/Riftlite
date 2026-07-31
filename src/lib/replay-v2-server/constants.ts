@@ -10,6 +10,11 @@ export const DEFAULT_REPLAY_LIST_LIMIT = 48;
 export const MAX_REPLAY_LIST_LIMIT = 100;
 export const FIRESTORE_ARTIFACT_FALLBACK_ENV = "REPLAY_V2_ALLOW_FIRESTORE_ARTIFACTS";
 
+// The desktop uploader retries 425 responses. Keep in-flight completion races
+// on that retryable lane so one successful worker cannot leave another caller
+// with a permanent local failure.
+export const REPLAY_PROCESSING_RETRY_STATUS = 425;
+
 export const REPLAY_COLLECTION = "replayV2";
 export const REPLAY_OWNER_COLLECTION = "replayV2Owners";
 export const REPLAY_PUBLIC_COLLECTION = "replayV2Public";

@@ -42,8 +42,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tea
   if (String(team.recruitmentStatus ?? "open") === "closed") {
     return socialJson({ error: "This team is not currently accepting applications." }, 400);
   }
-  const member = await snap.ref.collection("members").doc(auth.decoded.uid).get();
-  if (member.exists) return socialJson({ error: "You are already a member of this team." }, 409);
+  const memberRole = await assertTeamRole(snap.id, auth.decoded.uid, ["owner", "admin", "member"]).catch(() => "");
+  if (memberRole) return socialJson({ error: "You are already a member of this team." }, 409);
   const existing = await snap.ref.collection("applications")
     .where("uid", "==", auth.decoded.uid)
     .where("status", "==", "pending")

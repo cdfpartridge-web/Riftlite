@@ -3,6 +3,7 @@ node_modules
 coverage
 playwright-report
 test-results
+output/
 .playwright-cli/
 .vercel
 *.log

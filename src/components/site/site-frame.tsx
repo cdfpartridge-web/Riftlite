@@ -12,12 +12,13 @@ type SiteFrameProps = {
   settings: ComponentProps<typeof SiteFooter>["settings"];
 };
 
-function isReplayAppPath(pathname: string) {
+export function isReplayAppPath(pathname: string) {
   return (
     pathname === "/replay" ||
     pathname === "/riftreplay" ||
     pathname.startsWith("/replay/") ||
-    pathname.startsWith("/riftreplay/")
+    pathname.startsWith("/riftreplay/") ||
+    pathname.startsWith("/replays/tcga/")
   );
 }
 

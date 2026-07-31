@@ -56,6 +56,8 @@ describe("private hub account discovery", () => {
 
     const response = await GET(request());
 
+    expect(response).toBeDefined();
+    if (!response) throw new Error("Expected a hubs response.");
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       hubs: [{
@@ -85,6 +87,8 @@ describe("private hub account discovery", () => {
     mocks.requireUser.mockResolvedValue(auth(fake.db));
 
     const response = await GET(request());
+    expect(response).toBeDefined();
+    if (!response) throw new Error("Expected a hubs response.");
     const body = await response.json() as { hubs: Array<Record<string, unknown>> };
 
     expect(body.hubs).toEqual([expect.objectContaining({
@@ -92,6 +96,29 @@ describe("private hub account discovery", () => {
       role: "owner",
       claimed: true,
     })]);
+  });
+
+  it("accepts a server-canonicalized historical desktop credential", async () => {
+    const fake = fakeHubDatabase({
+      "claimed-hub": {
+        name: "Claimed Hub",
+        owner_uid: "account-uid",
+        created_by: "account-uid",
+        role_mode: "account",
+      },
+    });
+    mocks.linkedReplayUid.mockReturnValue("");
+    mocks.requireUser.mockResolvedValue({
+      ...auth(fake.db),
+      authenticatedUid: "desktop-uid",
+    });
+
+    const response = await GET(request());
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({
+      hubs: [expect.objectContaining({ id: "claimed-hub" })],
+    });
   });
 });
 
@@ -104,6 +131,7 @@ function request(): NextRequest {
 function auth(db: ReturnType<typeof fakeHubDatabase>["db"]) {
   return {
     db,
+    authenticatedUid: "account-uid",
     decoded: { uid: "account-uid", email: "player@example.com" },
   };
 }

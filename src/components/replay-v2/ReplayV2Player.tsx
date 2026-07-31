@@ -1,9 +1,13 @@
 "use client";
 
 import {
+  createContext,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -27,10 +31,32 @@ import {
 import { firebaseClientApp } from "@/lib/firebase/client";
 
 import styles from "./ReplayV2Player.module.css";
+import {
+  REPLAY_ANALYSIS_DESTINATIONS,
+  applyReplayAnalysisOperation,
+  createReplayAnalysisSession,
+  redoReplayAnalysisOperation,
+  replayAnalysisCanAddChainTarget,
+  replayAnalysisCanAddToChain,
+  replayAnalysisCanAttach,
+  replayAnalysisCanMove,
+  replayAnalysisCardLocation,
+  replayAnalysisCardPlayer,
+  replayAnalysisChainTargetIds,
+  replayAnalysisChangedCardCount,
+  replayAnalysisSelectedCard,
+  resetReplayAnalysisSession,
+  undoReplayAnalysisOperation,
+  type ReplayAnalysisCounterField,
+  type ReplayAnalysisOperation,
+  type ReplayAnalysisSession,
+} from "./analysis-mode";
 import { buildDeckPeekPresentation, type DeckPeekPresentation } from "./deck-peek";
 import {
   activeScene,
   attachedToCardId,
+  banishedCards,
+  banishedTransitions,
   battlefieldCards,
   battlefieldZoneForPlayer,
   boardZones,
@@ -118,6 +144,11 @@ type DiscardOverlayState = {
   cards: ReplayCardState[];
 } | null;
 
+type BanishedOverlayState = {
+  playerName: string;
+  cards: ReplayCardState[];
+} | null;
+
 type MulliganCardSlot = {
   entering?: ReplayCardState;
   kept?: ReplayCardState;
@@ -126,7 +157,7 @@ type MulliganCardSlot = {
 
 type MulliganHandTransition = {
   cards: ReplayCardState[];
-  detailLevel: "count" | "exact" | "unavailable";
+  detailLevel: "count" | "count_unresolved" | "exact" | "unavailable";
   replacementCount: number;
   slots: MulliganCardSlot[];
 };
@@ -175,6 +206,28 @@ type PresentationCursor = {
   stageIndex: number;
 };
 
+type ReplayAnalysisInteractionContextValue = {
+  active: boolean;
+  onContextMenu: (
+    card: ReplayCardState,
+    clientX: number,
+    clientY: number,
+    chainEntryId?: string,
+  ) => void;
+  onDragState: (cardId: string | null) => void;
+};
+
+const ReplayAnalysisInteractionContext =
+  createContext<ReplayAnalysisInteractionContextValue | null>(null);
+
+type ReplayAnalysisContextMenuState = {
+  card: ReplayCardState;
+  cardId: string;
+  chainEntryId?: string;
+  x: number;
+  y: number;
+} | null;
+
 export function ReplayV2Player({
   replayId,
   embed = false,
@@ -191,16 +244,26 @@ export function ReplayV2Player({
   const [showMore, setShowMore] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [discardOverlay, setDiscardOverlay] = useState<DiscardOverlayState>(null);
+  const [banishedOverlay, setBanishedOverlay] = useState<BanishedOverlayState>(null);
   const [hoveredCard, setHoveredCard] = useState<ReplayCardState | null>(null);
   const [selectedCard, setSelectedCard] = useState<ReplayCardState | null>(null);
   const [activityTab, setActivityTab] = useState<"chat" | "log">("chat");
   const [suppressMotion, setSuppressMotion] = useState(false);
   const [notice, setNotice] = useState("");
+  const [analysisSession, setAnalysisSession] = useState<ReplayAnalysisSession | null>(null);
+  const [analysisSelectedCardId, setAnalysisSelectedCardId] = useState<string | null>(null);
+  const [analysisAttachmentCardId, setAnalysisAttachmentCardId] = useState<string | null>(null);
+  const [analysisTargetChainEntryId, setAnalysisTargetChainEntryId] =
+    useState<string | null>(null);
+  const [analysisContextMenu, setAnalysisContextMenu] =
+    useState<ReplayAnalysisContextMenuState>(null);
+  const [analysisDraggingCardId, setAnalysisDraggingCardId] = useState<string | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const pendingSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationLockedUntil = useRef(0);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analysisDraggingCardIdRef = useRef<string | null>(null);
   const replay = loadState.status === "ready" ? loadState.replay : null;
   const { hostRef, scale } = usePlayerScale();
 
@@ -239,6 +302,13 @@ export function ReplayV2Player({
         setPresentation(sharedMs > 0 ? null : { gameIndex: 0, stageIndex: 0 });
         setCompletedPreludeGameId(null);
         setPlaying(false);
+        setAnalysisSession(null);
+        setAnalysisSelectedCardId(null);
+        setAnalysisAttachmentCardId(null);
+        setAnalysisTargetChainEntryId(null);
+        setAnalysisContextMenu(null);
+        analysisDraggingCardIdRef.current = null;
+        setAnalysisDraggingCardId(null);
       } catch (error: unknown) {
         if (controller.signal.aborted) return;
         setLoadState({
@@ -281,7 +351,8 @@ export function ReplayV2Player({
       return null;
     }
   }, [currentMs, manualEventIndex, presentationEventIndex, replay]);
-  const state = projection?.state ?? null;
+  const canonicalState = projection?.state ?? null;
+  const state = analysisSession?.state ?? canonicalState;
   const eventIndex = projection?.eventIndex ?? -1;
   const currentEvent = replay?.events[eventIndex];
   const turns = useMemo(() => (replay ? turnMarkers(replay) : []), [replay]);
@@ -325,8 +396,22 @@ export function ReplayV2Player({
     noticeTimer.current = setTimeout(() => setNotice(""), 2_600);
   }, []);
 
+  const clearAnalysis = useCallback((announce = false) => {
+    setAnalysisSession(null);
+    setAnalysisSelectedCardId(null);
+    setAnalysisAttachmentCardId(null);
+    setAnalysisTargetChainEntryId(null);
+    setAnalysisContextMenu(null);
+    analysisDraggingCardIdRef.current = null;
+    setAnalysisDraggingCardId(null);
+    if (announce) flashNotice("Returned to the original replay");
+  }, [flashNotice]);
+
   const settleAnimations = useCallback((resume: boolean) => {
-    const animations = canvasRef.current?.getAnimations({ subtree: true }) ?? [];
+    const canvas = canvasRef.current;
+    const animations = canvas && typeof canvas.getAnimations === "function"
+      ? canvas.getAnimations({ subtree: true })
+      : [];
     for (const animation of animations) {
       try {
         if (resume) animation.play();
@@ -349,6 +434,7 @@ export function ReplayV2Player({
       const backwards = target < currentMs;
       const apply = () => {
         if (backwards || options?.immediate) setMotionSuppressedBriefly();
+        clearAnalysis();
         setPresentation(null);
         setManualEventIndex(options?.eventIndex ?? null);
         setCurrentMs(target);
@@ -364,7 +450,7 @@ export function ReplayV2Player({
       }
       apply();
     },
-    [currentMs, durationMs, replay, setMotionSuppressedBriefly],
+    [clearAnalysis, currentMs, durationMs, replay, setMotionSuppressedBriefly],
   );
 
   const beginGamePresentation = useCallback(
@@ -377,9 +463,10 @@ export function ReplayV2Player({
       setCurrentMs(game?.startedAtMs ?? 0);
       setCompletedPreludeGameId(null);
       setPresentation({ gameIndex, stageIndex: 0 });
+      clearAnalysis();
       setMotionSuppressedBriefly();
     },
-    [replay, setMotionSuppressedBriefly],
+    [clearAnalysis, replay, setMotionSuppressedBriefly],
   );
 
   const advancePresentation = useCallback(
@@ -389,6 +476,7 @@ export function ReplayV2Player({
       const nextStage = presentation.stageIndex + direction;
       if (nextStage < 0) return;
       if (direction < 0) setMotionSuppressedBriefly();
+      clearAnalysis();
       if (nextStage >= stages.length) {
         const game = replay.series.games[presentation.gameIndex];
         setPresentation(null);
@@ -399,7 +487,7 @@ export function ReplayV2Player({
       }
       setPresentation({ ...presentation, stageIndex: nextStage });
     },
-    [currentMs, presentation, replay, setMotionSuppressedBriefly],
+    [clearAnalysis, currentMs, presentation, replay, setMotionSuppressedBriefly],
   );
 
   useEffect(() => {
@@ -413,6 +501,7 @@ export function ReplayV2Player({
 
   const togglePlayback = useCallback(() => {
     if (!replay) return;
+    if (analysisSession) clearAnalysis(true);
     if (playing) {
       setPlaying(false);
       settleAnimations(false);
@@ -422,7 +511,17 @@ export function ReplayV2Player({
     setManualEventIndex(null);
     settleAnimations(true);
     setPlaying(true);
-  }, [beginGamePresentation, currentMs, durationMs, playing, presentation, replay, settleAnimations]);
+  }, [
+    analysisSession,
+    beginGamePresentation,
+    clearAnalysis,
+    currentMs,
+    durationMs,
+    playing,
+    presentation,
+    replay,
+    settleAnimations,
+  ]);
 
   const stepAction = useCallback(
     (direction: -1 | 1) => {
@@ -490,8 +589,23 @@ export function ReplayV2Player({
     const handleKeyDown = (keyboardEvent: KeyboardEvent) => {
       if (keyboardEvent.defaultPrevented || isTypingTarget(keyboardEvent.target)) return;
       if (keyboardEvent.key === "Escape") {
+        if (analysisContextMenu) {
+          setAnalysisContextMenu(null);
+          return;
+        }
+        if (analysisTargetChainEntryId) {
+          setAnalysisTargetChainEntryId(null);
+          flashNotice("Target selection cancelled");
+          return;
+        }
+        if (analysisAttachmentCardId) {
+          setAnalysisAttachmentCardId(null);
+          flashNotice("Attachment cancelled");
+          return;
+        }
         setShowHelp(false);
         setDiscardOverlay(null);
+        setBanishedOverlay(null);
         setHoveredCard(null);
         setShowMore(false);
         return;
@@ -526,7 +640,17 @@ export function ReplayV2Player({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [changeSpeed, stepAction, stepGame, stepTurn, togglePlayback]);
+  }, [
+    analysisAttachmentCardId,
+    analysisContextMenu,
+    analysisTargetChainEntryId,
+    changeSpeed,
+    flashNotice,
+    stepAction,
+    stepGame,
+    stepTurn,
+    togglePlayback,
+  ]);
 
   const shareReplay = useCallback(async () => {
     const url = new URL(`/replays/${encodeURIComponent(replayId)}`, window.location.origin);
@@ -592,8 +716,238 @@ export function ReplayV2Player({
     }
   }, [flashNotice]);
 
+  const startAnalysis = useCallback(() => {
+    if (!replay || !canonicalState || eventIndex < 0) return;
+    const anchorMs = replay.events[eventIndex]?.atMs ?? currentMs;
+    setPlaying(false);
+    settleAnimations(false);
+    setPresentation(null);
+    setManualEventIndex(eventIndex);
+    setCurrentMs(anchorMs);
+    setShowMore(false);
+    setDiscardOverlay(null);
+    setBanishedOverlay(null);
+    setHoveredCard(null);
+    setSelectedCard(null);
+    setAnalysisSelectedCardId(null);
+    setAnalysisAttachmentCardId(null);
+    setAnalysisTargetChainEntryId(null);
+    const session = createReplayAnalysisSession(replay, eventIndex, canonicalState);
+    setAnalysisSession(session);
+    flashNotice(
+      session.inferredCardIds.length
+        ? `Analysis started · ${session.inferredCardIds.length} later-revealed ${session.inferredCardIds.length === 1 ? "card" : "cards"} identified`
+        : "Analysis started · changes are temporary",
+    );
+  }, [canonicalState, currentMs, eventIndex, flashNotice, replay, settleAnimations]);
+
+  const toggleAnalysis = useCallback(() => {
+    if (analysisSession) clearAnalysis(true);
+    else startAnalysis();
+  }, [analysisSession, clearAnalysis, startAnalysis]);
+
+  const resetAnalysis = useCallback(() => {
+    if (!analysisSession) return;
+    setAnalysisSession(resetReplayAnalysisSession(analysisSession));
+    setAnalysisSelectedCardId(null);
+    setAnalysisAttachmentCardId(null);
+    setAnalysisTargetChainEntryId(null);
+    setHoveredCard(null);
+    setSelectedCard(null);
+    flashNotice("Analysis position reset");
+  }, [analysisSession, flashNotice]);
+
+  const applyAnalysisOperation = useCallback((operation: ReplayAnalysisOperation) => {
+    setAnalysisSession((current) => (
+      current ? applyReplayAnalysisOperation(current, operation) : current
+    ));
+  }, []);
+
+  const openAnalysisContextMenu = useCallback((
+    card: ReplayCardState,
+    clientX: number,
+    clientY: number,
+    chainEntryId?: string,
+  ) => {
+    if (!analysisSession) return;
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    const canvasX = bounds?.width
+      ? ((clientX - bounds.left) / bounds.width) * DESIGN_WIDTH
+      : clientX;
+    const canvasY = bounds?.height
+      ? ((clientY - bounds.top) / bounds.height) * DESIGN_HEIGHT
+      : clientY;
+    setAnalysisSelectedCardId(card.id);
+    setSelectedCard(card);
+    setHoveredCard(null);
+    setAnalysisContextMenu({
+      card,
+      cardId: card.id,
+      ...(chainEntryId ? { chainEntryId } : {}),
+      x: Math.min(DESIGN_WIDTH - 294, Math.max(8, canvasX)),
+      y: Math.min(DESIGN_HEIGHT - 420, Math.max(8, canvasY)),
+    });
+  }, [analysisSession]);
+
+  const handleAnalysisDragState = useCallback((cardId: string | null) => {
+    analysisDraggingCardIdRef.current = cardId;
+    setAnalysisDraggingCardId(cardId);
+  }, []);
+
+  const getAnalysisDraggingCardId = useCallback(
+    () => analysisDraggingCardIdRef.current,
+    [],
+  );
+
+  const handleAnalysisDrop = useCallback((
+    cardId: string,
+    playerId: string,
+    zone: string,
+  ) => {
+    if (!analysisSession) return;
+    const cardPlayer = replayAnalysisCardPlayer(analysisSession.state, cardId);
+    if (!cardPlayer) {
+      flashNotice("That card is no longer available in this branch");
+      return;
+    }
+    if (cardPlayer.id !== playerId) {
+      flashNotice(`Drop onto ${cardPlayer.name}'s zones`);
+      return;
+    }
+    applyAnalysisOperation({ kind: "move_card", cardId, playerId, zone });
+    setAnalysisSelectedCardId(cardId);
+    setAnalysisContextMenu(null);
+    analysisDraggingCardIdRef.current = null;
+    setAnalysisDraggingCardId(null);
+    flashNotice("What-if card moved");
+  }, [analysisSession, applyAnalysisOperation, flashNotice]);
+
+  useEffect(() => {
+    if (!analysisContextMenu) return;
+    const dismiss = () => setAnalysisContextMenu(null);
+    window.addEventListener("pointerdown", dismiss);
+    return () => window.removeEventListener("pointerdown", dismiss);
+  }, [analysisContextMenu]);
+
+  const undoAnalysis = useCallback(() => {
+    setAnalysisSession((current) => (
+      current ? undoReplayAnalysisOperation(current) : current
+    ));
+    setAnalysisAttachmentCardId(null);
+    setAnalysisTargetChainEntryId(null);
+  }, []);
+
+  const redoAnalysis = useCallback(() => {
+    setAnalysisSession((current) => (
+      current ? redoReplayAnalysisOperation(current) : current
+    ));
+    setAnalysisAttachmentCardId(null);
+    setAnalysisTargetChainEntryId(null);
+  }, []);
+
+  useEffect(() => {
+    if (!analysisSession) return;
+    const handleAnalysisHistoryShortcut = (keyboardEvent: KeyboardEvent) => {
+      if (
+        keyboardEvent.defaultPrevented ||
+        isTypingTarget(keyboardEvent.target) ||
+        (!keyboardEvent.ctrlKey && !keyboardEvent.metaKey) ||
+        keyboardEvent.altKey
+      ) {
+        return;
+      }
+      const key = keyboardEvent.key.toLowerCase();
+      if (key === "z") {
+        keyboardEvent.preventDefault();
+        if (keyboardEvent.shiftKey) redoAnalysis();
+        else undoAnalysis();
+      } else if (key === "y" && !keyboardEvent.shiftKey) {
+        keyboardEvent.preventDefault();
+        redoAnalysis();
+      }
+    };
+    window.addEventListener("keydown", handleAnalysisHistoryShortcut);
+    return () => window.removeEventListener("keydown", handleAnalysisHistoryShortcut);
+  }, [analysisSession, redoAnalysis, undoAnalysis]);
+
+  const handleCardSelect = useCallback((card: ReplayCardState) => {
+    if (analysisSession && analysisTargetChainEntryId) {
+      if (
+        !replayAnalysisCanAddChainTarget(
+          analysisSession.state,
+          analysisTargetChainEntryId,
+          card.id,
+        )
+      ) {
+        const existingTargets = replayAnalysisChainTargetIds(
+          analysisSession.state,
+          analysisTargetChainEntryId,
+        );
+        flashNotice(
+          existingTargets.includes(card.id)
+            ? "That target is already linked"
+            : "Choose a different face-up card or battlefield",
+        );
+        return;
+      }
+      setAnalysisSession((current) => (
+        current
+          ? applyReplayAnalysisOperation(current, {
+              kind: "add_chain_target",
+              entryId: analysisTargetChainEntryId,
+              targetCardId: card.id,
+            })
+          : current
+      ));
+      setAnalysisTargetChainEntryId(null);
+      setAnalysisSelectedCardId(card.id);
+      setSelectedCard(card);
+      flashNotice("What-if target linked");
+      return;
+    }
+    if (analysisSession && analysisAttachmentCardId) {
+      if (!replayAnalysisCanAttach(analysisSession.state, analysisAttachmentCardId, card.id)) {
+        flashNotice("Choose a different face-up card on the base or a battlefield");
+        return;
+      }
+      setAnalysisSession((current) => (
+        current
+          ? applyReplayAnalysisOperation(current, {
+              kind: "attach_card",
+              cardId: analysisAttachmentCardId,
+              targetCardId: card.id,
+            })
+          : current
+      ));
+      setAnalysisAttachmentCardId(null);
+      setAnalysisSelectedCardId(card.id);
+      setSelectedCard(card);
+      flashNotice("What-if attachment added");
+      return;
+    }
+    if (analysisSession) setAnalysisSelectedCardId(card.id);
+    setSelectedCard(card);
+  }, [
+    analysisAttachmentCardId,
+    analysisSession,
+    analysisTargetChainEntryId,
+    flashNotice,
+  ]);
+
+  const analysisSelectedCard = useMemo(
+    () => (
+      analysisContextMenu?.chainEntryId
+        ? analysisContextMenu.card
+        : analysisSession
+        ? replayAnalysisSelectedCard(analysisSession.state, analysisSelectedCardId)
+        : null
+    ),
+    [analysisContextMenu, analysisSelectedCardId, analysisSession],
+  );
+
   const inspectedCard = useMemo(() => {
     if (hoveredCard) return hoveredCard;
+    if (analysisSelectedCard) return analysisSelectedCard;
     if (selectedCard) return selectedCard;
     if (!state || !replay) return null;
     const players = resolveReplayPlayers(replay, state);
@@ -604,7 +958,16 @@ export function ReplayV2Player({
       legendCard(players.top) ??
       null
     );
-  }, [hoveredCard, replay, selectedCard, state]);
+  }, [analysisSelectedCard, hoveredCard, replay, selectedCard, state]);
+
+  const analysisInteractions = useMemo<ReplayAnalysisInteractionContextValue>(
+    () => ({
+      active: Boolean(analysisSession),
+      onContextMenu: openAnalysisContextMenu,
+      onDragState: handleAnalysisDragState,
+    }),
+    [analysisSession, handleAnalysisDragState, openAnalysisContextMenu],
+  );
 
   const canvasStyle = { "--replay-scale": scale } as CSSProperties;
 
@@ -647,17 +1010,25 @@ export function ReplayV2Player({
               }}
             />
           ) : (
-            <>
+            <ReplayAnalysisInteractionContext.Provider value={analysisInteractions}>
               <ReplayBoard
+                analysisActive={Boolean(analysisSession)}
+                analysisDraggingCardId={analysisDraggingCardId}
                 currentMs={currentMs}
                 eventIndex={eventIndex}
+                getAnalysisDraggingCardId={getAnalysisDraggingCardId}
                 inspectedCard={inspectedCard}
                 onCardHover={setHoveredCard}
-                onCardSelect={setSelectedCard}
+                onCardSelect={handleCardSelect}
+                onOpenBanished={(player) => {
+                  setHoveredCard(null);
+                  setBanishedOverlay({ playerName: player.name, cards: banishedCards(player) });
+                }}
                 onOpenDiscard={(player) => {
                   setHoveredCard(null);
                   setDiscardOverlay({ playerName: player.name, cards: discardCards(player) });
                 }}
+                onAnalysisDrop={handleAnalysisDrop}
                 playing={playing}
                 replay={replay}
                 sceneOverride={presentationStage}
@@ -680,7 +1051,176 @@ export function ReplayV2Player({
                 replay={replay}
                 state={state}
               />
+              {analysisSession ? (
+                <ReplayAnalysisPanel
+                  attachmentCardId={analysisAttachmentCardId}
+                  onAdjustCounter={(cardId, field, delta) => {
+                    applyAnalysisOperation({ kind: "adjust_counter", cardId, field, delta });
+                  }}
+                  onAdjustScore={(playerId, delta) => {
+                    applyAnalysisOperation({ kind: "adjust_score", playerId, delta });
+                  }}
+                  onAddToChain={(cardId) => {
+                    applyAnalysisOperation({ kind: "add_to_chain", cardId });
+                    setAnalysisSelectedCardId(null);
+                    setHoveredCard(null);
+                    setSelectedCard(null);
+                    flashNotice("What-if card added to the chain");
+                  }}
+                  onAttach={(cardId) => {
+                    setAnalysisAttachmentCardId(cardId);
+                    flashNotice("Select a face-up card to attach it to");
+                  }}
+                  onCancelAttach={() => setAnalysisAttachmentCardId(null)}
+                  onCancelTarget={() => setAnalysisTargetChainEntryId(null)}
+                  onDetach={(cardId) => {
+                    applyAnalysisOperation({ kind: "detach_card", cardId });
+                  }}
+                  onExit={() => clearAnalysis(true)}
+                  onMove={(cardId, zone) => {
+                    applyAnalysisOperation({ kind: "move_card", cardId, zone });
+                  }}
+                  onRedo={redoAnalysis}
+                  onReset={resetAnalysis}
+                  onRestore={(cardId) => {
+                    applyAnalysisOperation({ kind: "restore_card", cardId });
+                  }}
+                  onToggleExhausted={(cardId) => {
+                    applyAnalysisOperation({ kind: "toggle_exhausted", cardId });
+                  }}
+                  onUndo={undoAnalysis}
+                  replay={replay}
+                  selectedCardId={analysisSelectedCardId}
+                  session={analysisSession}
+                  targetChainEntryId={analysisTargetChainEntryId}
+                />
+              ) : null}
+              {analysisSession && analysisContextMenu && analysisSelectedCard ? (
+                <ReplayAnalysisContextMenu
+                  canAddToChain={
+                    !analysisContextMenu.chainEntryId &&
+                    replayAnalysisCanAddToChain(
+                      analysisSession.state,
+                      analysisSelectedCard.id,
+                    )
+                  }
+                  canMove={(zone) => {
+                    const player = replayAnalysisCardPlayer(
+                      analysisSession.state,
+                      analysisSelectedCard.id,
+                    );
+                    return Boolean(
+                      player &&
+                      replayAnalysisCanMove(
+                        analysisSession.state,
+                        analysisSelectedCard.id,
+                        player.id,
+                        zone,
+                      )
+                    );
+                  }}
+                  card={analysisSelectedCard}
+                  chainEntryId={analysisContextMenu.chainEntryId}
+                  chainTargetCount={
+                    analysisContextMenu.chainEntryId
+                      ? replayAnalysisChainTargetIds(
+                          analysisSession.state,
+                          analysisContextMenu.chainEntryId,
+                        ).length
+                      : 0
+                  }
+                  onAddToChain={() => {
+                    applyAnalysisOperation({
+                      kind: "add_to_chain",
+                      cardId: analysisSelectedCard.id,
+                    });
+                    setAnalysisContextMenu(null);
+                    setAnalysisSelectedCardId(null);
+                    setHoveredCard(null);
+                    setSelectedCard(null);
+                    flashNotice("What-if card added to the chain");
+                  }}
+                  onAdjustCounter={(field, delta) => {
+                    applyAnalysisOperation({
+                      kind: "adjust_counter",
+                      cardId: analysisSelectedCard.id,
+                      field,
+                      delta,
+                    });
+                  }}
+                  onAttach={() => {
+                    setAnalysisAttachmentCardId(analysisSelectedCard.id);
+                    setAnalysisContextMenu(null);
+                    flashNotice("Select a face-up card to attach it to");
+                  }}
+                  onClose={() => setAnalysisContextMenu(null)}
+                  onClearChainTargets={() => {
+                    if (!analysisContextMenu.chainEntryId) return;
+                    applyAnalysisOperation({
+                      kind: "clear_chain_targets",
+                      entryId: analysisContextMenu.chainEntryId,
+                    });
+                    setAnalysisContextMenu(null);
+                    setAnalysisTargetChainEntryId(null);
+                    flashNotice("What-if target arrows cleared");
+                  }}
+                  onDetach={() => {
+                    applyAnalysisOperation({
+                      kind: "detach_card",
+                      cardId: analysisSelectedCard.id,
+                    });
+                    setAnalysisContextMenu(null);
+                    flashNotice("What-if attachment removed");
+                  }}
+                  onMove={(zone) => {
+                    applyAnalysisOperation({
+                      kind: "move_card",
+                      cardId: analysisSelectedCard.id,
+                      zone,
+                    });
+                    setAnalysisContextMenu(null);
+                    flashNotice("What-if card moved");
+                  }}
+                  onRestore={() => {
+                    applyAnalysisOperation({
+                      kind: "restore_card",
+                      cardId: analysisSelectedCard.id,
+                    });
+                    setAnalysisContextMenu(null);
+                    flashNotice("Card returned to the analysis start");
+                  }}
+                  onRemoveFromChain={() => {
+                    if (!analysisContextMenu.chainEntryId) return;
+                    applyAnalysisOperation({
+                      kind: "remove_from_chain",
+                      entryId: analysisContextMenu.chainEntryId,
+                    });
+                    setAnalysisContextMenu(null);
+                    setAnalysisTargetChainEntryId(null);
+                    setAnalysisSelectedCardId(null);
+                    setHoveredCard(null);
+                    setSelectedCard(null);
+                    flashNotice("What-if card returned from the chain");
+                  }}
+                  onSetChainTarget={() => {
+                    if (!analysisContextMenu.chainEntryId) return;
+                    setAnalysisTargetChainEntryId(analysisContextMenu.chainEntryId);
+                    setAnalysisAttachmentCardId(null);
+                    setAnalysisContextMenu(null);
+                    flashNotice("Select a face-up card or battlefield as the target");
+                  }}
+                  onToggleExhausted={() => {
+                    applyAnalysisOperation({
+                      kind: "toggle_exhausted",
+                      cardId: analysisSelectedCard.id,
+                    });
+                    setAnalysisContextMenu(null);
+                  }}
+                  position={analysisContextMenu}
+                />
+              ) : null}
               <TransportControls
+                analysisActive={Boolean(analysisSession)}
                 currentMs={currentMs}
                 durationMs={durationMs}
                 eventIndex={eventIndex}
@@ -696,6 +1236,7 @@ export function ReplayV2Player({
                 onStepGame={stepGame}
                 onStepTurn={stepTurn}
                 onToggleMore={() => setShowMore((value) => !value)}
+                onToggleAnalysis={toggleAnalysis}
                 onTogglePlayback={togglePlayback}
                 playing={playing}
                 presentationFrame={
@@ -733,16 +1274,28 @@ export function ReplayV2Player({
                   playerName={discardOverlay.playerName}
                 />
               ) : null}
+              {banishedOverlay ? (
+                <BanishedOverlay
+                  cards={banishedOverlay.cards}
+                  onCardHover={setHoveredCard}
+                  onCardSelect={setSelectedCard}
+                  onClose={() => {
+                    setHoveredCard(null);
+                    setBanishedOverlay(null);
+                  }}
+                  playerName={banishedOverlay.playerName}
+                />
+              ) : null}
               {hoveredCard && !showHelp ? (
                 <HoverCardPreview
                   card={hoveredCard}
                   key={`${hoveredCard.id}|${cardImageUrl(hoveredCard) ?? "no-image"}`}
-                  besideDiscard={Boolean(discardOverlay)}
+                  besideDiscard={Boolean(discardOverlay || banishedOverlay)}
                 />
               ) : null}
               {showHelp ? <ShortcutHelp onClose={() => setShowHelp(false)} /> : null}
               {notice ? <div className={styles.notice} role="status">{notice}</div> : null}
-            </>
+            </ReplayAnalysisInteractionContext.Provider>
           )}
         </div>
       </div>
@@ -751,11 +1304,16 @@ export function ReplayV2Player({
 }
 
 function ReplayBoard({
+  analysisActive,
+  analysisDraggingCardId,
   currentMs,
   eventIndex,
+  getAnalysisDraggingCardId,
   inspectedCard,
+  onAnalysisDrop,
   onCardHover,
   onCardSelect,
+  onOpenBanished,
   onOpenDiscard,
   playing,
   replay,
@@ -765,11 +1323,16 @@ function ReplayBoard({
   suppressCanonicalOpening,
   suppressMotion,
 }: {
+  analysisActive: boolean;
+  analysisDraggingCardId: string | null;
   currentMs: number;
   eventIndex: number;
+  getAnalysisDraggingCardId: () => string | null;
   inspectedCard: ReplayCardState | null;
+  onAnalysisDrop: (cardId: string, playerId: string, zone: string) => void;
   onCardHover: (card: ReplayCardState | null) => void;
   onCardSelect: (card: ReplayCardState) => void;
+  onOpenBanished: (player: ReplayPlayerState) => void;
   onOpenDiscard: (player: ReplayPlayerState) => void;
   playing: boolean;
   replay: CanonicalReplayV2;
@@ -780,26 +1343,118 @@ function ReplayBoard({
   suppressMotion: boolean;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
+  const activeDropTargetRef = useRef<HTMLElement | null>(null);
   const players = useMemo(() => resolveReplayPlayers(replay, state), [replay, state]);
   const battlefields = useMemo(() => battlefieldCards(state, players), [players, state]);
   const canonicalScene = activeScene(replay, state, currentMs);
-  const scene = sceneOverride ?? (
-    suppressCanonicalOpening && canonicalScene === "opening" ? null : canonicalScene
-  );
+  const scene = analysisActive
+    ? null
+    : sceneOverride ?? (
+        suppressCanonicalOpening && canonicalScene === "opening" ? null : canonicalScene
+      );
   const action = replay.events[eventIndex];
   const openHands = isConsentedDualPerspectiveReplay(replay);
   const deckPeek = useMemo(
     () => buildDeckPeekPresentation(replay, state, eventIndex),
     [eventIndex, replay, state],
   );
+  const banishChanges = useMemo(() => {
+    if (eventIndex <= 0 || !hasPriorZoneAuthority(replay, eventIndex, state.gameId)) return [];
+    const previous = seekReplayByEventIndex(replay, eventIndex - 1).state;
+    return banishedTransitions(previous, state);
+  }, [eventIndex, replay, state]);
+  const banishLabel = banishedEventLabel(banishChanges);
   useCardMotion(boardRef, eventIndex, suppressMotion);
   useEventEmphasis(boardRef, action);
   const arrows = useTargetArrows(boardRef, state.chain, eventIndex);
 
+  const clearDropTarget = useCallback(() => {
+    activeDropTargetRef.current?.removeAttribute("data-analysis-drop-hover");
+    activeDropTargetRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!analysisDraggingCardId) clearDropTarget();
+  }, [analysisDraggingCardId, clearDropTarget]);
+
+  useEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
+    const targets = board.querySelectorAll<HTMLElement>(
+      "[data-analysis-drop-zone][data-analysis-drop-player-id]",
+    );
+    for (const target of targets) {
+      const playerId = target.dataset.analysisDropPlayerId;
+      const zone = target.dataset.analysisDropZone;
+      const valid = Boolean(
+        analysisActive &&
+        analysisDraggingCardId &&
+        playerId &&
+        zone &&
+        replayAnalysisCanMove(state, analysisDraggingCardId, playerId, zone)
+      );
+      if (valid) target.setAttribute("data-analysis-drop-valid", "true");
+      else target.removeAttribute("data-analysis-drop-valid");
+    }
+    return () => {
+      for (const target of targets) target.removeAttribute("data-analysis-drop-valid");
+    };
+  }, [analysisActive, analysisDraggingCardId, state]);
+
+  const analysisDropTarget = useCallback((target: EventTarget | null, cardId?: string | null) => {
+    const draggingCardId = cardId ?? getAnalysisDraggingCardId() ?? analysisDraggingCardId;
+    if (!analysisActive || !draggingCardId || !(target instanceof Element)) return null;
+    const dropTarget = target.closest<HTMLElement>(
+      "[data-analysis-drop-zone][data-analysis-drop-player-id]",
+    );
+    const playerId = dropTarget?.dataset.analysisDropPlayerId;
+    const zone = dropTarget?.dataset.analysisDropZone;
+    return dropTarget &&
+      playerId &&
+      zone &&
+      replayAnalysisCanMove(state, draggingCardId, playerId, zone)
+      ? dropTarget
+      : null;
+  }, [analysisActive, analysisDraggingCardId, getAnalysisDraggingCardId, state]);
+
+  const handleDragOver = useCallback((dragEvent: ReactDragEvent<HTMLElement>) => {
+    const target = analysisDropTarget(dragEvent.target);
+    if (!target) {
+      clearDropTarget();
+      return;
+    }
+    dragEvent.preventDefault();
+    dragEvent.dataTransfer.dropEffect = "move";
+    if (activeDropTargetRef.current !== target) {
+      clearDropTarget();
+      target.setAttribute("data-analysis-drop-hover", "true");
+      activeDropTargetRef.current = target;
+    }
+  }, [analysisDropTarget, clearDropTarget]);
+
+  const handleDrop = useCallback((dragEvent: ReactDragEvent<HTMLElement>) => {
+    const cardId =
+      dragEvent.dataTransfer.getData("application/x-riftlite-card") ||
+      dragEvent.dataTransfer.getData("text/plain");
+    const target = analysisDropTarget(dragEvent.target, cardId);
+    const playerId = target?.dataset.analysisDropPlayerId;
+    const zone = target?.dataset.analysisDropZone;
+    clearDropTarget();
+    if (!target || !cardId || !playerId || !zone) return;
+    dragEvent.preventDefault();
+    onAnalysisDrop(cardId, playerId, zone);
+  }, [analysisDropTarget, clearDropTarget, onAnalysisDrop]);
+
   return (
     <section
       aria-label="Replay board"
-      className={`${styles.board} ${suppressMotion ? styles.motionSuppressed : ""}`}
+      className={`${styles.board} ${suppressMotion ? styles.motionSuppressed : ""} ${
+        analysisActive ? styles.analysisBoard : ""
+      }`}
+      data-analysis-board={analysisActive ? "true" : undefined}
+      data-analysis-dragging={analysisDraggingCardId ? "true" : undefined}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       ref={boardRef}
     >
       <PlayerRail
@@ -808,6 +1463,7 @@ function ReplayBoard({
         player={players.top}
       />
       <PlayerPileStack
+        onOpenBanished={() => onOpenBanished(players.top)}
         onOpenDiscard={() => onOpenDiscard(players.top)}
         orientation="top"
         player={players.top}
@@ -848,6 +1504,7 @@ function ReplayBoard({
         player={players.bottom}
       />
       <PlayerPileStack
+        onOpenBanished={() => onOpenBanished(players.bottom)}
         onOpenDiscard={() => onOpenDiscard(players.bottom)}
         orientation="bottom"
         player={players.bottom}
@@ -858,17 +1515,29 @@ function ReplayBoard({
         player={players.bottom}
       />
       <TargetArrowLayer arrows={arrows} />
-      <div className={styles.actionCaption} key={action?.id ?? "replay-ready"}>
+      <div
+        className={`${styles.actionCaption} ${banishLabel ? styles.banishActionCaption : ""} ${
+          analysisActive ? styles.analysisActionCaption : ""
+        }`}
+        data-banished-event={banishLabel ? "true" : undefined}
+        key={action?.id ?? "replay-ready"}
+      >
         <span className={styles.actionDot} />
-        {eventLabel(action)}
+        {analysisActive ? "Analysis mode · Changes are temporary" : banishLabel || eventLabel(action)}
       </div>
+      {analysisActive ? (
+        <div className={styles.analysisBoardBadge} data-analysis-status="active">
+          <Icon name="spark" />
+          <span>What-if branch</span>
+        </div>
+      ) : null}
       {openHands ? (
         <div className={styles.combinedReplayBadge} data-combined-replay="open-hands">
           <Icon name="combine" />
           <span>Combined replay <i>·</i> Open hands</span>
         </div>
       ) : null}
-      {deckPeek && !scene ? (
+      {deckPeek && !scene && !analysisActive ? (
         <DeckPeekOverlay
           onCardHover={onCardHover}
           onCardSelect={onCardSelect}
@@ -890,6 +1559,36 @@ function ReplayBoard({
       ) : null}
     </section>
   );
+}
+
+function hasPriorZoneAuthority(
+  replay: CanonicalReplayV2,
+  eventIndex: number,
+  gameId: string | null,
+): boolean {
+  return replay.events.slice(0, eventIndex).some((event) => {
+    if (event.gameId !== gameId) return false;
+    if (event.kind === "snapshot") return true;
+    return event.kind === "action" && event.patch.operations.some((operation) => (
+      operation.op === "zone_insert" ||
+      operation.op === "zone_remove" ||
+      operation.op === "zone_move"
+    ));
+  });
+}
+
+function banishedEventLabel(changes: ReturnType<typeof banishedTransitions>): string {
+  const total = changes.reduce((count, change) => count + change.cards.length, 0);
+  if (!total) return "";
+  if (changes.length === 1 && total === 1) {
+    const change = changes[0];
+    const card = change.cards[0];
+    return card.isPlaceholder
+      ? `${change.playerName} banished a hidden card`
+      : `${change.playerName} banished ${cardName(card)}`;
+  }
+  if (changes.length === 1) return `${changes[0].playerName} banished ${total} cards`;
+  return `${total} cards were banished`;
 }
 
 function DeckPeekOverlay({
@@ -1002,7 +1701,14 @@ function PlayerRail({
         {active ? "Active turn" : "Waiting"}
       </div>
       <div className={styles.playerRailStats}>
-        <span className={styles.pointsBadge} data-player-score={score} aria-label={`${score} points`}>
+        <span
+          aria-label={`${score} points${player.boardFields.analysisScoreChanged === true ? ", changed in analysis" : ""}`}
+          className={`${styles.pointsBadge} ${
+            player.boardFields.analysisScoreChanged === true ? styles.analysisPointsBadge : ""
+          }`}
+          data-analysis-score={player.boardFields.analysisScoreChanged === true ? "true" : undefined}
+          data-player-score={score}
+        >
           <small>Points</small>
           <b>{score}</b>
         </span>
@@ -1060,30 +1766,52 @@ function PlayerHeroStack({
 }
 
 function PlayerPileStack({
+  onOpenBanished,
   onOpenDiscard,
   orientation,
   player,
 }: {
+  onOpenBanished: () => void;
   onOpenDiscard: () => void;
   orientation: "top" | "bottom";
   player: ReplayPlayerState;
 }) {
   const deck = deckCards(player);
   const discard = discardCards(player);
-  const deckPile = <CardPile count={deck.length} kind="deck" label="Deck" orientation={orientation} />;
+  const banished = banishedCards(player);
+  const deckPile = (
+    <div className={styles.deckPileGroup}>
+      <CardPile count={deck.length} kind="deck" label="Deck" orientation={orientation} />
+      <button
+        aria-label={`Open banished cards, ${banished.length} ${banished.length === 1 ? "card" : "cards"}`}
+        className={styles.banishedZoneButton}
+        data-analysis-drop-player-id={player.id}
+        data-analysis-drop-zone="banished"
+        data-has-banished={banished.length ? "true" : "false"}
+        data-open-banished
+        onClick={onOpenBanished}
+        type="button"
+      >
+        <span>Banished</span>
+        <b>{banished.length}</b>
+      </button>
+    </div>
+  );
   const discardPile = (
     <CardPile
       card={discard.at(-1)}
       count={discard.length}
       kind="discard"
       label="Trash"
+      analysisDropPlayerId={player.id}
+      analysisDropZone="discard"
       onClick={onOpenDiscard}
       orientation={orientation}
     />
   );
   return (
     <aside
-      aria-label={`${player.name} deck and trash`}
+      aria-label={`${player.name} deck, banished cards, and trash`}
       className={`${styles.playerPileStack} ${
         orientation === "top" ? styles.playerPileStackTop : styles.playerPileStackBottom
       }`}
@@ -1114,6 +1842,8 @@ function PlayerHalf({
   const handRow = (
     <div
       className={`${styles.handRow} ${orientation === "top" ? styles.handRowTop : styles.handRowBottom}`}
+      data-analysis-drop-player-id={player.id}
+      data-analysis-drop-zone="hand"
       data-hand-row
     >
       <span className={styles.zoneLabel}>Hand · {hand.length}</span>
@@ -1121,7 +1851,12 @@ function PlayerHalf({
         {hand.slice(0, 12).map((card, index) => (
           <CardTile
             card={card}
-            forceFaceDown={orientation === "top" && !openHands}
+            forceFaceDown={
+              orientation === "top" &&
+              !openHands &&
+              card.fields.analysisKnowledge !== "future_reveal" &&
+              card.fields.analysisStatus !== "what_if"
+            }
             inspected={inspectedCard?.id === card.id}
             key={card.id}
             onHover={onCardHover}
@@ -1157,7 +1892,12 @@ function PlayerHalf({
       <div className={styles.boardLine}>
         <div className={styles.boardLanes}>
           {zones.map((zone, zoneIndex) => (
-            <div className={styles.boardLane} key={zone.key}>
+            <div
+              className={styles.boardLane}
+              data-analysis-drop-player-id={player.id}
+              data-analysis-drop-zone={zone.key === "board" ? "base" : zone.key}
+              key={zone.key}
+            >
               <span className={styles.zoneLabel}>{laneLabel(zone.label, zoneIndex)}</span>
               <div className={styles.laneCards}>
                 {groupCardsWithAttachments(zone.cards).slice(0, 9).map((group) => (
@@ -1203,6 +1943,8 @@ function RuneRail({
     <div
       aria-label={`${player.name} rune cards`}
       className={`${styles.runeRail} ${orientation === "top" ? styles.runeRailTop : styles.runeRailBottom}`}
+      data-analysis-drop-player-id={player.id}
+      data-analysis-drop-zone="runeArea"
       data-rune-rail
     >
       <div
@@ -1238,6 +1980,8 @@ function RuneRail({
 }
 
 function CardPile({
+  analysisDropPlayerId,
+  analysisDropZone,
   card,
   count,
   kind,
@@ -1245,6 +1989,8 @@ function CardPile({
   onClick,
   orientation,
 }: {
+  analysisDropPlayerId?: string;
+  analysisDropZone?: string;
   card?: ReplayCardState;
   count: number;
   kind: "deck" | "discard";
@@ -1270,6 +2016,8 @@ function CardPile({
     <button
       aria-label={`Open ${label.toLowerCase()}, ${count} cards`}
       className={styles.cardPile}
+      data-analysis-drop-player-id={analysisDropPlayerId}
+      data-analysis-drop-zone={analysisDropZone}
       data-open-discard
       onClick={onClick}
       type="button"
@@ -1277,7 +2025,13 @@ function CardPile({
       {content}
     </button>
   ) : (
-    <div aria-label={`${label}, ${count} cards`} className={styles.cardPile} role="img">
+    <div
+      aria-label={`${label}, ${count} cards`}
+      className={styles.cardPile}
+      data-analysis-drop-player-id={analysisDropPlayerId}
+      data-analysis-drop-zone={analysisDropZone}
+      role="img"
+    >
       {content}
     </div>
   );
@@ -1285,6 +2039,8 @@ function CardPile({
 
 function CardTile({
   atBattlefield = false,
+  analysisChainEntryId,
+  analysisChainTargetIds,
   card,
   forceFaceDown = false,
   inspected = false,
@@ -1295,6 +2051,8 @@ function CardTile({
   style,
 }: {
   atBattlefield?: boolean;
+  analysisChainEntryId?: string;
+  analysisChainTargetIds?: string[];
   card: ReplayCardState;
   forceFaceDown?: boolean;
   inspected?: boolean;
@@ -1304,6 +2062,7 @@ function CardTile({
   size?: "board" | "hand" | "scene" | "discard" | "hero" | "rune";
   style?: CSSProperties;
 }) {
+  const analysisInteractions = useContext(ReplayAnalysisInteractionContext);
   const [failedImageKey, setFailedImageKey] = useState("");
   const image = cardImageUrl(card);
   const imageKey = `${card.id}|${image ?? ""}`;
@@ -1318,12 +2077,51 @@ function CardTile({
   const whiteCounter = hidden ? undefined : cardCounterValue(card, "whiteCounter");
   const redCounter = hidden ? undefined : cardCounterValue(card, "redCounter");
   const attachmentTargetId = hidden ? undefined : attachedToCardId(card);
+  const futureKnown = !hidden && card.fields.analysisKnowledge === "future_reveal";
+  const whatIf = !hidden && card.fields.analysisStatus === "what_if";
+  const analysisInteractive = Boolean(analysisInteractions?.active && !hidden);
+  const analysisDraggable = Boolean(analysisInteractive && !analysisChainEntryId);
+  const handleDragStart = (dragEvent: ReactDragEvent<HTMLButtonElement>) => {
+    if (!analysisDraggable) {
+      dragEvent.preventDefault();
+      return;
+    }
+    dragEvent.dataTransfer.effectAllowed = "move";
+    dragEvent.dataTransfer.setData("application/x-riftlite-card", card.id);
+    dragEvent.dataTransfer.setData("text/plain", card.id);
+    analysisInteractions?.onDragState(card.id);
+  };
+  const handleContextMenu = (mouseEvent: ReactMouseEvent<HTMLButtonElement>) => {
+    if (!analysisInteractive) return;
+    mouseEvent.preventDefault();
+    mouseEvent.stopPropagation();
+    analysisInteractions?.onContextMenu(
+      card,
+      mouseEvent.clientX,
+      mouseEvent.clientY,
+      analysisChainEntryId,
+    );
+  };
   return (
     <button
-      aria-label={hidden ? "Hidden card" : `${cardName(card)}${gameplayHidden ? ", hidden at battlefield" : ""}`}
+      aria-label={
+        hidden
+          ? "Hidden card"
+          : `${cardName(card)}${gameplayHidden ? ", hidden at battlefield" : ""}${
+              futureKnown ? ", known from a later reveal" : ""
+            }${whatIf ? ", changed in analysis" : ""}${analysisChainTargetIds?.length
+              ? `, ${analysisChainTargetIds.length} ${analysisChainTargetIds.length === 1 ? "target" : "targets"} linked`
+              : ""
+            }`
+      }
       className={`${styles.cardMotion} ${styles[`cardSize${capitalize(size)}`]} ${
         inspected ? styles.inspectedCard : ""
-      }`}
+      } ${futureKnown ? styles.futureKnownCard : ""} ${whatIf ? styles.whatIfCard : ""}`}
+      data-analysis-card={whatIf ? "what-if" : futureKnown ? "future-known" : undefined}
+      data-analysis-chain-entry-id={analysisChainEntryId}
+      data-analysis-chain-target-count={analysisChainTargetIds?.length || undefined}
+      data-analysis-chain-target-ids={analysisChainTargetIds?.join(" ") || undefined}
+      data-analysis-draggable={analysisDraggable ? "true" : undefined}
       data-card-code={hidden ? undefined : card.cardCode}
       data-card-attached-to={attachmentTargetId}
       data-card-duplicate={duplicate ? "true" : undefined}
@@ -1335,8 +2133,12 @@ function CardTile({
       data-card-size={size}
       data-card-white-counter={whiteCounter !== undefined ? formatCounterValue(whiteCounter) : undefined}
       data-rune-card={size === "rune" ? "true" : undefined}
+      draggable={analysisDraggable}
       onBlur={() => onHover?.(null)}
       onClick={() => { if (!hidden) onSelect?.(card); }}
+      onContextMenu={handleContextMenu}
+      onDragEnd={() => analysisInteractions?.onDragState(null)}
+      onDragStart={handleDragStart}
       onFocus={() => onHover?.(hidden ? null : card)}
       onMouseEnter={() => onHover?.(hidden ? null : card)}
       onMouseLeave={() => onHover?.(null)}
@@ -1360,8 +2162,12 @@ function CardTile({
           <b className={styles.cardCost}>{looseNumber(card.fields.cost)}</b>
         ) : null}
       </span>
-      {gameplayHidden || duplicate || labels.length ? (
+      {gameplayHidden || duplicate || labels.length || futureKnown || whatIf ? (
         <span className={styles.cardTagStack}>
+          {whatIf ? <span className={`${styles.duplicateTag} ${styles.whatIfTag}`}>What if</span> : null}
+          {futureKnown ? (
+            <span className={`${styles.duplicateTag} ${styles.futureKnownTag}`}>Known later</span>
+          ) : null}
           {gameplayHidden ? <span className={`${styles.duplicateTag} ${styles.hiddenCardTag}`}>Hidden</span> : null}
           {duplicate ? <span className={styles.duplicateTag}>Duplicate</span> : null}
           {labels.map((label, index) => (
@@ -1484,6 +2290,13 @@ function CentralArena({
   onCardSelect: (card: ReplayCardState) => void;
   players: ReplayPlayerPair;
 }) {
+  // TCGA's B1/B2 zones are relative to each card owner: B1 is that
+  // player's selected battlefield and B2 is their opponent's. Canonical
+  // Atlas lanes are already physical, so only TCGA needs per-player keys.
+  const tcgaOwnerRelativeLanes = [players.bottom, players.top].some((player) => {
+    const provider = player.fields.provider ?? player.boardFields.provider;
+    return typeof provider === "string" && provider.trim().toLowerCase() === "tcga";
+  });
   const preferredTopZone = battlefieldZoneForPlayer(players.top, "battlefieldB");
   const bottomZone = battlefieldZoneForPlayer(
     players.bottom,
@@ -1499,6 +2312,8 @@ function CentralArena({
       key: bottomZone,
       label: "Battlefield",
       owner: players.bottom,
+      bottomCardZone: tcgaOwnerRelativeLanes ? "battlefieldA" : bottomZone,
+      topCardZone: tcgaOwnerRelativeLanes ? "battlefieldB" : bottomZone,
     },
     {
       battlefield: battlefields[1],
@@ -1506,6 +2321,8 @@ function CentralArena({
       key: topZone,
       label: "Opponent's battlefield",
       owner: players.top,
+      bottomCardZone: tcgaOwnerRelativeLanes ? "battlefieldB" : topZone,
+      topCardZone: tcgaOwnerRelativeLanes ? "battlefieldA" : topZone,
     },
   ];
   return (
@@ -1520,10 +2337,12 @@ function CentralArena({
         >
             <span className={styles.centralLabel}>{lane.label}</span>
             <BattlefieldUnitRow
-              cards={zoneCards(players.top, [lane.key])}
+              cards={zoneCards(players.top, [lane.topCardZone])}
               onCardHover={onCardHover}
               onCardSelect={onCardSelect}
               orientation="top"
+              playerId={players.top.id}
+              zone={lane.topCardZone}
             />
             <div className={styles.battlefieldCardDock}>
               {lane.battlefield ? (
@@ -1542,10 +2361,12 @@ function CentralArena({
               )}
             </div>
             <BattlefieldUnitRow
-              cards={zoneCards(players.bottom, [lane.key])}
+              cards={zoneCards(players.bottom, [lane.bottomCardZone])}
               onCardHover={onCardHover}
               onCardSelect={onCardSelect}
               orientation="bottom"
+              playerId={players.bottom.id}
+              zone={lane.bottomCardZone}
             />
         </section>
       ))}
@@ -1555,8 +2376,13 @@ function CentralArena({
           <div className={styles.chainEntries}>
             {chain.slice(-5).map((entry, index) => {
               const card = cardFromChain(entry, index);
+              const analysisChainTargetIds = jsonStringList(
+                entry.fields.analysisTargetCardIds,
+              );
               return card ? (
                 <CardTile
+                  analysisChainEntryId={entry.id}
+                  analysisChainTargetIds={analysisChainTargetIds}
                   card={card}
                   key={entry.id}
                   onHover={onCardHover}
@@ -1579,17 +2405,23 @@ function BattlefieldUnitRow({
   onCardHover,
   onCardSelect,
   orientation,
+  playerId,
+  zone,
 }: {
   cards: ReplayCardState[];
   onCardHover: (card: ReplayCardState | null) => void;
   onCardSelect: (card: ReplayCardState) => void;
   orientation: "top" | "bottom";
+  playerId: string;
+  zone: string;
 }) {
   return (
     <div
       className={`${styles.battlefieldUnitRow} ${
         orientation === "top" ? styles.battlefieldUnitRowTop : styles.battlefieldUnitRowBottom
       }`}
+      data-analysis-drop-player-id={playerId}
+      data-analysis-drop-zone={zone}
       data-battlefield-unit-row={orientation}
     >
       {groupCardsWithAttachments(cards).slice(0, 7).map((group) => (
@@ -1655,7 +2487,14 @@ function BattlefieldTile({
   );
 }
 
-type TargetArrow = { id: string; fromX: number; fromY: number; toX: number; toY: number };
+type TargetArrow = {
+  analysis: boolean;
+  fromX: number;
+  fromY: number;
+  id: string;
+  toX: number;
+  toY: number;
+};
 
 function TargetArrowLayer({ arrows }: { arrows: TargetArrow[] }) {
   if (!arrows.length) return null;
@@ -1665,14 +2504,28 @@ function TargetArrowLayer({ arrows }: { arrows: TargetArrow[] }) {
         <marker id="replay-arrow-head" markerHeight="8" markerWidth="8" orient="auto" refX="7" refY="4">
           <path d="M0 0 L8 4 L0 8 Z" fill="currentColor" />
         </marker>
+        <marker
+          id="replay-analysis-arrow-head"
+          markerHeight="8"
+          markerWidth="8"
+          orient="auto"
+          refX="7"
+          refY="4"
+        >
+          <path d="M0 0 L8 4 L0 8 Z" fill="#cf8cff" />
+        </marker>
       </defs>
       {arrows.map((arrow) => {
         const curve = Math.max(24, Math.abs(arrow.toX - arrow.fromX) * 0.18);
         return (
           <path
+            className={arrow.analysis ? styles.analysisTargetArrow : undefined}
+            data-analysis-target-arrow={arrow.analysis ? "true" : undefined}
             d={`M ${arrow.fromX} ${arrow.fromY} C ${arrow.fromX} ${arrow.fromY - curve}, ${arrow.toX} ${arrow.toY - curve}, ${arrow.toX} ${arrow.toY}`}
             key={arrow.id}
-            markerEnd="url(#replay-arrow-head)"
+            markerEnd={`url(#${
+              arrow.analysis ? "replay-analysis-arrow-head" : "replay-arrow-head"
+            })`}
           />
         );
       })}
@@ -2110,6 +2963,7 @@ function MulliganSceneHand({
   transition: MulliganHandTransition;
 }) {
   const detailsAvailable = transition.detailLevel !== "unavailable";
+  const cardIdentitiesAvailable = transition.detailLevel !== "count_unresolved" && detailsAvailable;
   const status = detailsAvailable
     ? transition.replacementCount
       ? `${transition.replacementCount} ${transition.replacementCount === 1 ? "card" : "cards"} replaced`
@@ -2137,7 +2991,7 @@ function MulliganSceneHand({
         {slots.map((slot, index) => (
           <span
             className={`${styles.mulliganCardSlot} ${
-              detailsAvailable ? "" : styles.mulliganCardUnresolved
+              cardIdentitiesAvailable ? "" : styles.mulliganCardUnresolved
             }`}
             data-mulligan-slot={slot.leaving || slot.entering ? "replacement" : "kept"}
             key={`${slot.kept?.id ?? slot.leaving?.id ?? "empty"}|${slot.entering?.id ?? index}`}
@@ -2146,7 +3000,7 @@ function MulliganSceneHand({
             {slot.kept ? (
               <span className={styles.mulliganCardKept} data-mulligan-card="kept">
                 <CardTile card={slot.kept} forceFaceDown={faceDown} size="scene" />
-                {detailsAvailable ? <i>Kept</i> : null}
+                {cardIdentitiesAvailable ? <i>Kept</i> : null}
               </span>
             ) : null}
             {slot.leaving ? (
@@ -2164,10 +3018,10 @@ function MulliganSceneHand({
           </span>
         ))}
         {!slots.length ? <em>Hand data is not available at this frame.</em> : null}
-        {!detailsAvailable && slots.length ? (
+        {!cardIdentitiesAvailable && slots.length ? (
           <span className={styles.mulliganUnknownBadge}>
             <Icon name="swap" />
-            Hand shuffled
+            {detailsAvailable ? "Replacement identities unavailable" : "Hand shuffled"}
           </span>
         ) : null}
       </div>
@@ -2226,6 +3080,10 @@ function transitionFromMulliganAction(
     ))
     .at(-1);
   if (!actionEvent || actionEvent.kind !== "action") {
+    const redrawCount = loggedMulliganRedrawCount(replay, game, playerId);
+    if (redrawCount !== undefined) {
+      return unresolvedCountMulliganTransition(openingCards, redrawCount);
+    }
     return unavailableMulliganTransition(openingCards);
   }
 
@@ -2316,6 +3174,45 @@ function unavailableMulliganTransition(cards: ReplayCardState[]): MulliganHandTr
     replacementCount: 0,
     slots: [],
   };
+}
+
+function unresolvedCountMulliganTransition(
+  cards: ReplayCardState[],
+  replacementCount: number,
+): MulliganHandTransition {
+  const finalHand = cards.slice(0, 8);
+  return {
+    cards: finalHand,
+    detailLevel: "count_unresolved",
+    replacementCount: Math.max(0, Math.min(8, replacementCount)),
+    slots: finalHand.map((card) => ({ kept: card })),
+  };
+}
+
+function loggedMulliganRedrawCount(
+  replay: CanonicalReplayV2,
+  game: CanonicalReplayV2["series"]["games"][number],
+  playerId: string,
+): number | undefined {
+  let completed = false;
+  let redrawCount: number | undefined;
+  for (const event of replay.events) {
+    if (
+      event.index < game.eventStartIndex ||
+      event.index > game.eventEndIndex ||
+      event.gameId !== game.id ||
+      event.kind !== "log"
+    ) continue;
+    for (const entry of event.entries) {
+      if (entry.authorPlayerId !== playerId) continue;
+      if (entry.fields.mulliganCompleted === true) completed = true;
+      const count = entry.fields.mulliganRedrawCount;
+      if (typeof count === "number" && Number.isFinite(count) && count >= 0) {
+        redrawCount = Math.trunc(count);
+      }
+    }
+  }
+  return redrawCount ?? (completed ? 0 : undefined);
 }
 
 function countOnlyMulliganTransition(
@@ -2807,7 +3704,495 @@ function InspectorRail({
   );
 }
 
+function ReplayAnalysisPanel({
+  attachmentCardId,
+  onAdjustCounter,
+  onAdjustScore,
+  onAddToChain,
+  onAttach,
+  onCancelAttach,
+  onCancelTarget,
+  onDetach,
+  onExit,
+  onMove,
+  onRedo,
+  onReset,
+  onRestore,
+  onToggleExhausted,
+  onUndo,
+  replay,
+  selectedCardId,
+  session,
+  targetChainEntryId,
+}: {
+  attachmentCardId: string | null;
+  onAdjustCounter: (cardId: string, field: ReplayAnalysisCounterField, delta: number) => void;
+  onAdjustScore: (playerId: string, delta: number) => void;
+  onAddToChain: (cardId: string) => void;
+  onAttach: (cardId: string) => void;
+  onCancelAttach: () => void;
+  onCancelTarget: () => void;
+  onDetach: (cardId: string) => void;
+  onExit: () => void;
+  onMove: (cardId: string, zone: string) => void;
+  onRedo: () => void;
+  onReset: () => void;
+  onRestore: (cardId: string) => void;
+  onToggleExhausted: (cardId: string) => void;
+  onUndo: () => void;
+  replay: CanonicalReplayV2;
+  selectedCardId: string | null;
+  session: ReplayAnalysisSession;
+  targetChainEntryId: string | null;
+}) {
+  const selectedCard = replayAnalysisSelectedCard(session.state, selectedCardId);
+  const selectedPlayer = selectedCard
+    ? replayAnalysisCardPlayer(session.state, selectedCard.id)
+    : null;
+  const selectedLocation = selectedCard
+    ? replayAnalysisCardLocation(session.state, selectedCard.id)
+    : null;
+  const players = resolveReplayPlayers(replay, session.state);
+  const changedCards = replayAnalysisChangedCardCount(session.state);
+  const anchorTurn = session.state.room.turnNumber;
+  const selectedWhite = selectedCard
+    ? cardCounterValue(selectedCard, "whiteCounter")
+    : undefined;
+  const selectedRed = selectedCard
+    ? cardCounterValue(selectedCard, "redCounter")
+    : undefined;
+
+  return (
+    <aside
+      aria-label="Replay analysis controls"
+      className={styles.analysisPanel}
+      data-analysis-panel
+    >
+      <header className={styles.analysisPanelHeader}>
+        <div className={styles.analysisPanelTitle}>
+          <span className={styles.analysisPanelMark}><Icon name="spark" /></span>
+          <div>
+            <span>Replay analysis</span>
+            <h2>What-if branch</h2>
+          </div>
+        </div>
+        <button aria-label="Return to original replay" onClick={onExit} type="button">
+          <Icon name="close" />
+        </button>
+      </header>
+
+      <div className={styles.analysisSummary}>
+        <div><span>Anchor</span><b>Turn {anchorTurn ?? "—"}</b></div>
+        <div><span>Known later</span><b>{session.inferredCardIds.length}</b></div>
+        <div><span>Changed cards</span><b>{changedCards}</b></div>
+      </div>
+
+      {attachmentCardId ? (
+        <div className={styles.analysisAttachNotice} role="status">
+          <Icon name="combine" />
+          <div>
+            <b>Select an attachment target</b>
+            <span>Choose another face-up card on the board.</span>
+          </div>
+          <button onClick={onCancelAttach} type="button">Cancel</button>
+        </div>
+      ) : null}
+
+      {targetChainEntryId ? (
+        <div
+          className={`${styles.analysisAttachNotice} ${styles.analysisTargetNotice}`}
+          role="status"
+        >
+          <Icon name="target" />
+          <div>
+            <b>Select a chain target</b>
+            <span>Choose a face-up card or a battlefield to draw an arrow.</span>
+          </div>
+          <button onClick={onCancelTarget} type="button">Cancel</button>
+        </div>
+      ) : null}
+
+      <div className={styles.analysisPanelBody}>
+        {selectedCard && selectedPlayer ? (
+          <>
+            <section className={styles.analysisSelectedCard}>
+              <MiniPortrait card={selectedCard} fallback={cardName(selectedCard)} />
+              <div>
+                <span>Selected · {selectedPlayer.name} · {analysisZoneLabel(selectedLocation?.zone)}</span>
+                <b>{cardName(selectedCard)}</b>
+                <small>{selectedCard.cardCode ?? "No card code"}</small>
+              </div>
+              {selectedCard.fields.analysisKnowledge === "future_reveal" ? (
+                <em>Known later</em>
+              ) : null}
+            </section>
+
+            <section className={styles.analysisControlSection}>
+              <header><span>Move card</span><small>Changes are temporary</small></header>
+              <div className={styles.analysisDestinationGrid}>
+                {REPLAY_ANALYSIS_DESTINATIONS.map((destination) => (
+                  <button
+                    disabled={
+                      !selectedPlayer ||
+                      !replayAnalysisCanMove(
+                        session.state,
+                        selectedCard.id,
+                        selectedPlayer.id,
+                        destination.zone,
+                      )
+                    }
+                    key={destination.zone}
+                    onClick={() => onMove(selectedCard.id, destination.zone)}
+                    type="button"
+                  >
+                    {destination.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className={styles.analysisControlSection}>
+              <header><span>Card state</span><small>Branch only</small></header>
+              <button
+                className={styles.analysisWideAction}
+                onClick={() => onToggleExhausted(selectedCard.id)}
+                type="button"
+              >
+                <Icon name="swap" /> {selectedCard.exhausted ? "Ready card" : "Exhaust card"}
+              </button>
+              <button
+                className={styles.analysisWideAction}
+                disabled={!replayAnalysisCanAddToChain(session.state, selectedCard.id)}
+                onClick={() => onAddToChain(selectedCard.id)}
+                type="button"
+              >
+                <Icon name="chain" /> Add to chain
+              </button>
+              <AnalysisCounterControl
+                label="White"
+                onChange={(delta) => onAdjustCounter(selectedCard.id, "whiteCounter", delta)}
+                value={selectedWhite}
+              />
+              <AnalysisCounterControl
+                label="Red"
+                onChange={(delta) => onAdjustCounter(selectedCard.id, "redCounter", delta)}
+                value={selectedRed}
+              />
+              <button
+                className={styles.analysisWideAction}
+                onClick={() => onAttach(selectedCard.id)}
+                type="button"
+              >
+                <Icon name="combine" /> Attach to another card
+              </button>
+              {attachedToCardId(selectedCard) ? (
+                <button
+                  className={styles.analysisWideAction}
+                  onClick={() => onDetach(selectedCard.id)}
+                  type="button"
+                >
+                  <Icon name="unlink" /> Detach card
+                </button>
+              ) : null}
+              {selectedCard.fields.analysisStatus === "what_if" ? (
+                <button
+                  className={styles.analysisWideAction}
+                  onClick={() => onRestore(selectedCard.id)}
+                  type="button"
+                >
+                  <Icon name="rewind" /> Restore card to branch start
+                </button>
+              ) : null}
+            </section>
+          </>
+        ) : (
+          <section className={styles.analysisEmptySelection}>
+            <Icon name="card" />
+            <b>Select a face-up card</b>
+            <p>Drag cards between glowing zones, or right-click any known card for quick actions.</p>
+          </section>
+        )}
+
+        <section className={styles.analysisControlSection}>
+          <header><span>Points</span><small>Explore scoring lines</small></header>
+          {[players.top, players.bottom].map((player) => {
+            const score = player.score ??
+              looseNumber(player.boardFields.score) ??
+              looseNumber(player.fields.score) ??
+              0;
+            return (
+              <div className={styles.analysisScoreControl} key={player.id}>
+                <span>{player.name}</span>
+                <button
+                  aria-label={`Remove one point from ${player.name}`}
+                  onClick={() => onAdjustScore(player.id, -1)}
+                  type="button"
+                >−</button>
+                <b>{score}</b>
+                <button
+                  aria-label={`Add one point to ${player.name}`}
+                  onClick={() => onAdjustScore(player.id, 1)}
+                  type="button"
+                >+</button>
+              </div>
+            );
+          })}
+        </section>
+      </div>
+
+      <footer className={styles.analysisPanelFooter}>
+        <button disabled={!session.history.length} onClick={onUndo} type="button">
+          <Icon name="rewind" /> Undo
+        </button>
+        <button disabled={!session.future.length} onClick={onRedo} type="button">
+          <Icon name="forward" /> Redo
+        </button>
+        <button onClick={onReset} type="button"><Icon name="skipStart" /> Reset branch</button>
+        <button className={styles.analysisReturnButton} onClick={onExit} type="button">
+          Return to replay
+        </button>
+      </footer>
+    </aside>
+  );
+}
+
+function AnalysisCounterControl({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (delta: number) => void;
+  value: number | null | undefined;
+}) {
+  return (
+    <div className={styles.analysisCounterControl}>
+      <span>{label} counters</span>
+      <button aria-label={`Remove ${label.toLowerCase()} counter`} onClick={() => onChange(-1)} type="button">−</button>
+      <b>{value ?? 0}</b>
+      <button aria-label={`Add ${label.toLowerCase()} counter`} onClick={() => onChange(1)} type="button">+</button>
+    </div>
+  );
+}
+
+function analysisZoneLabel(zone: string | undefined): string {
+  if (!zone) return "Unknown zone";
+  const normalized = zone.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const destination = REPLAY_ANALYSIS_DESTINATIONS.find((candidate) => (
+    candidate.zone.toLowerCase().replace(/[^a-z0-9]/g, "") === normalized
+  ));
+  if (destination) return destination.label;
+  if (["board"].includes(normalized)) return "Base";
+  if (["trash", "graveyard", "recycle", "recyclepile"].includes(normalized)) return "Trash";
+  if (["banish", "exile", "exiled", "removed", "removedfromgame"].includes(normalized)) {
+    return "Banished";
+  }
+  return zone;
+}
+
+function ReplayAnalysisContextMenu({
+  canAddToChain,
+  canMove,
+  card,
+  chainEntryId,
+  chainTargetCount,
+  onAddToChain,
+  onAdjustCounter,
+  onAttach,
+  onClearChainTargets,
+  onClose,
+  onDetach,
+  onMove,
+  onRemoveFromChain,
+  onRestore,
+  onSetChainTarget,
+  onToggleExhausted,
+  position,
+}: {
+  canAddToChain: boolean;
+  canMove: (zone: string) => boolean;
+  card: ReplayCardState;
+  chainEntryId?: string;
+  chainTargetCount: number;
+  onAddToChain: () => void;
+  onAdjustCounter: (field: ReplayAnalysisCounterField, delta: number) => void;
+  onAttach: () => void;
+  onClearChainTargets: () => void;
+  onClose: () => void;
+  onDetach: () => void;
+  onMove: (zone: string) => void;
+  onRemoveFromChain: () => void;
+  onRestore: () => void;
+  onSetChainTarget: () => void;
+  onToggleExhausted: () => void;
+  position: NonNullable<ReplayAnalysisContextMenuState>;
+}) {
+  const whiteCounter = cardCounterValue(card, "whiteCounter") ?? 0;
+  const redCounter = cardCounterValue(card, "redCounter") ?? 0;
+  if (chainEntryId) {
+    return (
+      <div
+        aria-label={`${cardName(card)} actions`}
+        className={styles.analysisContextMenu}
+        data-analysis-context-menu
+        onContextMenu={(mouseEvent) => mouseEvent.preventDefault()}
+        onPointerDown={(pointerEvent) => pointerEvent.stopPropagation()}
+        role="menu"
+        style={{ left: position.x, top: position.y }}
+      >
+        <header>
+          <div>
+            <span>What-if chain card</span>
+            <b>{cardName(card)}</b>
+            {chainTargetCount ? (
+              <small>{chainTargetCount} {chainTargetCount === 1 ? "target" : "targets"} linked</small>
+            ) : null}
+          </div>
+          <button aria-label="Close card actions" onClick={onClose} type="button">
+            <Icon name="close" />
+          </button>
+        </header>
+        <button
+          className={styles.analysisContextWideAction}
+          onClick={onSetChainTarget}
+          role="menuitem"
+          type="button"
+        >
+          <Icon name="target" /> {chainTargetCount ? "Add another target" : "Add target arrow"}
+        </button>
+        {chainTargetCount ? (
+          <button
+            className={styles.analysisContextWideAction}
+            onClick={onClearChainTargets}
+            role="menuitem"
+            type="button"
+          >
+            <Icon name="unlink" /> Clear target {chainTargetCount === 1 ? "arrow" : "arrows"}
+          </button>
+        ) : null}
+        <button
+          className={styles.analysisContextWideAction}
+          onClick={onRemoveFromChain}
+          role="menuitem"
+          type="button"
+        >
+          <Icon name="chain" /> Return card from chain
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div
+      aria-label={`${cardName(card)} actions`}
+      className={styles.analysisContextMenu}
+      data-analysis-context-menu
+      onContextMenu={(mouseEvent) => mouseEvent.preventDefault()}
+      onPointerDown={(pointerEvent) => pointerEvent.stopPropagation()}
+      role="menu"
+      style={{ left: position.x, top: position.y }}
+    >
+      <header>
+        <div>
+          <span>What-if card</span>
+          <b>{cardName(card)}</b>
+        </div>
+        <button aria-label="Close card actions" onClick={onClose} type="button">
+          <Icon name="close" />
+        </button>
+      </header>
+      <button
+        className={styles.analysisContextWideAction}
+        disabled={!canAddToChain}
+        onClick={onAddToChain}
+        role="menuitem"
+        type="button"
+      >
+        <Icon name="chain" /> Add to chain
+      </button>
+      <button
+        className={styles.analysisContextWideAction}
+        onClick={onToggleExhausted}
+        role="menuitem"
+        type="button"
+      >
+        <Icon name="swap" /> {card.exhausted ? "Ready card" : "Exhaust card"}
+      </button>
+      <div className={styles.analysisContextCounters}>
+        <span>White</span>
+        <button
+          aria-label="Remove white counter"
+          onClick={() => onAdjustCounter("whiteCounter", -1)}
+          type="button"
+        >âˆ’</button>
+        <b>{whiteCounter}</b>
+        <button
+          aria-label="Add white counter"
+          onClick={() => onAdjustCounter("whiteCounter", 1)}
+          type="button"
+        >+</button>
+        <span>Red</span>
+        <button
+          aria-label="Remove red counter"
+          onClick={() => onAdjustCounter("redCounter", -1)}
+          type="button"
+        >âˆ’</button>
+        <b>{redCounter}</b>
+        <button
+          aria-label="Add red counter"
+          onClick={() => onAdjustCounter("redCounter", 1)}
+          type="button"
+        >+</button>
+      </div>
+      <button
+        className={styles.analysisContextWideAction}
+        onClick={onAttach}
+        role="menuitem"
+        type="button"
+      >
+        <Icon name="combine" /> Attach to another card
+      </button>
+      {attachedToCardId(card) ? (
+        <button
+          className={styles.analysisContextWideAction}
+          onClick={onDetach}
+          role="menuitem"
+          type="button"
+        >
+          <Icon name="unlink" /> Detach card
+        </button>
+      ) : null}
+      {card.fields.analysisStatus === "what_if" ? (
+        <button
+          className={styles.analysisContextWideAction}
+          onClick={onRestore}
+          role="menuitem"
+          type="button"
+        >
+          <Icon name="rewind" /> Restore to branch start
+        </button>
+      ) : null}
+      <section>
+        <span>Play or move to</span>
+        <div>
+          {REPLAY_ANALYSIS_DESTINATIONS.map((destination) => (
+            <button
+              disabled={!canMove(destination.zone)}
+              key={destination.zone}
+              onClick={() => onMove(destination.zone)}
+              role="menuitem"
+              type="button"
+            >
+              {destination.label}
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TransportControls({
+  analysisActive,
   currentMs,
   durationMs,
   eventIndex,
@@ -2821,6 +4206,7 @@ function TransportControls({
   onStepGame,
   onStepTurn,
   onToggleMore,
+  onToggleAnalysis,
   onTogglePlayback,
   playing,
   presentationFrame,
@@ -2830,6 +4216,7 @@ function TransportControls({
   state,
   turns,
 }: {
+  analysisActive: boolean;
   currentMs: number;
   durationMs: number;
   eventIndex: number;
@@ -2843,6 +4230,7 @@ function TransportControls({
   onStepGame: (direction: -1 | 1) => void;
   onStepTurn: (direction: -1 | 1) => void;
   onToggleMore: () => void;
+  onToggleAnalysis: () => void;
   onTogglePlayback: () => void;
   playing: boolean;
   presentationFrame: { index: number; label: string; total: number } | null;
@@ -2972,6 +4360,17 @@ function TransportControls({
         >
           <Icon name="sliders" /> {showMore ? "Less" : "More"}
         </button>
+        <button
+          aria-pressed={analysisActive}
+          className={`${styles.analysisToggleButton} ${
+            analysisActive ? styles.analysisToggleButtonActive : ""
+          }`}
+          data-control="analysis"
+          onClick={onToggleAnalysis}
+          type="button"
+        >
+          <Icon name="spark" /> {analysisActive ? "Return to replay" : "Take control"}
+        </button>
       </div>
     </footer>
   );
@@ -3008,6 +4407,53 @@ function DiscardOverlay({
             <CardTile card={card} key={card.id} onHover={onCardHover} onSelect={onCardSelect} size="discard" />
           ))}
           {!cards.length ? <div className={styles.emptyDiscard}><Icon name="trash" /><span>Trash is empty</span></div> : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function BanishedOverlay({
+  cards,
+  onCardHover,
+  onCardSelect,
+  onClose,
+  playerName,
+}: {
+  cards: ReplayCardState[];
+  onCardHover: (card: ReplayCardState | null) => void;
+  onCardSelect: (card: ReplayCardState) => void;
+  onClose: () => void;
+  playerName: string;
+}) {
+  return (
+    <div className={styles.modalBackdrop} role="presentation" onMouseDown={onClose}>
+      <section
+        aria-label={`${playerName} banished cards`}
+        aria-modal="true"
+        className={`${styles.discardModal} ${styles.banishedModal}`}
+        data-banished-overlay
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <header>
+          <div>
+            <span>Banished zone</span>
+            <h2>{playerName} &middot; Banished</h2>
+            <p>{cards.length} {cards.length === 1 ? "card" : "cards"} at this frame</p>
+          </div>
+          <IconButton label="Close banished cards" name="close" onClick={onClose} />
+        </header>
+        <div className={styles.discardGrid}>
+          {cards.map((card) => (
+            <CardTile card={card} key={card.id} onHover={onCardHover} onSelect={onCardSelect} size="discard" />
+          ))}
+          {!cards.length ? (
+            <div className={`${styles.emptyDiscard} ${styles.emptyBanished}`}>
+              <Icon name="spark" />
+              <span>No cards are banished</span>
+            </div>
+          ) : null}
         </div>
       </section>
     </div>
@@ -3194,20 +4640,34 @@ function useTargetArrows(
       const next: TargetArrow[] = [];
       for (const entry of chain) {
         const sourceId = fieldIdentifier(entry.fields, ["sourceCardId", "sourceId", "source", "actorCardId"]);
-        const targetId = fieldIdentifier(entry.fields, ["targetCardId", "targetId", "target", "recipientCardId"]);
-        if (!sourceId || !targetId) continue;
+        if (!sourceId) continue;
         const source = elementFor(sourceId);
-        const target = elementFor(targetId);
-        if (!source || !target) continue;
+        if (!source) continue;
+        const canonicalTargetId = fieldIdentifier(
+          entry.fields,
+          ["targetCardId", "targetId", "target", "recipientCardId"],
+        );
+        const analysisTargetIds = entry.fields.analysisStatus === "what_if"
+          ? jsonStringList(entry.fields.analysisTargetCardIds)
+          : [];
+        const targetIds = [...new Set([
+          ...(canonicalTargetId ? [canonicalTargetId] : []),
+          ...analysisTargetIds,
+        ])];
         const from = source.getBoundingClientRect();
-        const to = target.getBoundingClientRect();
-        next.push({
-          id: entry.id,
-          fromX: (from.left + from.width / 2 - rootBounds.left) / scale,
-          fromY: (from.top + from.height / 2 - rootBounds.top) / scale,
-          toX: (to.left + to.width / 2 - rootBounds.left) / scale,
-          toY: (to.top + to.height / 2 - rootBounds.top) / scale,
-        });
+        for (const targetId of targetIds) {
+          const target = elementFor(targetId);
+          if (!target) continue;
+          const to = target.getBoundingClientRect();
+          next.push({
+            analysis: analysisTargetIds.includes(targetId),
+            id: `${entry.id}:${targetId}`,
+            fromX: (from.left + from.width / 2 - rootBounds.left) / scale,
+            fromY: (from.top + from.height / 2 - rootBounds.top) / scale,
+            toX: (to.left + to.width / 2 - rootBounds.left) / scale,
+            toY: (to.top + to.height / 2 - rootBounds.top) / scale,
+          });
+        }
       }
       setArrows(next);
     });
@@ -3368,17 +4828,31 @@ function presentationOpeningEventIndex(
   const mulligan = game.phases.find((phase) => phase.phase === "mulligan");
   if (!mulligan) return presentationSetupEventIndex(replay, game);
   const start = Math.max(game.eventStartIndex, mulligan.startEventIndex);
-  const end = Math.min(game.eventEndIndex, mulligan.endEventIndex);
+  const inGame = game.phases.find((phase) => phase.phase === "in_game");
+  const firstInGameSnapshot = inGame
+    ? replay.events.find((event) => event.index >= inGame.startEventIndex && event.kind === "snapshot")
+    : undefined;
+  const end = Math.min(
+    game.eventEndIndex,
+    Math.max(mulligan.endEventIndex, firstInGameSnapshot?.index ?? mulligan.endEventIndex),
+  );
+  const requireBothHands = isConsentedDualPerspectiveReplay(replay);
+  let anyHandIndex: number | undefined;
   for (let index = start; index <= end; index += 1) {
     try {
       const state = seekReplayByEventIndex(replay, index).state;
       const players = resolveReplayPlayers(replay, state);
-      if (handCards(players.bottom).length || handCards(players.top).length) return index;
+      const perspectiveHandAvailable = handCards(players.bottom).length > 0;
+      const opponentHandAvailable = handCards(players.top).length > 0;
+      if (perspectiveHandAvailable && (!requireBothHands || opponentHandAvailable)) return index;
+      if (anyHandIndex === undefined && (perspectiveHandAvailable || opponentHandAvailable)) {
+        anyHandIndex = index;
+      }
     } catch {
       // Keep looking for the first projectable opening-hand state.
     }
   }
-  return Math.max(0, Math.min(replay.events.length - 1, end));
+  return Math.max(0, Math.min(replay.events.length - 1, anyHandIndex ?? end));
 }
 
 function presentationStageLabel(stage: Exclude<ReplaySceneKind, null>): string {
@@ -3458,6 +4932,7 @@ function cardFromChain(entry: ReplayChainEntry, index: number): ReplayCardState 
   const fields = entry.fields;
   const candidate = [fields.card, fields.sourceCard, fields.actionCard, fields.payload].find(isJsonObject);
   const record = candidate ?? fields;
+  const cardFields = isJsonObject(record.fields) ? record.fields : {};
   const name = firstText(record.name, record.cardName, record.title, fields.label, fields.actionType);
   const code = firstText(record.cardCode, record.code, record.cardId);
   if (!name && !code) return undefined;
@@ -3465,7 +4940,11 @@ function cardFromChain(entry: ReplayChainEntry, index: number): ReplayCardState 
     id: firstText(record.instanceId, record.cardInstanceId, record.id) || entry.id || `chain-${index}`,
     name: name || code || "Chain action",
     cardCode: code,
-    fields: record,
+    exhausted: record.exhausted === true,
+    isPlaceholder: record.isPlaceholder === true,
+    ownerPlayerId: firstText(record.ownerPlayerId),
+    source: firstText(record.source) || "chain",
+    fields: { ...record, ...cardFields },
   };
 }
 
@@ -3479,6 +4958,13 @@ function fieldIdentifier(fields: JsonObject, keys: string[]): string | undefined
     }
   }
   return undefined;
+}
+
+function jsonStringList(value: JsonValue | undefined): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter(
+    (candidate): candidate is string => typeof candidate === "string" && Boolean(candidate.trim()),
+  ))];
 }
 
 function relativeReplayTime(replay: CanonicalReplayV2, at: number | undefined): string {
@@ -3539,6 +5025,7 @@ type IconName =
   | "battlefield"
   | "camera"
   | "card"
+  | "chain"
   | "chat"
   | "close"
   | "combine"
@@ -3559,13 +5046,16 @@ type IconName =
   | "sliders"
   | "spark"
   | "swap"
-  | "trash";
+  | "target"
+  | "trash"
+  | "unlink";
 
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
     battlefield: <><path d="M4 7h16v10H4z" /><path d="m7 14 3-3 2 2 2-2 3 3" /></>,
     camera: <><path d="M4 7h3l2-2h6l2 2h3v12H4z" /><circle cx="12" cy="13" r="3.5" /></>,
     card: <><rect height="18" rx="2" width="13" x="5.5" y="3" /><path d="m8 16 3-4 2 2 3-4" /></>,
+    chain: <><path d="M10 13a5 5 0 0 0 7.1.1l1.4-1.4a5 5 0 0 0-7.1-7.1L10.6 5.4" /><path d="M14 11a5 5 0 0 0-7.1-.1l-1.4 1.4a5 5 0 0 0 7.1 7.1l.8-.8" /></>,
     chat: <path d="M4 5h16v11H9l-5 4z" />,
     close: <><path d="m6 6 12 12" /><path d="M18 6 6 18" /></>,
     combine: <><circle cx="8" cy="12" r="5" /><circle cx="16" cy="12" r="5" /><path d="M10.5 8.2a5 5 0 0 1 0 7.6M13.5 8.2a5 5 0 0 0 0 7.6" /></>,
@@ -3586,7 +5076,9 @@ function Icon({ name }: { name: IconName }) {
     sliders: <><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></>,
     spark: <path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6z" />,
     swap: <><path d="M5 8h13l-3-3" /><path d="M19 16H6l3 3" /></>,
+    target: <><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2.5" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></>,
     trash: <><path d="M4 7h16" /><path d="m9 7 1-3h4l1 3M7 7l1 13h8l1-13" /></>,
+    unlink: <><path d="m9.5 14.5-1 1a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0" /><path d="m14.5 9.5 1-1a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0" /><path d="m8 4 8 16" /></>,
   };
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

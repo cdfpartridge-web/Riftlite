@@ -267,6 +267,13 @@ export function assertExistingCombinedReplay(
 
 async function loadReadableCanonicalSource(ownerUid: string, replayId: string): Promise<LoadedSource> {
   const { record, bytes } = await readCanonicalReplay(replayId, ownerUid);
+  if (record.platform !== "atlas") {
+    throw new ReplayV2Error(
+      422,
+      "source_replay_provider_unsupported",
+      "Only RiftAtlas replays can currently be combined.",
+    );
+  }
   if (record.status !== "ready" || !record.canonicalArtifact || !bytes) {
     throw new ReplayV2Error(
       409,

@@ -1,7 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { getFirestoreAdminMock } = vi.hoisted(() => ({
+  getFirestoreAdminMock: vi.fn(),
+}));
+
+vi.mock("@/lib/firebase/admin", () => ({
+  getFirestoreAdmin: getFirestoreAdminMock,
+}));
 
 import {
   buildHubStats,
+  completeDiscordVerification,
   formatRecentMatches,
   formatWeeklyReport,
   type DiscordHubMatch,
@@ -54,3 +63,84 @@ describe("Discord hub deck reporting", () => {
     expect(report).not.toContain("[Local testing deck]");
   });
 });
+
+describe("Discord account verification redemption", () => {
+  beforeEach(() => {
+    getFirestoreAdminMock.mockReset();
+  });
+
+  it("is idempotent for the winning account and rejects a later different account", async () => {
+    const fake = fakeDiscordVerificationDb({
+      code: "VERIFY123",
+      guildId: "guild-1",
+      discordUserId: "discord-1",
+      discordUsername: "Player",
+      status: "pending",
+      expiresAt: Date.now() + 60_000,
+    });
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(completeDiscordVerification("VERIFY123", "account-1", {
+      handle: "player-one",
+      displayName: "Player One",
+    })).resolves.toMatchObject({ link: { uid: "account-1", discordUserId: "discord-1" } });
+    await expect(completeDiscordVerification("VERIFY123", "account-1", {
+      handle: "player-one",
+      displayName: "Player One",
+    })).resolves.toMatchObject({ link: { uid: "account-1" } });
+    await expect(completeDiscordVerification("VERIFY123", "account-2", {
+      handle: "player-two",
+      displayName: "Player Two",
+    })).rejects.toThrow("already been used");
+
+    expect(fake.read("discordVerificationSessions/VERIFY123")).toMatchObject({
+      status: "complete",
+      uid: "account-1",
+    });
+    expect(fake.read("discordLinks/guild-1_discord-1")).toMatchObject({
+      uid: "account-1",
+      handle: "player-one",
+    });
+    expect(fake.writePaths.filter((path) => path === "discordLinks/guild-1_discord-1")).toHaveLength(1);
+  });
+});
+
+function fakeDiscordVerificationDb(session: Record<string, unknown>) {
+  type Ref = {
+    path: string;
+    get: () => Promise<{ exists: boolean; data: () => Record<string, unknown> | undefined }>;
+    collection: (name: string) => { doc: (id: string) => Ref };
+  };
+  const documents = new Map<string, Record<string, unknown>>([
+    ["discordVerificationSessions/VERIFY123", { ...session }],
+  ]);
+  const writePaths: string[] = [];
+  const snapshot = (path: string) => ({
+    exists: documents.has(path),
+    data: () => documents.get(path) ? { ...documents.get(path)! } : undefined,
+  });
+  const ref = (path: string): Ref => ({
+    path,
+    get: async () => snapshot(path),
+    collection: (name: string) => ({ doc: (id: string) => ref(`${path}/${name}/${id}`) }),
+  });
+  const db = {
+    collection: (name: string) => ({ doc: (id: string) => ref(`${name}/${id}`) }),
+    runTransaction: async <T>(callback: (transaction: {
+      get: (target: Ref) => Promise<ReturnType<typeof snapshot>>;
+      set: (target: Ref, data: Record<string, unknown>, options?: { merge?: boolean }) => void;
+    }) => Promise<T>) => callback({
+      get: async (target) => snapshot(target.path),
+      set: (target, data, options) => {
+        const previous = options?.merge ? documents.get(target.path) ?? {} : {};
+        documents.set(target.path, { ...previous, ...data });
+        writePaths.push(target.path);
+      },
+    }),
+  };
+  return {
+    db,
+    writePaths,
+    read: (path: string) => documents.get(path),
+  };
+}

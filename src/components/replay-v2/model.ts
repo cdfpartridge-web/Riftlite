@@ -11,6 +11,15 @@ import type {
 const HAND_ZONE_ALIASES = ["hand", "cardsinhand"];
 const DECK_ZONE_ALIASES = ["deck", "library", "drawpile", "drawdeck"];
 const DISCARD_ZONE_ALIASES = ["discard", "trash", "graveyard", "recycle", "recyclepile"];
+const BANISHED_ZONE_ALIASES = [
+  "banish",
+  "banished",
+  "exile",
+  "exiled",
+  "exilehidden",
+  "removed",
+  "removedfromgame",
+];
 const SIDEBOARD_ZONE_ALIASES = ["sideboard", "sideboardcards"];
 const TRUSTED_CARD_IMAGE_HOSTS = new Set([
   "cdn.piltoverarchive.com",
@@ -46,12 +55,11 @@ const NON_BOARD_ZONE_ALIASES = [
   ...DECK_ZONE_ALIASES,
   ...DISCARD_ZONE_ALIASES,
   ...SIDEBOARD_ZONE_ALIASES,
-  "banished",
+  ...BANISHED_ZONE_ALIASES,
   "battlefield",
   "champion",
   "hidden",
   "legend",
-  "removed",
   "rune",
   "token",
   "unknown",
@@ -232,6 +240,47 @@ export function deckCards(player: ReplayPlayerState): ReplayCardState[] {
 
 export function discardCards(player: ReplayPlayerState): ReplayCardState[] {
   return zoneCards(player, DISCARD_ZONE_ALIASES);
+}
+
+export function banishedCards(player: ReplayPlayerState): ReplayCardState[] {
+  const aliases = BANISHED_ZONE_ALIASES.map(normalizeKey);
+  const seen = new Set<string>();
+  return Object.entries(player.zones).flatMap(([key, cards]) => {
+    const normalized = normalizeKey(key);
+    if (!aliases.some((alias) => normalized === alias || normalized.includes(alias))) return [];
+    return cards.filter((card) => {
+      if (seen.has(card.id)) return false;
+      seen.add(card.id);
+      return true;
+    });
+  });
+}
+
+export type ReplayBanishedTransition = {
+  playerId: string;
+  playerName: string;
+  cards: ReplayCardState[];
+};
+
+export function banishedTransitions(
+  previous: ReplayState,
+  current: ReplayState,
+): ReplayBanishedTransition[] {
+  return Object.values(current.players).flatMap((player) => {
+    const previousIds = new Set(
+      banishedCards(previous.players[player.id] ?? {
+        id: player.id,
+        name: player.name,
+        fields: {},
+        boardFields: {},
+        zones: {},
+      }).map((card) => card.id),
+    );
+    const cards = banishedCards(player).filter((card) => !previousIds.has(card.id));
+    return cards.length
+      ? [{ playerId: player.id, playerName: player.name, cards }]
+      : [];
+  });
 }
 
 export function sideboardCards(player: ReplayPlayerState): ReplayCardState[] {
@@ -528,6 +577,13 @@ export function battlefieldZoneForPlayer(
   player: ReplayPlayerState,
   fallback: ReplayBattlefieldZoneKey,
 ): ReplayBattlefieldZoneKey {
+  // TCGA's B1/B2 values are owner-relative and `turnOrderPosition` is not a
+  // physical seat. CentralArena projects each player's zone onto the physical
+  // battlefield; this helper only arranges the two selected battlefield cards.
+  const providerValue = player.fields.provider ?? player.boardFields.provider;
+  const provider = typeof providerValue === "string" ? normalizeKey(providerValue) : "";
+  if (provider === "tcga") return fallback;
+
   const seat = player.seat ?? player.fields.seat ?? player.boardFields.seat;
   const seatNumber = numberValue(seat);
   if (seatNumber === 0) return "battlefieldA";
@@ -725,7 +781,7 @@ export function eventLabel(event: ReplayEvent | undefined): string {
 export function visibleCardFields(card: ReplayCardState): Array<[string, string]> {
   const fields: Array<[string, string]> = [];
   for (const [key, value] of Object.entries(card.fields)) {
-    if (/^(?:image|imageurl|image_url|src|arturl|art_url)$/i.test(key)) continue;
+    if (/^(?:image|imageurl|image_url|src|arturl|art_url|analysisknowledge|analysisstatus)$/i.test(key)) continue;
     const formatted = displayValue(value);
     if (!formatted) continue;
     fields.push([titleCase(key), formatted]);

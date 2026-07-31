@@ -263,8 +263,13 @@ export function buildSearchPrefixes(...values: string[]): string[] {
   return Array.from(prefixes).slice(0, 80);
 }
 
-export async function ensureUserProfile(uid: string, displayName = "", email = ""): Promise<AccountProfile> {
-  const db = getFirestoreAdmin();
+export async function ensureUserProfile(
+  uid: string,
+  displayName = "",
+  email = "",
+  providedDb?: Firestore,
+): Promise<AccountProfile> {
+  const db = providedDb ?? getFirestoreAdmin();
   if (!db) {
     throw new Error("Firebase admin is not configured");
   }
@@ -557,10 +562,17 @@ export async function associateLinkedIdentity(
   sourceUid: string,
   canonicalUid: string,
   providedDb?: Firestore,
-): Promise<void> {
+): Promise<{ sourceUid: string; canonicalUid: string; migrationComplete: boolean; migrationError: string }> {
   const source = String(sourceUid ?? "").trim();
   const canonical = String(canonicalUid ?? "").trim();
-  if (!source || !canonical) return;
+  if (!source || !canonical) {
+    return {
+      sourceUid: source,
+      canonicalUid: canonical,
+      migrationComplete: false,
+      migrationError: "A source and canonical identity are required.",
+    };
+  }
   const db = providedDb ?? getFirestoreAdmin();
   if (!db) throw new Error("Firebase admin is not configured");
   const now = Date.now();
@@ -603,13 +615,21 @@ export async function associateLinkedIdentity(
     });
   }
 
-  if (source === canonical) return;
-  await migrateLinkedIdentityReferences(source, canonical, now).catch(async (error) => {
+  if (source === canonical) {
+    return { sourceUid: source, canonicalUid: canonical, migrationComplete: true, migrationError: "" };
+  }
+  try {
+    await migrateLinkedIdentityReferences(source, canonical, now, db);
+    return { sourceUid: source, canonicalUid: canonical, migrationComplete: true, migrationError: "" };
+  } catch (error) {
+    const migrationError = error instanceof Error ? error.message : "Identity migration needs retry";
     await db.collection("identityAliases").doc(source).set({
-      migrationError: error instanceof Error ? error.message : "Identity migration needs retry",
+      migrationCompletedAt: FieldValue.delete(),
+      migrationError,
       migrationAttemptAt: Date.now(),
-    }, { merge: true });
-  });
+    }, { merge: true }).catch(() => undefined);
+    return { sourceUid: source, canonicalUid: canonical, migrationComplete: false, migrationError };
+  }
 }
 
 export async function identityUidsFor(uid: string, providedDb?: Firestore): Promise<string[]> {
@@ -647,10 +667,6 @@ export async function repairHistoricalDesktopIdentityAssociations(
   if (!db) return [];
   const userRef = db.collection("users").doc(canonical);
   const userSnap = await userRef.get();
-  if (Number(userSnap.data()?.desktopIdentityBackfillVersion ?? 0) >= DESKTOP_IDENTITY_BACKFILL_VERSION) {
-    return [];
-  }
-
   const sessions = await db.collection("desktopLinkSessions")
     .where("linkedUid", "==", canonical)
     .limit(100)
@@ -659,10 +675,30 @@ export async function repairHistoricalDesktopIdentityAssociations(
     sessions.docs.map((doc) => doc.data()),
     canonical,
   );
+  const sourceAliasSnapshots = await Promise.all(sources.map((source) => (
+    db.collection("identityAliases").doc(source).get().catch(() => null)
+  )));
+  const sourceAliasData = new Map(sources.map((source, index) => [
+    source,
+    sourceAliasSnapshots[index]?.data() ?? {},
+  ]));
+  const backfillVersionIsCurrent = Number(
+    userSnap.data()?.desktopIdentityBackfillVersion ?? 0,
+  ) >= DESKTOP_IDENTITY_BACKFILL_VERSION;
+  const sourcesToRepair = sources.filter((source) => {
+    const state = sourceAliasData.get(source) ?? {};
+    if (linkedIdentityMigrationIsComplete(state, canonical)) return false;
+    if (linkedIdentityMigrationIsTerminalConflict(state, canonical)) return !backfillVersionIsCurrent;
+    return true;
+  });
+  if (backfillVersionIsCurrent && sourcesToRepair.length === 0) return [];
+
   const conflicts: Array<{ sourceUid: string; existingCanonicalUid: string }> = [];
-  for (const source of sources) {
+  const migrated: string[] = [];
+  for (const source of sourcesToRepair) {
     try {
-      await associateLinkedIdentity(source, canonical, db);
+      const result = await associateLinkedIdentity(source, canonical, db);
+      if (result.migrationComplete) migrated.push(source);
     } catch (error) {
       if (!(error instanceof LinkedIdentityConflictError)) throw error;
       conflicts.push({ sourceUid: source, existingCanonicalUid: error.existingCanonicalUid });
@@ -676,13 +712,72 @@ export async function repairHistoricalDesktopIdentityAssociations(
       }, { merge: true });
     }
   }
-  await userRef.set({
+  const finalAliasSnapshots = await Promise.all(sources.map((source) => (
+    db.collection("identityAliases").doc(source).get().catch(() => null)
+  )));
+  const finalStates = new Map(sources.map((source, index) => [
+    source,
+    finalAliasSnapshots[index]?.data() ?? {},
+  ]));
+  const finalConflicts = sources.flatMap((source) => {
+    const state = finalStates.get(source) ?? {};
+    const existingCanonicalUid = linkedIdentityConflictCanonicalUid(state, canonical);
+    return existingCanonicalUid ? [{ sourceUid: source, existingCanonicalUid }] : [];
+  });
+  const pendingSources = sources.filter((source) => {
+    const state = finalStates.get(source) ?? {};
+    return !linkedIdentityMigrationIsComplete(state, canonical) &&
+      !linkedIdentityMigrationIsTerminalConflict(state, canonical);
+  });
+  const completedSources = sources.filter((source) => (
+    linkedIdentityMigrationIsComplete(finalStates.get(source) ?? {}, canonical)
+  ));
+  const now = Date.now();
+  await userRef.set(pendingSources.length === 0 ? {
     desktopIdentityBackfillVersion: DESKTOP_IDENTITY_BACKFILL_VERSION,
-    desktopIdentityBackfilledAt: Date.now(),
-    desktopIdentityBackfilledSources: sources.length - conflicts.length,
-    desktopIdentityBackfillConflicts: conflicts,
+    desktopIdentityBackfilledAt: now,
+    desktopIdentityBackfillLastAttemptAt: now,
+    desktopIdentityBackfilledSources: completedSources.length,
+    desktopIdentityBackfillPendingSources: [],
+    desktopIdentityBackfillConflicts: finalConflicts,
+  } : {
+    // Explicitly lower the version so an account stamped by an older buggy
+    // release keeps retrying until every non-conflicting alias is durable.
+    desktopIdentityBackfillVersion: 0,
+    desktopIdentityBackfilledAt: FieldValue.delete(),
+    desktopIdentityBackfillLastAttemptAt: now,
+    desktopIdentityBackfilledSources: completedSources.length,
+    desktopIdentityBackfillPendingSources: pendingSources,
+    desktopIdentityBackfillConflicts: finalConflicts,
   }, { merge: true });
-  return sources.filter((source) => !conflicts.some((conflict) => conflict.sourceUid === source));
+  return migrated;
+}
+
+function linkedIdentityMigrationIsComplete(
+  state: Record<string, unknown>,
+  canonicalUid: string,
+): boolean {
+  return String(state.canonicalUid ?? "").trim() === canonicalUid &&
+    positiveNumber(state.migrationCompletedAt, 0) > 0 &&
+    !String(state.migrationError ?? "").trim();
+}
+
+function linkedIdentityConflictCanonicalUid(
+  state: Record<string, unknown>,
+  canonicalUid: string,
+): string {
+  const boundCanonicalUid = String(state.canonicalUid ?? "").trim();
+  if (boundCanonicalUid && boundCanonicalUid !== canonicalUid) return boundCanonicalUid;
+  const conflictCanonicalUid = String(state.migrationConflictCanonicalUid ?? "").trim();
+  const requestedCanonicalUid = String(state.migrationRequestedCanonicalUid ?? "").trim();
+  return conflictCanonicalUid && requestedCanonicalUid === canonicalUid ? conflictCanonicalUid : "";
+}
+
+function linkedIdentityMigrationIsTerminalConflict(
+  state: Record<string, unknown>,
+  canonicalUid: string,
+): boolean {
+  return Boolean(linkedIdentityConflictCanonicalUid(state, canonicalUid));
 }
 
 type MembershipParentCollection = "hubs" | "teams";
@@ -750,10 +845,13 @@ async function findNestedDocumentsByField(
   }
 }
 
-async function migrateLinkedIdentityReferences(sourceUid: string, canonicalUid: string, now: number): Promise<void> {
-  const db = getFirestoreAdmin();
-  if (!db) return;
-  const profile = await ensureUserProfile(canonicalUid);
+async function migrateLinkedIdentityReferences(
+  sourceUid: string,
+  canonicalUid: string,
+  now: number,
+  db: Firestore,
+): Promise<void> {
+  const profile = await ensureUserProfile(canonicalUid, "", "", db);
   const updates: Array<{ ref: DocumentReference; data: Record<string, unknown> }> = [];
   const queueSet = (ref: DocumentReference, value: Record<string, unknown>) => {
     updates.push({ ref, data: value });
@@ -831,21 +929,42 @@ async function migrateLinkedIdentityReferences(sourceUid: string, canonicalUid: 
     });
   }
 
-  await commitMigrationUpdates(updates);
-  await migrateIdentitySnapshots(sourceUid, canonicalUid, profile, now);
-  await migrateAccountCloudBackup(sourceUid, canonicalUid, now);
+  await commitMigrationUpdates(updates, db);
+  await migrateIdentitySnapshots(sourceUid, canonicalUid, profile, now, db);
+  await migrateAccountCloudBackup(sourceUid, canonicalUid, now, db);
   await db.collection("identityAliases").doc(sourceUid).set({
     migrationCompletedAt: now,
     migrationError: FieldValue.delete(),
+    migrationConflictCanonicalUid: FieldValue.delete(),
+    migrationRequestedCanonicalUid: FieldValue.delete(),
   }, { merge: true });
 }
 
-async function migrateIdentitySnapshots(sourceUid: string, canonicalUid: string, profile: AccountProfile, now: number): Promise<void> {
-  const db = getFirestoreAdmin();
-  if (!db) return;
+async function migrateIdentitySnapshots(
+  sourceUid: string,
+  canonicalUid: string,
+  profile: AccountProfile,
+  now: number,
+  db: Firestore,
+): Promise<void> {
   const displayName = bestProfileDisplayName(canonicalUid, profile.displayName, profile.handle);
   for (const collectionId of ["matches", "messages"] as const) {
-    const documents = await findNestedDocumentsByField(db, collectionId, "uid", sourceUid, ["hubs", "teams"]);
+    const nestedDocuments = await findNestedDocumentsByField(
+      db,
+      collectionId,
+      "uid",
+      sourceUid,
+      ["hubs", "teams"],
+    );
+    // Root public matches are not guaranteed to appear when a deployment is
+    // missing the collection-group index and the helper takes its bounded
+    // parent-collection fallback. Read them explicitly so account migration
+    // cannot leave the scheduled community refresh and profile history owned
+    // by the old desktop UID.
+    const rootMatches = collectionId === "matches"
+      ? (await db.collection("matches").where("uid", "==", sourceUid).get()).docs
+      : [];
+    const documents = dedupeDocumentSnapshots([...nestedDocuments, ...rootMatches]);
     const updates = documents.map((doc) => ({
       ref: doc.ref,
       data: {
@@ -859,7 +978,7 @@ async function migrateIdentitySnapshots(sourceUid: string, canonicalUid: string,
         identityMigratedAt: now,
       },
     }));
-    await commitMigrationUpdates(updates);
+    await commitMigrationUpdates(updates, db);
   }
 }
 
@@ -1333,9 +1452,10 @@ async function cleanupAccountCloudMigrationChunks(db: Firestore, refs: DocumentR
   }
 }
 
-async function commitMigrationUpdates(updates: Array<{ ref: DocumentReference; data: Record<string, unknown> }>): Promise<void> {
-  const db = getFirestoreAdmin();
-  if (!db) return;
+async function commitMigrationUpdates(
+  updates: Array<{ ref: DocumentReference; data: Record<string, unknown> }>,
+  db: Firestore,
+): Promise<void> {
   for (let offset = 0; offset < updates.length; offset += 400) {
     const batch = db.batch();
     for (const update of updates.slice(offset, offset + 400)) {
@@ -1804,6 +1924,46 @@ export async function resolveHubRole(hubId: string, uid: string): Promise<HubMem
     return "owner";
   }
   return memberRole ? normalizeHubMemberRole(memberRole) : "";
+}
+
+export type TeamMemberRole = "owner" | "admin" | "member";
+
+/**
+ * Resolve team access across every immutable identity associated with an
+ * account. Identity migration is intentionally best-effort, so authorization
+ * cannot depend on the canonical membership copy having been written yet.
+ */
+export async function resolveTeamRole(
+  teamId: string,
+  uid: string,
+  providedDb?: Firestore,
+): Promise<TeamMemberRole | ""> {
+  const db = providedDb ?? getFirestoreAdmin();
+  if (!db) throw new Error("Firebase admin is not configured");
+  const cleanTeamId = String(teamId ?? "").trim();
+  if (!cleanTeamId) return "";
+  const teamRef = db.collection("teams").doc(cleanTeamId);
+  const identityUids = await identityUidsFor(uid, db);
+  const memberRefs = identityUids.map((identityUid) => teamRef.collection("members").doc(identityUid));
+  const [members, teamSnap] = await Promise.all([
+    memberRefs.length ? db.getAll(...memberRefs) : Promise.resolve([]),
+    teamRef.get(),
+  ]);
+  if (!teamSnap.exists) return "";
+
+  const identities = new Set(identityUids);
+  const team = teamSnap.data() ?? {};
+  const ownerUid = String(team.ownerUid ?? team.owner_uid ?? "").trim();
+  if (ownerUid && identities.has(ownerUid)) return "owner";
+
+  let selected: TeamMemberRole | "" = "";
+  for (const member of members) {
+    if (!member.exists) continue;
+    const candidate = String(member.data()?.role ?? "").trim();
+    if (candidate !== "owner" && candidate !== "admin" && candidate !== "member") continue;
+    selected = selected ? strongerRole(selected, candidate) : candidate;
+  }
+  return selected;
 }
 
 export function hubRecordOwnedByIdentity(

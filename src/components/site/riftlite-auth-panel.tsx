@@ -8,6 +8,7 @@ import {
   onAuthStateChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -19,6 +20,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import {
   accountIdHint,
   accountIdentityLabel,
+  discordAccountRecoveryUrl,
   shouldAutomaticallyFinishAccountAction,
 } from "@/lib/account-link";
 import { firebaseClientApp } from "@/lib/firebase/client";
@@ -31,7 +33,7 @@ type Profile = {
 };
 
 type DesktopLink = { sessionId: string; code: string };
-export type AuthProviderHint = "google" | "email";
+export type AuthProviderHint = "google" | "email" | "discord";
 
 export type RiftLiteReadyResult = { message?: string } | void;
 
@@ -41,6 +43,7 @@ export function RiftLiteAuthPanel({
   actionLabel = "Continue",
   readyTitle = "Your account is ready",
   description = "Use one RiftLite account for the app, private hubs, Discord, and web replays.",
+  discordCompletion = false,
   manageAccount = false,
   preferredProvider,
 }: {
@@ -49,6 +52,7 @@ export function RiftLiteAuthPanel({
   actionLabel?: string;
   readyTitle?: string;
   description?: string;
+  discordCompletion?: boolean;
   manageAccount?: boolean;
   preferredProvider?: AuthProviderHint;
 }) {
@@ -70,6 +74,7 @@ export function RiftLiteAuthPanel({
   const explicitAuthProvider = useRef<AuthProviderHint | null>(null);
   const explicitlySelectedUid = useRef("");
   const observedAuthKey = useRef("");
+  const discordCompletionStarted = useRef(false);
 
   const requiresDesktopEmailVerification = useCallback((activeUser: User) => {
     if (!desktopLink || activeUser.emailVerified) return false;
@@ -139,6 +144,36 @@ export function RiftLiteAuthPanel({
       actionUid.current !== activeUser.uid
     )
   ), [desktopLink, requiresDesktopEmailVerification]);
+
+  useEffect(() => {
+    if (!desktopLink || !discordCompletion || discordCompletionStarted.current) return;
+    discordCompletionStarted.current = true;
+    explicitAuthPending.current = true;
+    explicitAuthProvider.current = "discord";
+    explicitlySelectedUid.current = "";
+    setBusy(true);
+    setMessage("Finishing Discord sign in...");
+    void (async () => {
+      try {
+        const response = await fetch("/api/auth/discord/token", { method: "POST" });
+        const payload = await response.json() as { customToken?: string; error?: string };
+        if (!response.ok || !payload.customToken) {
+          throw new Error(payload.error ?? "Discord account recovery did not finish.");
+        }
+        const credential = await signInWithCustomToken(auth, payload.customToken);
+        explicitlySelectedUid.current = credential.user.uid;
+        explicitAuthPending.current = false;
+        setMessage("Discord identity verified. Loading your existing RiftLite account...");
+      } catch (error) {
+        explicitAuthPending.current = false;
+        explicitlySelectedUid.current = "";
+        explicitAuthProvider.current = null;
+        setMessage(friendlyAuthError(error));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [auth, desktopLink, discordCompletion]);
 
   useEffect(() => onAuthStateChanged(auth, (nextUser) => {
     if (nextUser?.isAnonymous && !desktopLink) {
@@ -476,6 +511,14 @@ export function RiftLiteAuthPanel({
       </div>
       <Button autoFocus={preferredProvider === "google"} disabled={busy} onClick={() => void googleSignIn()}>Continue with Google</Button>
       <Button disabled={busy} variant="secondary" onClick={() => setEmailExpanded((value) => !value)}>Continue with email</Button>
+      {desktopLink ? (
+        <Button asChild variant="secondary">
+          <a autoFocus={preferredProvider === "discord"} href={discordAccountRecoveryUrl(desktopLink.sessionId, desktopLink.code)}>
+            Continue with Discord
+          </a>
+        </Button>
+      ) : null}
+      {desktopLink ? <p className="text-xs text-slate-400">Discord restores an existing RiftLite account that was previously verified through Discord.</p> : null}
       {emailExpanded ? (
         <div className="grid gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
           <input autoFocus={preferredProvider === "email"} className="social-input" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" type="email" />

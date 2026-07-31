@@ -30,9 +30,17 @@ export async function GET(request: Request) {
         { headers: { "Cache-Control": "no-store", Vary: "Authorization, Cookie" } },
       );
     }
-    const items = await listPublicReplays(limit);
+    const page = await listPublicReplays(limit, url.searchParams.get("cursor") ?? "");
     return NextResponse.json(
-      { items, count: items.length, scope },
+      {
+        items: page.items,
+        count: page.items.length,
+        scope,
+        pageInfo: {
+          hasMore: page.hasMore,
+          nextCursor: page.nextCursor,
+        },
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

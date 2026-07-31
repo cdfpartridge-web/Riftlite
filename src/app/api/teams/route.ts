@@ -16,42 +16,30 @@ import {
   teamPublicDoc,
   validSlug
 } from "@/lib/social-hub";
+import { findMembershipDocuments, identityUidsFor } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function getMineTeamRefs(auth: Awaited<ReturnType<typeof requireLinkedProfile>>) {
   if ("error" in auth) return [];
-  try {
-    const memberSnap = await auth.db.collectionGroup("members")
-      .where("uid", "==", auth.decoded.uid)
+  const identityUids = await identityUidsFor(auth.decoded.uid, auth.db);
+  const [memberDocs, ownedSnapshots] = await Promise.all([
+    findMembershipDocuments(auth.db, identityUids, "teams"),
+    Promise.all(identityUids.map((uid) => auth.db.collection("teams")
+      .where("ownerUid", "==", uid)
       .limit(100)
-      .get();
-    return memberSnap.docs.flatMap((doc) => {
-      const ref = doc.ref.parent.parent;
-      return ref ? [ref] : [];
-    });
-  } catch (error) {
-    console.warn("[teams] collectionGroup members lookup failed, falling back to bounded membership scan", error);
+      .get())),
+  ]);
+  const byId = new Map<string, FirebaseFirestore.DocumentReference>();
+  for (const doc of memberDocs) {
+    const ref = doc.ref.parent.parent;
+    if (ref?.parent.id === "teams") byId.set(ref.id, ref);
   }
-
-  const ownedSnap = await auth.db.collection("teams")
-    .where("ownerUid", "==", auth.decoded.uid)
-    .limit(100)
-    .get();
-  const allSnap = await auth.db.collection("teams")
-    .orderBy("updatedAt", "desc")
-    .limit(60)
-    .get();
-  const memberRefs = allSnap.docs.map((doc) => doc.ref.collection("members").doc(auth.decoded.uid));
-  const memberSnaps = memberRefs.length ? await auth.db.getAll(...memberRefs) : [];
-  const ids = new Set<string>(ownedSnap.docs.map((doc) => doc.id));
-  memberSnaps.forEach((memberSnap) => {
-    if (!memberSnap.exists) return;
-    const teamRef = memberSnap.ref.parent.parent;
-    if (teamRef) ids.add(teamRef.id);
-  });
-  return Array.from(ids).map((id) => auth.db.collection("teams").doc(id));
+  for (const doc of ownedSnapshots.flatMap((snapshot) => snapshot.docs)) {
+    byId.set(doc.id, doc.ref);
+  }
+  return [...byId.values()];
 }
 
 export async function GET(req: NextRequest) {
@@ -100,14 +88,13 @@ export async function GET(req: NextRequest) {
       .orderBy("updatedAt", "desc")
       .limit(60)
       .get();
-    const memberRefs = mine ? docs.docs.map((doc) => doc.ref.collection("members").doc(auth.decoded.uid)) : [];
-    const memberSnaps = memberRefs.length ? await auth.db.getAll(...memberRefs) : [];
-    const mineTeamIds = new Set<string>();
-    memberSnaps.forEach((memberSnap) => {
-      if (!memberSnap.exists) return;
-      const teamRef = memberSnap.ref.parent.parent;
-      if (teamRef) mineTeamIds.add(teamRef.id);
-    });
+    const identityUids = mine ? await identityUidsFor(auth.decoded.uid, auth.db) : [];
+    const identityUidSet = new Set(identityUids);
+    const memberDocs = mine ? await findMembershipDocuments(auth.db, identityUids, "teams") : [];
+    const mineTeamIds = new Set(memberDocs.flatMap((member) => {
+      const teamRef = member.ref.parent.parent;
+      return teamRef?.parent.id === "teams" ? [teamRef.id] : [];
+    }));
     const teams = docs.docs
       .map((doc) => {
         const data = doc.data() ?? {};
@@ -116,7 +103,7 @@ export async function GET(req: NextRequest) {
           searchPrefixes: Array.isArray(data.searchPrefixes) ? data.searchPrefixes.map(String) : []
         };
       })
-      .filter(({ team }) => mine ? mineTeamIds.has(team.id) || team.ownerUid === auth.decoded.uid : team.visibility === "public")
+      .filter(({ team }) => mine ? mineTeamIds.has(team.id) || identityUidSet.has(team.ownerUid) : team.visibility === "public")
       .filter(({ team, searchPrefixes }) => !q || searchPrefixes.includes(q) || team.name.toLowerCase().includes(q) || team.slug.toLowerCase().includes(q))
       .map(({ team }) => team)
       .slice(0, limit);

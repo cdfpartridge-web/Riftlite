@@ -6,8 +6,13 @@ import {
   invalidateCommunityMatchMemoryCache,
   normalizeMatch,
 } from "@/lib/community/data";
-import { verifyFirebaseIdToken } from "@/lib/firebase/admin";
-import { appendUserPublicMatch, bestProfileDisplayName, ensureUserProfile } from "@/lib/social/server";
+import {
+  appendUserPublicMatch,
+  bestProfileDisplayName,
+  ensureUserProfile,
+  identityUidsFor,
+  requireUser,
+} from "@/lib/social/server";
 
 // Force dynamic — this is a mutation, never cache the response.
 export const dynamic = "force-dynamic";
@@ -39,27 +44,14 @@ export const runtime = "nodejs";
  * consistent.
  */
 export async function POST(req: NextRequest) {
-  // 1. Pull the ID token out of the Authorization header.
-  const auth = req.headers.get("authorization") ?? "";
-  const match = auth.match(/^Bearer (.+)$/i);
-  const idToken = match?.[1]?.trim();
-  if (!idToken) {
-    return NextResponse.json(
-      { error: "Missing Authorization: Bearer <idToken>" },
-      { status: 401 },
-    );
-  }
+  // Canonicalize through the same immutable identity mapping used by account,
+  // hub, and Web Replay ownership.
+  const auth = await requireUser(req);
+  if ("error" in auth) return auth.error;
 
-  // 2. Verify the token. verifyFirebaseIdToken returns null on any
-  // failure mode (expired, bad signature, wrong project, admin not
-  // configured). No Firestore reads here — pure JWT verification.
-  const decoded = await verifyFirebaseIdToken(idToken);
-  if (!decoded) {
-    return NextResponse.json(
-      { error: "Invalid or expired ID token" },
-      { status: 401 },
-    );
-  }
+  // A desktop can briefly retain its older credential after linking; reports
+  // must still land on the canonical profile rather than splitting history.
+  const decoded = auth.decoded;
 
   // 3. Parse the body.
   let body: { id?: unknown; match?: unknown };
@@ -82,11 +74,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 4. Enforce: the signed-in user can only append their own matches.
-  // Without this, anyone with a valid token could inject matches
-  // claiming to be another player.
-  const matchUid = String(rawMatch.uid ?? "").trim();
-  if (matchUid && matchUid !== decoded.uid) {
+  // The desktop writes this document first. Read that authoritative copy so a
+  // caller cannot overwrite another player's aggregate row by reusing a known
+  // match id with a forged request body.
+  const storedMatchSnapshot = await auth.db.collection("matches").doc(matchId).get();
+  if (!storedMatchSnapshot.exists) {
+    return NextResponse.json(
+      { error: "Write the match to RiftLite before appending it to the community feed" },
+      { status: 409 },
+    );
+  }
+  const storedMatch = storedMatchSnapshot.data() ?? {};
+
+  // 4. Enforce: the signed-in account can append only its own stored match.
+  const matchUid = String(storedMatch.uid ?? "").trim();
+  const identityUids = new Set(await identityUidsFor(decoded.uid, auth.db));
+  if (!matchUid || !identityUids.has(matchUid)) {
     return NextResponse.json(
       { error: "Token uid does not match match.uid" },
       { status: 403 },
@@ -95,10 +98,10 @@ export async function POST(req: NextRequest) {
 
   // 5. Normalize through the shared pipeline so the aggregate shape is
   // identical to what the cron produces.
-  const profile = await ensureUserProfile(decoded.uid, decoded.name ?? "", decoded.email ?? "");
+  const profile = await ensureUserProfile(decoded.uid, decoded.name ?? "", decoded.email ?? "", auth.db);
   const displayName = bestProfileDisplayName(decoded.uid, profile.displayName, profile.handle);
   const normalized = normalizeMatch(matchId, {
-    ...rawMatch,
+    ...storedMatch,
     uid: decoded.uid,
     owner_uid: decoded.uid,
     username: displayName,

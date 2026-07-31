@@ -3,7 +3,7 @@ import { createPageMetadata } from "@/lib/seo";
 
 export const metadata = createPageMetadata({
   title: "RiftLite Replays",
-  description: "Watch public RiftLite Atlas replays or privately upload a raw capture.",
+  description: "Watch public RiftLite replays or privately upload an Atlas or TCGA raw capture.",
   path: "/replays",
 });
 

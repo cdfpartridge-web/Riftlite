@@ -449,7 +449,7 @@ export type CanonicalReplayV2 = {
   version: 2;
   id: string;
   source: {
-    schema: "riftreplay-raw-capture";
+    schema: "riftreplay-raw-capture" | "riftlite-tcga-raw-capture";
     version: 1;
     captureSessionId: string;
     roomCode: string;
