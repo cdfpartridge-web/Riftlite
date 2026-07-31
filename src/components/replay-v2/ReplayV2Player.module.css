@@ -193,6 +193,12 @@
   animation: pulse 1.8s ease-in-out infinite;
 }
 
+.analysisPointsBadge {
+  border-color: rgba(184, 118, 255, .82);
+  background: linear-gradient(135deg, rgba(91, 39, 145, .68), rgba(28, 16, 43, .96));
+  box-shadow: inset 0 0 18px rgba(195, 132, 255, .12), 0 0 20px rgba(163, 86, 242, .24);
+}
+
 .playerRailStats {
   display: flex;
   min-width: 0;
@@ -519,6 +525,10 @@ button.cardPile { cursor: pointer; }
   gap: 8px;
 }
 
+.playerPileStack {
+  height: 270px;
+}
+
 .playerHeroStackTop { top: 65px; right: 18px; }
 .playerHeroStackBottom { bottom: 65px; left: 18px; }
 .playerPileStackTop { top: 65px; left: 18px; }
@@ -565,6 +575,64 @@ button.cardPile { cursor: pointer; }
 .playerPileStack .cardPile b { right: 7px; bottom: 22px; }
 .playerPileStack .cardPile small { bottom: 7px; }
 
+.deckPileGroup {
+  display: grid;
+  width: 106px;
+  flex: 0 0 auto;
+  grid-template-rows: 120px 22px;
+  gap: 4px;
+}
+
+.banishedZoneButton {
+  display: flex;
+  width: 96px;
+  height: 22px;
+  align-items: center;
+  justify-content: space-between;
+  justify-self: center;
+  border: 1px solid rgba(178, 133, 255, .56);
+  border-radius: 5px;
+  background: linear-gradient(135deg, rgba(91, 43, 153, .94), rgba(126, 70, 202, .88));
+  box-shadow: 0 5px 15px rgba(56, 18, 98, .3), inset 0 1px 0 rgba(255, 255, 255, .08);
+  color: #f0e6ff;
+  cursor: pointer;
+  padding: 0 6px 0 8px;
+  transition: border-color 160ms ease, filter 160ms ease, transform 160ms ease;
+}
+
+.banishedZoneButton:hover,
+.banishedZoneButton:focus-visible {
+  border-color: rgba(214, 180, 255, .9);
+  filter: brightness(1.14);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.banishedZoneButton span {
+  font-size: 8px;
+  font-weight: 780;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.banishedZoneButton b {
+  display: grid;
+  min-width: 17px;
+  height: 16px;
+  place-items: center;
+  border: 1px solid rgba(232, 211, 255, .32);
+  border-radius: 4px;
+  background: rgba(20, 7, 37, .48);
+  font-size: 8px;
+}
+
+.banishedZoneButton[data-has-banished="false"] {
+  border-color: rgba(146, 106, 205, .28);
+  background: linear-gradient(135deg, rgba(70, 40, 108, .56), rgba(86, 47, 132, .5));
+  color: #aa93c6;
+  box-shadow: none;
+}
+
 .cardMotion {
   position: relative;
   z-index: 1;
@@ -576,6 +644,14 @@ button.cardPile { cursor: pointer; }
   padding: 0;
   transform-origin: center;
   will-change: transform, opacity, filter;
+}
+
+.cardMotion[data-analysis-draggable="true"] {
+  cursor: grab;
+}
+
+.cardMotion[data-analysis-draggable="true"]:active {
+  cursor: grabbing;
 }
 
 .attachedCardGroup {
@@ -751,6 +827,35 @@ button.cardPile { cursor: pointer; }
   border-color: rgba(183, 194, 211, 0.62);
   background: rgba(28, 35, 48, 0.96);
   color: #e5ebf4;
+}
+
+.futureKnownCard .cardFace {
+  border-color: rgba(241, 198, 109, .84);
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, .46),
+    0 0 0 2px rgba(241, 198, 109, .18),
+    0 0 24px rgba(241, 198, 109, .2);
+}
+
+.whatIfCard .cardFace {
+  border-color: rgba(190, 121, 255, .95);
+  box-shadow:
+    0 10px 25px rgba(0, 0, 0, .5),
+    0 0 0 3px rgba(172, 91, 255, .24),
+    0 0 30px rgba(161, 72, 255, .38);
+}
+
+.futureKnownTag {
+  border-color: rgba(241, 198, 109, .76);
+  background: rgba(60, 42, 10, .97);
+  color: #ffe6a7;
+}
+
+.whatIfTag {
+  border-color: rgba(208, 153, 255, .86);
+  background: rgba(76, 25, 124, .98);
+  color: #f0d8ff;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .55), 0 0 18px rgba(184, 94, 255, .42);
 }
 
 .cardCounterStack {
@@ -1029,6 +1134,11 @@ button.cardPile { cursor: pointer; }
   animation: targetFlow .55s linear infinite;
 }
 
+.targetArrows .analysisTargetArrow {
+  color: #cf8cff;
+  stroke-width: 3.5;
+}
+
 .actionCaption {
   position: absolute;
   bottom: 77px;
@@ -1057,6 +1167,81 @@ button.cardPile { cursor: pointer; }
 }
 
 .actionDot { background: var(--replay-cyan); box-shadow: 0 0 9px rgba(117, 241, 229, 0.7); }
+
+.banishActionCaption {
+  border-color: rgba(186, 131, 255, .52);
+  background: linear-gradient(90deg, rgba(39, 16, 68, .94), rgba(68, 31, 108, .94));
+  color: #eadcff;
+  box-shadow: 0 0 28px rgba(128, 70, 206, .2);
+}
+
+.banishActionCaption .actionDot {
+  background: #b982ff;
+  box-shadow: 0 0 11px rgba(185, 130, 255, .88);
+}
+
+.analysisBoard {
+  box-shadow: inset 0 0 0 2px rgba(180, 105, 255, .18), inset 0 0 80px rgba(104, 38, 171, .08);
+}
+
+.analysisBoard[data-analysis-dragging="true"] [data-analysis-drop-zone] {
+  cursor: not-allowed;
+  opacity: .58;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease, outline-color 120ms ease;
+}
+
+.analysisBoard[data-analysis-dragging="true"] [data-analysis-drop-valid="true"] {
+  border-color: rgba(197, 125, 255, .54);
+  cursor: copy;
+  opacity: 1;
+  outline: 2px dashed rgba(193, 116, 255, .42);
+  outline-offset: 2px;
+  background-color: rgba(118, 43, 178, .13);
+  box-shadow: inset 0 0 24px rgba(159, 70, 224, .11), 0 0 18px rgba(159, 70, 224, .08);
+}
+
+.analysisBoard[data-analysis-dragging="true"] [data-analysis-drop-valid="true"][data-analysis-drop-hover="true"] {
+  border-color: rgba(230, 193, 255, .92);
+  outline-color: #d39aff;
+  background-color: rgba(154, 68, 218, .28);
+  box-shadow: inset 0 0 34px rgba(190, 105, 249, .22), 0 0 30px rgba(190, 105, 249, .28);
+}
+
+.analysisActionCaption {
+  border-color: rgba(190, 121, 255, .55);
+  background: linear-gradient(90deg, rgba(42, 15, 69, .95), rgba(73, 30, 116, .95));
+  color: #ead6ff;
+  box-shadow: 0 0 30px rgba(153, 73, 229, .25);
+}
+
+.analysisActionCaption .actionDot {
+  background: #c47bff;
+  box-shadow: 0 0 12px rgba(196, 123, 255, .9);
+}
+
+.analysisBoardBadge {
+  position: absolute;
+  top: 15px;
+  right: 140px;
+  z-index: 82;
+  display: flex;
+  height: 28px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(194, 126, 255, .48);
+  border-radius: 99px;
+  background: rgba(42, 16, 67, .92);
+  box-shadow: 0 7px 24px rgba(0, 0, 0, .32), 0 0 22px rgba(177, 94, 255, .18);
+  color: #efd9ff;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  padding: 0 11px;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.analysisBoardBadge svg { width: 14px; height: 14px; color: #c985ff; }
 
 .combinedReplayBadge {
   position: absolute;
@@ -1718,6 +1903,403 @@ button.cardPile { cursor: pointer; }
   box-shadow: -18px 0 55px rgba(0, 0, 0, 0.24);
 }
 
+.analysisPanel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 210;
+  display: flex;
+  width: 330px;
+  height: 962px;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid rgba(196, 128, 255, .32);
+  background:
+    radial-gradient(circle at 50% 8%, rgba(139, 65, 210, .2), transparent 28%),
+    linear-gradient(180deg, #12091d, #090711 54%, #0d0715);
+  box-shadow: -22px 0 65px rgba(0, 0, 0, .46), -3px 0 28px rgba(125, 53, 191, .12);
+  animation: analysisPanelIn 280ms cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.analysisPanel button {
+  border: 1px solid rgba(194, 132, 244, .18);
+  border-radius: 8px;
+  background: rgba(102, 54, 139, .09);
+  color: #bda8cf;
+  cursor: pointer;
+}
+
+.analysisPanel button:hover,
+.analysisPanel button:focus-visible {
+  border-color: rgba(207, 154, 255, .5);
+  outline: none;
+  background: rgba(153, 77, 220, .17);
+  color: #f2e3ff;
+}
+
+.analysisPanel button:disabled {
+  cursor: default;
+  opacity: .38;
+}
+
+.analysisPanelHeader {
+  display: flex;
+  min-height: 78px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(195, 133, 245, .13);
+  padding: 0 14px;
+}
+
+.analysisPanelHeader > button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-color: transparent;
+  background: transparent;
+}
+
+.analysisPanelHeader > button svg { width: 17px; }
+.analysisPanelTitle { display: flex; align-items: center; gap: 10px; }
+.analysisPanelTitle > div { display: flex; flex-direction: column; }
+.analysisPanelTitle > div > span { color: #b982ef; font-size: 8px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+.analysisPanelTitle h2 { margin: 4px 0 0; color: #f8efff; font-size: 17px; letter-spacing: -.02em; }
+
+.analysisPanelMark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(203, 139, 255, .45);
+  border-radius: 11px;
+  background: linear-gradient(145deg, rgba(125, 52, 184, .66), rgba(52, 25, 84, .8));
+  color: #e4bdff;
+  box-shadow: 0 0 26px rgba(162, 72, 231, .22);
+}
+
+.analysisPanelMark svg { width: 20px; }
+
+.analysisSummary {
+  display: grid;
+  min-height: 69px;
+  grid-template-columns: repeat(3, 1fr);
+  border-bottom: 1px solid rgba(195, 133, 245, .1);
+}
+
+.analysisSummary > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-right: 1px solid rgba(195, 133, 245, .08);
+}
+
+.analysisSummary > div:last-child { border: 0; }
+.analysisSummary span { color: #755f88; font-size: 7px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.analysisSummary b { color: #e3d1f0; font-size: 11px; }
+
+.analysisAttachNotice {
+  display: grid;
+  min-height: 72px;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid rgba(241, 198, 109, .2);
+  background: rgba(99, 65, 15, .16);
+  padding: 10px 12px;
+}
+
+.analysisAttachNotice > svg { width: 22px; color: #f1c66d; }
+.analysisAttachNotice > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.analysisAttachNotice b { color: #ffe2a3; font-size: 9px; }
+.analysisAttachNotice span { color: #8f7956; font-size: 8px; line-height: 1.35; }
+.analysisAttachNotice button { height: 27px; padding: 0 8px; font-size: 8px; }
+
+.analysisTargetNotice {
+  border-bottom-color: rgba(207, 140, 255, .26);
+  background: rgba(113, 45, 161, .18);
+}
+
+.analysisTargetNotice > svg { color: #cf8cff; }
+.analysisTargetNotice b { color: #edc9ff; }
+.analysisTargetNotice span { color: #a983bd; }
+
+.analysisPanelBody {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  scrollbar-color: rgba(177, 103, 231, .25) transparent;
+  scrollbar-width: thin;
+}
+
+.analysisSelectedCard {
+  position: relative;
+  display: grid;
+  min-height: 66px;
+  grid-template-columns: 43px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(196, 128, 255, .2);
+  border-radius: 11px;
+  background: rgba(113, 52, 158, .1);
+  padding: 8px;
+}
+
+.analysisSelectedCard .miniPortrait { width: 42px; height: 42px; border-color: rgba(200, 133, 255, .48); }
+.analysisSelectedCard > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.analysisSelectedCard span { color: #836b96; font-size: 7px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.analysisSelectedCard b { overflow: hidden; color: #f1e5fa; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.analysisSelectedCard small { color: #705d80; font-family: ui-monospace, Consolas, monospace; font-size: 8px; }
+.analysisSelectedCard em { position: absolute; top: 6px; right: 7px; color: #f1c66d; font-size: 6px; font-style: normal; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+
+.analysisControlSection {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+  border-top: 1px solid rgba(195, 133, 245, .1);
+  padding-top: 11px;
+}
+
+.analysisControlSection > header { display: flex; align-items: center; justify-content: space-between; }
+.analysisControlSection > header span { color: #9d80b3; font-size: 8px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+.analysisControlSection > header small { color: #5b4968; font-size: 7px; }
+
+.analysisDestinationGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.analysisDestinationGrid button { min-height: 30px; padding: 4px 5px; font-size: 8px; font-weight: 700; }
+.analysisDestinationGrid button:last-child { grid-column: 1 / -1; }
+
+.analysisWideAction {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.analysisWideAction svg { width: 14px; }
+
+.analysisCounterControl,
+.analysisScoreControl {
+  display: grid;
+  min-height: 31px;
+  grid-template-columns: minmax(0, 1fr) 28px 27px 28px;
+  align-items: center;
+  gap: 4px;
+}
+
+.analysisCounterControl > span,
+.analysisScoreControl > span {
+  overflow: hidden;
+  color: #8b769b;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysisCounterControl button,
+.analysisScoreControl button { height: 27px; font-size: 14px; }
+.analysisCounterControl b,
+.analysisScoreControl b { color: #e8d9f4; font-size: 10px; text-align: center; }
+
+.analysisEmptySelection {
+  display: flex;
+  min-height: 176px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed rgba(194, 132, 244, .2);
+  border-radius: 12px;
+  color: #685475;
+  padding: 18px;
+  text-align: center;
+}
+
+.analysisEmptySelection svg { width: 34px; }
+.analysisEmptySelection b { color: #b89fc8; font-size: 10px; }
+.analysisEmptySelection p { margin: 0; color: #6f5a7d; font-size: 8px; line-height: 1.5; }
+
+.analysisPanelFooter {
+  display: grid;
+  min-height: 92px;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  border-top: 1px solid rgba(195, 133, 245, .13);
+  background: rgba(7, 5, 12, .72);
+  padding: 11px 12px;
+}
+
+.analysisPanelFooter button {
+  display: flex;
+  min-height: 33px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 8px;
+  font-weight: 750;
+}
+
+.analysisPanelFooter button svg { width: 13px; }
+.analysisPanelFooter .analysisReturnButton {
+  border-color: rgba(205, 139, 255, .48);
+  background: linear-gradient(135deg, rgba(126, 48, 189, .62), rgba(72, 31, 112, .72));
+  color: #f2ddff;
+}
+
+.analysisContextMenu {
+  position: absolute;
+  z-index: 430;
+  display: flex;
+  width: 280px;
+  max-height: 412px;
+  flex-direction: column;
+  gap: 7px;
+  overflow-y: auto;
+  border: 1px solid rgba(211, 155, 255, .56);
+  border-radius: 13px;
+  background:
+    radial-gradient(circle at 45% -10%, rgba(169, 80, 232, .25), transparent 45%),
+    linear-gradient(160deg, rgba(24, 11, 37, .99), rgba(8, 6, 14, .99));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .68), 0 0 34px rgba(162, 72, 231, .22);
+  padding: 10px;
+  scrollbar-color: rgba(193, 121, 246, .3) transparent;
+  scrollbar-width: thin;
+  animation: analysisContextIn 130ms cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.analysisContextMenu button {
+  border: 1px solid rgba(199, 138, 247, .2);
+  border-radius: 7px;
+  background: rgba(112, 53, 153, .12);
+  color: #c9b5d8;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 720;
+}
+
+.analysisContextMenu button:hover,
+.analysisContextMenu button:focus-visible {
+  border-color: rgba(218, 168, 255, .58);
+  outline: none;
+  background: rgba(155, 76, 218, .24);
+  color: #f7eaff;
+}
+
+.analysisContextMenu button:disabled {
+  cursor: default;
+  opacity: .34;
+}
+
+.analysisContextMenu button:disabled:hover {
+  border-color: rgba(199, 138, 247, .2);
+  background: rgba(112, 53, 153, .12);
+  color: #c9b5d8;
+}
+
+.analysisContextMenu > header {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(198, 132, 246, .13);
+  padding: 0 2px 8px;
+}
+
+.analysisContextMenu > header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.analysisContextMenu > header span,
+.analysisContextMenu > section > span {
+  color: #9272a9;
+  font-size: 7px;
+  font-weight: 820;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.analysisContextMenu > header b {
+  overflow: hidden;
+  max-width: 220px;
+  color: #f3e8fb;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysisContextMenu > header small {
+  color: #bd83e5;
+  font-size: 7px;
+}
+
+.analysisContextMenu > header > button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-color: transparent;
+  background: transparent;
+}
+
+.analysisContextMenu > header > button svg { width: 14px; }
+
+.analysisContextWideAction {
+  display: flex;
+  min-height: 31px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.analysisContextWideAction svg { width: 13px; }
+
+.analysisContextCounters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px 26px 28px;
+  align-items: center;
+  gap: 4px;
+}
+
+.analysisContextCounters > span {
+  color: #947ba6;
+  font-size: 8px;
+}
+
+.analysisContextCounters > button { height: 27px; font-size: 13px; }
+.analysisContextCounters > b { color: #eadcf3; font-size: 9px; text-align: center; }
+
+.analysisContextMenu > section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid rgba(198, 132, 246, .12);
+  padding-top: 8px;
+}
+
+.analysisContextMenu > section > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.analysisContextMenu > section button {
+  min-height: 27px;
+  padding: 3px 5px;
+}
+
+.analysisContextMenu > section button:last-child { grid-column: 1 / -1; }
+
 .railHeader {
   display: flex;
   align-items: center;
@@ -1958,6 +2540,34 @@ button.cardPile { cursor: pointer; }
 .moreButton { min-width: 84px; padding: 0 12px; color: #8ca1b7; font-size: 10px; font-weight: 700; }
 .moreButton svg { width: 15px; }
 
+.analysisToggleButton {
+  display: inline-flex;
+  min-width: 112px;
+  height: 39px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-left: 6px;
+  border: 1px solid rgba(188, 118, 248, .3);
+  border-radius: 10px;
+  background: rgba(91, 39, 132, .13);
+  color: #c8a9de;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 760;
+}
+
+.analysisToggleButton svg { width: 15px; }
+.analysisToggleButton:hover,
+.analysisToggleButton:focus-visible,
+.analysisToggleButtonActive {
+  border-color: rgba(206, 142, 255, .64);
+  outline: none;
+  background: rgba(132, 52, 191, .25);
+  color: #f1dcff;
+  box-shadow: 0 0 22px rgba(161, 68, 224, .16);
+}
+
 .morePanel {
   position: absolute;
   right: 22px;
@@ -2014,6 +2624,10 @@ button.cardPile { cursor: pointer; }
 .discardGrid { display: grid; grid-template-columns: repeat(8,125px); align-content: start; justify-content: center; gap: 22px 18px; overflow-y: auto; padding: 32px; }
 .emptyDiscard { grid-column: 1/-1; display: flex; height: 520px; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #51667c; }
 .emptyDiscard svg { width: 42px; }
+.banishedModal { border-color: rgba(177, 124, 255, .34); background: linear-gradient(145deg,rgba(29,16,48,.99),rgba(9,7,22,.99)); }
+.banishedModal > header { border-bottom-color: rgba(177, 124, 255, .16); }
+.banishedModal header span { color: #c499ff; }
+.emptyBanished { color: #886da8; }
 
 .helpModal { width: 760px; padding-bottom: 24px; }
 .helpModal > header { height: 92px; }
@@ -2041,6 +2655,8 @@ button.cardPile { cursor: pointer; }
 }
 
 @keyframes shadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes analysisPanelIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes analysisContextIn { from { opacity: 0; transform: translateY(-5px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes deckPeekShadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes deckPeekPanelIn { from { opacity: 0; filter: blur(3px); transform: translateY(20px) scale(.975); } to { opacity: 1; filter: blur(0); transform: translateY(0) scale(1); } }
 @keyframes deckPeekHold { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 1; transform: translateY(0) scale(1); } }

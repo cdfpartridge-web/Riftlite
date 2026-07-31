@@ -262,6 +262,41 @@ describe("normalizeTcgaReplayRawCaptureV1", () => {
     });
   });
 
+  it.each(["Banish", "Banished", "Exile"])(
+    "maps TCGA's public %s section to the visible banished zone",
+    (section) => {
+      const input = fixture();
+      const update = input.messages.find((entry) => entry.seq === 5);
+      const payload = update?.parsed.payload as JsonObject | undefined;
+      const playerData = payload?.playerData as JsonObject | undefined;
+      if (!playerData || !Array.isArray(playerData.visibleCards)) {
+        throw new Error("Missing perspective player update");
+      }
+      playerData.visibleCards.push(card(
+        "provider-public-banished-card",
+        "provider-self-secret",
+        section,
+        "Daring Poro",
+        "OGN-135",
+        { status: "no" },
+      ));
+
+      const replay = normalizeTcgaReplayRawCaptureV1(input, { replayId: `tcga_${section}` });
+      const finalState = projectReplayState(replay);
+      const perspectiveId = replay.series.perspectivePlayerId ?? "";
+
+      expect(finalState.players[perspectiveId].zones.banished).toMatchObject([{
+        name: "Daring Poro",
+        cardCode: "OGN-135",
+        isPlaceholder: false,
+      }]);
+      expect(inspectTcgaCanonicalReplay(input, replay)).toEqual({
+        integrityIssues: [],
+        privacyIssues: [],
+      });
+    },
+  );
+
   it("preserves the last known zone during TCGA transient section=false updates", () => {
     const replay = normalizeTcgaReplayRawCaptureV1(fixture(), { replayId: "tcga_zone" });
     const snapshots = replay.events.filter((event) => event.kind === "snapshot");

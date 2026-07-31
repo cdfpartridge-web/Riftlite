@@ -65,6 +65,193 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(view.container.querySelector("[data-combined-replay]")).not.toBeInTheDocument();
   });
 
+  it("creates a temporary analysis branch with conservative future-hand knowledge", async () => {
+    const replay = futureKnownAnalysisReplay();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_analysis" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-control="analysis"]')).toBeInTheDocument();
+    });
+    expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+      .toHaveAccessibleName("Hidden card");
+
+    fireEvent.click(view.getByRole("button", { name: "Take control" }));
+
+    const panel = await waitFor(() => {
+      const element = view.container.querySelector<HTMLElement>("[data-analysis-panel]");
+      expect(element).toBeInTheDocument();
+      return element!;
+    });
+    expect(panel).toHaveTextContent("Known later1");
+    expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+      .toHaveAccessibleName("Eager Apprentice, known from a later reveal");
+    expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+      .toHaveAttribute("data-analysis-card", "future-known");
+
+    const selfHandCard = view.container.querySelector<HTMLButtonElement>(
+      '[data-card-id="self-hand"]',
+    )!;
+    fireEvent.contextMenu(selfHandCard, { clientX: 420, clientY: 720 });
+    const contextMenu = view.getByRole("menu", { name: "Harnessed Dragon actions" });
+    expect(contextMenu).toBeInTheDocument();
+    fireEvent.click(view.getByRole("menuitem", { name: "Exhaust card" }));
+    expect(view.container.querySelector('[data-card-id="self-hand"]'))
+      .toHaveAttribute("data-card-exhausted", "true");
+
+    fireEvent.click(view.container.querySelector<HTMLButtonElement>('[data-card-id="self-hand"]')!);
+    expect(panel).toHaveTextContent("Harnessed Dragon");
+    const transferValues = new Map<string, string>();
+    const dataTransfer = {
+      dropEffect: "none",
+      effectAllowed: "none",
+      getData: (type: string) => transferValues.get(type) ?? "",
+      setData: (type: string, value: string) => transferValues.set(type, value),
+    };
+    fireEvent.dragStart(
+      view.container.querySelector<HTMLButtonElement>('[data-card-id="self-hand"]')!,
+      { dataTransfer },
+    );
+    expect(view.container.querySelector('[data-analysis-board="true"]'))
+      .toHaveAttribute("data-analysis-dragging", "true");
+    const opponentBattlefieldDrop = view.container.querySelector<HTMLElement>(
+      '[data-analysis-drop-player-id="opponent"][data-analysis-drop-zone="battlefieldA"]',
+    )!;
+    fireEvent.dragOver(opponentBattlefieldDrop, { dataTransfer });
+    expect(opponentBattlefieldDrop).not.toHaveAttribute("data-analysis-drop-hover");
+    const battlefieldDrop = view.container.querySelector<HTMLElement>(
+      '[data-analysis-drop-player-id="self"][data-analysis-drop-zone="battlefieldA"]',
+    )!;
+    fireEvent.dragOver(battlefieldDrop, { dataTransfer });
+    expect(battlefieldDrop).toHaveAttribute("data-analysis-drop-hover", "true");
+    fireEvent.drop(battlefieldDrop, { dataTransfer });
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-card-id="self-hand"]'))
+        .toHaveAttribute("data-analysis-card", "what-if");
+    });
+    expect(battlefieldDrop).not.toHaveAttribute("data-analysis-drop-hover");
+    expect(view.container.querySelector('[data-analysis-board="true"]')).toBeInTheDocument();
+    expect(view.container.querySelector('[data-analysis-status="active"]'))
+      .toHaveTextContent("What-if branch");
+
+    fireEvent.click(view.getByRole("button", { name: "Undo" }));
+    expect(view.container.querySelector(
+      '[data-analysis-drop-player-id="self"][data-analysis-drop-zone="hand"] [data-card-id="self-hand"]',
+    )).toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Redo" }));
+    expect(view.container.querySelector(
+      '[data-analysis-drop-player-id="self"][data-analysis-drop-zone="battlefieldA"] [data-card-id="self-hand"]',
+    )).toHaveAttribute("data-analysis-card", "what-if");
+
+    fireEvent.contextMenu(
+      view.container.querySelector<HTMLButtonElement>('[data-card-id="self-hand"]')!,
+      { clientX: 420, clientY: 420 },
+    );
+    fireEvent.click(view.getByRole("menuitem", { name: "Restore to branch start" }));
+    expect(view.container.querySelector(
+      '[data-analysis-drop-player-id="self"][data-analysis-drop-zone="hand"] [data-card-id="self-hand"]',
+    )).not.toHaveAttribute("data-analysis-card");
+
+    fireEvent.contextMenu(
+      view.container.querySelector<HTMLButtonElement>('[data-card-id="self-hand"]')!,
+      { clientX: 520, clientY: 520 },
+    );
+    fireEvent.click(view.getByRole("menuitem", { name: "Add to chain" }));
+    const chainCard = view.container.querySelector<HTMLButtonElement>(
+      '[data-analysis-chain-entry-id][data-card-id="self-hand"]',
+    );
+    expect(chainCard).toHaveAccessibleName("Harnessed Dragon, changed in analysis");
+    expect(chainCard).toHaveAttribute("data-analysis-card", "what-if");
+    expect(view.container.querySelector(
+      '[data-analysis-drop-player-id="self"][data-analysis-drop-zone="hand"] [data-card-id="self-hand"]',
+    )).not.toBeInTheDocument();
+
+    fireEvent.contextMenu(chainCard!, { clientX: 620, clientY: 430 });
+    fireEvent.click(view.getByRole("menuitem", { name: "Add target arrow" }));
+    expect(panel).toHaveTextContent("Select a chain target");
+    fireEvent.click(
+      view.container.querySelector<HTMLButtonElement>('[data-card-id="opponent-hand"]')!,
+    );
+    await waitFor(() => {
+      expect(view.container.querySelector(
+        '[data-analysis-chain-entry-id][data-card-id="self-hand"]',
+      )).toHaveAttribute("data-analysis-chain-target-count", "1");
+      expect(view.container.querySelectorAll('[data-analysis-target-arrow="true"]'))
+        .toHaveLength(1);
+    });
+
+    const targetedChainCard = view.container.querySelector<HTMLButtonElement>(
+      '[data-analysis-chain-entry-id][data-card-id="self-hand"]',
+    )!;
+    expect(targetedChainCard).toHaveAccessibleName(
+      "Harnessed Dragon, changed in analysis, 1 target linked",
+    );
+    fireEvent.contextMenu(targetedChainCard, { clientX: 620, clientY: 430 });
+    expect(view.getByRole("menu", { name: "Harnessed Dragon actions" }))
+      .toHaveTextContent("1 target linked");
+    fireEvent.click(view.getByRole("menuitem", { name: "Add another target" }));
+    const battlefieldTarget = view.container.querySelector<HTMLButtonElement>(
+      "[data-battlefield-card]",
+    )!;
+    const battlefieldTargetId = battlefieldTarget.dataset.cardId!;
+    fireEvent.click(battlefieldTarget);
+    await waitFor(() => {
+      const chainWithTargets = view.container.querySelector(
+        '[data-analysis-chain-entry-id][data-card-id="self-hand"]',
+      );
+      expect(chainWithTargets).toHaveAttribute("data-analysis-chain-target-count", "2");
+      expect(chainWithTargets?.getAttribute("data-analysis-chain-target-ids"))
+        .toContain(battlefieldTargetId);
+      expect(view.container.querySelectorAll('[data-analysis-target-arrow="true"]'))
+        .toHaveLength(2);
+    });
+
+    fireEvent.click(view.getByRole("button", { name: "Undo" }));
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('[data-analysis-target-arrow="true"]'))
+        .toHaveLength(1);
+    });
+    fireEvent.click(view.getByRole("button", { name: "Redo" }));
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('[data-analysis-target-arrow="true"]'))
+        .toHaveLength(2);
+    });
+
+    fireEvent.contextMenu(
+      view.container.querySelector<HTMLButtonElement>(
+        '[data-analysis-chain-entry-id][data-card-id="self-hand"]',
+      )!,
+      { clientX: 620, clientY: 430 },
+    );
+    fireEvent.click(view.getByRole("menuitem", { name: "Clear target arrows" }));
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('[data-analysis-target-arrow="true"]'))
+        .toHaveLength(0);
+    });
+
+    fireEvent.contextMenu(
+      view.container.querySelector<HTMLButtonElement>(
+        '[data-analysis-chain-entry-id][data-card-id="self-hand"]',
+      )!,
+      { clientX: 620, clientY: 430 },
+    );
+    fireEvent.click(view.getByRole("menuitem", { name: "Return card from chain" }));
+    expect(view.container.querySelector(
+      '[data-analysis-drop-player-id="self"][data-analysis-drop-zone="hand"] [data-card-id="self-hand"]',
+    )).toHaveAttribute("data-analysis-card", "what-if");
+
+    fireEvent.click(view.getByRole("button", { name: "Return to original replay" }));
+    expect(view.container.querySelector("[data-analysis-panel]")).not.toBeInTheDocument();
+    expect(view.container.querySelector('[data-card-id="self-hand"]'))
+      .not.toHaveAttribute("data-analysis-card");
+    expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+      .toHaveAccessibleName("Hidden card");
+  });
+
   it("reveals both real hands across the board, opening, and mulligan in a consented combined replay", async () => {
     const replay = asConsentedCombinedReplay(mulliganReplay());
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
@@ -106,6 +293,34 @@ describe("ReplayV2Player presentation prelude", () => {
     );
     expect(opponentMulligan?.querySelector('[data-card-code="OGN-031"]')).toBeInTheDocument();
     expect(opponentMulligan?.querySelectorAll('[aria-label="Hidden card"]')).toHaveLength(0);
+  });
+
+  it("allows either public hand in a consented combined replay to enter a temporary branch", async () => {
+    const replay = asConsentedCombinedReplay(mulliganReplay());
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_combined_analysis" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-combined-replay="open-hands"]')).toBeInTheDocument();
+    });
+    fireEvent.click(view.getByRole("button", { name: "Take control" }));
+    expect(view.container.querySelector("[data-analysis-panel]")).toHaveTextContent("Known later0");
+
+    const opponentCard = view.container.querySelector<HTMLButtonElement>(
+      '[data-player-id="opponent"] [data-card-id="opponent-mulligan-a"]',
+    )!;
+    fireEvent.contextMenu(opponentCard, { clientX: 500, clientY: 240 });
+    fireEvent.click(view.getByRole("menuitem", { name: "Base" }));
+
+    expect(view.container.querySelector(
+      '[data-analysis-drop-player-id="opponent"][data-analysis-drop-zone="base"] [data-card-id="opponent-mulligan-a"]',
+    )).toHaveAttribute("data-analysis-card", "what-if");
+    expect(view.container.querySelector(
+      '[data-player-id="self"] [data-card-id="opponent-mulligan-a"]',
+    )).not.toBeInTheDocument();
   });
 
   it("labels only an unrevealed Atlas hidden card while it is at a battlefield", async () => {
@@ -568,6 +783,49 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(view.container.querySelector("[data-hover-card-preview]")).not.toBeInTheDocument();
   });
 
+  it("opens the compact banished zone control below the deck", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: sideboardingAtZeroReplay({ includeBanished: true }),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_test" }));
+
+    const openBanished = await view.findByRole("button", {
+      name: "Open banished cards, 1 card",
+    });
+    expect(openBanished).toHaveAttribute("data-open-banished");
+    expect(openBanished).toHaveAttribute("data-has-banished", "true");
+    fireEvent.click(openBanished);
+
+    expect(view.getByRole("dialog", { name: "LeBlanc banished cards" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Daring Poro" })).toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Close banished cards" }));
+    expect(view.container.querySelector("[data-banished-overlay]")).not.toBeInTheDocument();
+  });
+
+  it("announces a banish transition from the provider-neutral replay timeline", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/replays/rp_banish?t=1");
+    try {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+        replay: banishedTransitionReplay(),
+      }), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      })));
+      const view = render(createElement(ReplayV2Player, { replayId: "rp_banish" }));
+
+      await waitFor(() => {
+        expect(view.container.querySelector('[data-banished-event="true"]'))
+          .toHaveTextContent("LeBlanc banished Daring Poro");
+      });
+    } finally {
+      window.history.replaceState({}, "", previousUrl);
+    }
+  });
+
   it("pairs seat-one cards with the capture player's left battlefield", async () => {
     const view = render(createElement(ReplayV2Player, { replayId: "rp_test" }));
 
@@ -790,6 +1048,7 @@ describe("ReplayV2Player presentation prelude", () => {
 
 function sideboardingAtZeroReplay(options: {
   championPlayed?: boolean;
+  includeBanished?: boolean;
   includeTrash?: boolean;
 } = {}): CanonicalReplayV2 {
   const selfChampion = replayCard(
@@ -843,6 +1102,9 @@ function sideboardingAtZeroReplay(options: {
             },
           }],
           runeDeck: Array.from({ length: 11 }, (_, index) => hiddenRune(`self-rune-deck-${index}`)),
+          banished: options.includeBanished
+            ? [replayCard("self-banished", "Daring Poro", "OGN-135", "mainDeck")]
+            : [],
           trash: options.includeTrash
             ? [replayCard("self-trash", "Solari Soldier", "OGN-125", "mainDeck")]
             : [],
@@ -1583,6 +1845,90 @@ function replayCard(id: string, name: string, cardCode: string, source: string) 
     source,
     fields: { cardCode, name, source },
   };
+}
+
+function futureKnownAnalysisReplay(): CanonicalReplayV2 {
+  const replay = sideboardingAtZeroReplay();
+  const snapshot = replay.events.find((event) => event.kind === "snapshot");
+  if (!snapshot || snapshot.kind !== "snapshot") throw new Error("Missing replay snapshot");
+  snapshot.snapshot.room.phase = "in_game";
+  snapshot.snapshot.room.rawPhase = "in_game";
+  snapshot.snapshot.room.turnNumber = 3;
+  snapshot.snapshot.players.opponent.zones.hand = [hiddenCard("opponent-hand")];
+  const revealed = replayCard("opponent-hand", "Eager Apprentice", "OGN-031", "base");
+  replay.series.endedAt = 2_200;
+  replay.series.games[0].endedAt = 2_200;
+  replay.series.games[0].endedAtMs = 1_200;
+  replay.series.games[0].eventEndIndex = 3;
+  replay.events.push({
+    id: "event-reveal-opponent-hand",
+    index: 3,
+    at: 2_000,
+    atMs: 1_000,
+    sourceMessageId: "message-reveal-opponent-hand",
+    gameId: "game-1",
+    kind: "action",
+    actionType: "play_card",
+    actorPlayerId: "opponent",
+    action: { cardId: "opponent-hand" },
+    confirmation: {
+      status: "confirmed",
+      authority: "authoritative_patch_commit",
+      correlation: "matched_intent",
+      commitMessageId: "message-reveal-opponent-hand",
+    },
+    patch: {
+      sequence: 4,
+      operations: [{
+        id: "move-revealed-opponent-hand",
+        op: "zone_move",
+        cardId: "opponent-hand",
+        from: { playerId: "opponent", zone: "hand" },
+        to: { playerId: "opponent", zone: "base", index: 0 },
+        card: revealed,
+      }],
+    },
+  });
+  return replay;
+}
+
+function banishedTransitionReplay(): CanonicalReplayV2 {
+  const replay = sideboardingAtZeroReplay();
+  const banished = replayCard("self-banished", "Daring Poro", "OGN-135", "mainDeck");
+  replay.series.endedAt = 2_200;
+  replay.series.games[0].endedAt = 2_200;
+  replay.series.games[0].endedAtMs = 1_200;
+  replay.series.games[0].eventEndIndex = 3;
+  replay.events.push({
+    id: "event-banish-card",
+    index: 3,
+    at: 2_000,
+    atMs: 1_000,
+    sourceMessageId: "message-banish",
+    gameId: "game-1",
+    kind: "action",
+    actionType: "banish_card",
+    actorPlayerId: "self",
+    action: { cardId: banished.id },
+    confirmation: {
+      status: "confirmed",
+      authority: "authoritative_patch_commit",
+      correlation: "matched_intent",
+      commitMessageId: "message-banish",
+    },
+    patch: {
+      sequence: 4,
+      operations: [{
+        id: "insert-banished-card",
+        op: "zone_insert",
+        playerId: "self",
+        zone: "banished",
+        index: 0,
+        cards: [banished],
+      }],
+    },
+  });
+  return replay;
 }
 
 function hiddenRune(id: string) {

@@ -32,6 +32,7 @@ const STANDARD_ZONES = [
   "base",
   "battlefieldA",
   "battlefieldB",
+  "banished",
   "champion",
   "deck",
   "discard",
@@ -47,6 +48,7 @@ const POSITIONED_VISIBLE_ZONES = [
   "base",
   "battlefieldA",
   "battlefieldB",
+  "banished",
   "champion",
   "discard",
   "hand",
@@ -1146,6 +1148,10 @@ function tcgaZone(section: string, previous: string | undefined): string {
     case "b2": return "battlefieldB";
     case "base": return "base";
     case "battlefields": return "selectedBattlefield";
+    case "banish":
+    case "banished":
+    case "exile":
+    case "exiled": return "banished";
     case "chosen_champion": return "champion";
     case "discard": return "discard";
     case "exilehidden": return "removed";
