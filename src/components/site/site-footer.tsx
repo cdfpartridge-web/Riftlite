@@ -12,6 +12,7 @@ type SiteFooterProps = {
 const footerLinks = {
   Navigate: [
     { label: "Community", href: SITE_PATHS.meta },
+    { label: "Player Profiles", href: SITE_PATHS.players },
     { label: "Guide", href: SITE_PATHS.guide },
     { label: "Scorepad", href: SITE_PATHS.scorepad },
     { label: "News", href: SITE_PATHS.news },

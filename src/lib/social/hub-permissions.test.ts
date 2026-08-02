@@ -85,6 +85,11 @@ describe("private hub co-owner permissions", () => {
       targetRole: "owner",
       targetIsHubOwner: false,
     })).toThrow("hub owner");
+    expect(() => assertHubMemberRemovalAllowed({
+      actorRole: "member",
+      targetRole: "member",
+      targetIsHubOwner: false,
+    })).toThrow("permission");
   });
 
   it("lets the owner remove a co-owner", () => {

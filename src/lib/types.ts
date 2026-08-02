@@ -40,6 +40,7 @@ export type CommunityMatch = {
   oppChampion: string;
   oppName: string;
   fmt: string;
+  platform?: string;
   score: string;
   wentFirst: string;
   myBattlefield: string;

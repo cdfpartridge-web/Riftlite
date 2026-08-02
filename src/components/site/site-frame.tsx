@@ -22,15 +22,19 @@ export function isReplayAppPath(pathname: string) {
   );
 }
 
+export function isFullScreenAppPath(pathname: string) {
+  return isReplayAppPath(pathname) || pathname === "/meta-studio" || pathname.startsWith("/meta-studio/");
+}
+
 export function SiteFrame({ children, settings }: SiteFrameProps) {
   const pathname = usePathname();
-  const replayApp = isReplayAppPath(pathname || "");
+  const fullScreenApp = isFullScreenAppPath(pathname || "");
 
   return (
-    <div className={cn("surface-grid min-h-screen", replayApp && "h-screen overflow-hidden bg-[#05070b]")}>
-      {replayApp ? null : <SiteHeader discordUrl={settings.discordUrl} downloadUrl={settings.downloadUrl} />}
-      <main className={replayApp ? "h-screen overflow-hidden" : undefined}>{children}</main>
-      {replayApp ? null : <SiteFooter settings={settings} />}
+    <div className={cn("surface-grid min-h-screen", fullScreenApp && "h-screen overflow-hidden bg-[#05070b]")}>
+      {fullScreenApp ? null : <SiteHeader discordUrl={settings.discordUrl} downloadUrl={settings.downloadUrl} />}
+      <main className={fullScreenApp ? "h-screen overflow-hidden" : undefined}>{children}</main>
+      {fullScreenApp ? null : <SiteFooter settings={settings} />}
     </div>
   );
 }

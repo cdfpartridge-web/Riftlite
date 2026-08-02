@@ -30,6 +30,11 @@ type Profile = {
   displayName: string;
   handle: string;
   profileComplete: boolean;
+  publicProfile: boolean;
+  searchable: boolean;
+  showStats: boolean;
+  showMatches: boolean;
+  showDecks: boolean;
 };
 
 type DesktopLink = { sessionId: string; code: string };
@@ -65,6 +70,11 @@ export function RiftLiteAuthPanel({
   const [displayName, setDisplayName] = useState("");
   const [handle, setHandle] = useState("");
   const [handleEdited, setHandleEdited] = useState(false);
+  const [publicProfileDraft, setPublicProfileDraft] = useState(false);
+  const [searchableDraft, setSearchableDraft] = useState(false);
+  const [showStatsDraft, setShowStatsDraft] = useState(true);
+  const [showMatchesDraft, setShowMatchesDraft] = useState(true);
+  const [showDecksDraft, setShowDecksDraft] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [finished, setFinished] = useState(false);
@@ -101,6 +111,11 @@ export function RiftLiteAuthPanel({
     setDisplayName(isGeneratedName(payload.profile.displayName) ? activeUser.displayName ?? "" : payload.profile.displayName);
     setHandle(payload.profile.handle);
     setHandleEdited(Boolean(payload.profile.handle));
+    setPublicProfileDraft(Boolean(payload.profile.publicProfile));
+    setSearchableDraft(Boolean(payload.profile.searchable));
+    setShowStatsDraft(payload.profile.showStats !== false);
+    setShowMatchesDraft(payload.profile.showMatches !== false);
+    setShowDecksDraft(payload.profile.showDecks !== false);
     return payload.profile;
   }, []);
 
@@ -306,7 +321,17 @@ export function RiftLiteAuthPanel({
       const response = await fetch("/api/account/profile", {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: cleanName, handle: cleanHandle }),
+        body: JSON.stringify({
+          displayName: cleanName,
+          handle: cleanHandle,
+          ...(manageAccount ? {
+            publicProfile: publicProfileDraft,
+            searchable: searchableDraft,
+            showStats: showStatsDraft,
+            showMatches: showMatchesDraft,
+            showDecks: showDecksDraft,
+          } : {}),
+        }),
       });
       const payload = await response.json() as { profile?: Profile; error?: string };
       if (!response.ok || !payload.profile) throw new Error(payload.error ?? "Could not save your profile.");
@@ -457,8 +482,32 @@ export function RiftLiteAuthPanel({
           <label className="grid gap-2 text-sm text-slate-300">Unique handle
             <input className="social-input" value={handle} onChange={(event) => { setHandleEdited(true); setHandle(event.target.value); }} />
           </label>
+          <div className="space-y-3 rounded-2xl border border-cyan-300/15 bg-cyan-300/[0.035] p-4">
+            <div>
+              <h3 className="font-display text-base font-bold text-white">Public player profile</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                Publish an opted-in profile at riftlite.com/user/{handle || "your-handle"}. Private hubs, notes, and Private or Unlisted Web Replays are never included.
+              </p>
+            </div>
+            <label className="flex items-start justify-between gap-4 rounded-xl border border-white/8 bg-slate-950/25 p-3 text-sm text-slate-300">
+              <span><strong className="block text-white">Publish my profile</strong><small className="mt-1 block text-slate-500">Creates the public page; off by default.</small></span>
+              <input aria-label="Publish my profile" checked={publicProfileDraft} className="mt-1 h-4 w-4" type="checkbox" onChange={(event) => setPublicProfileDraft(event.target.checked)} />
+            </label>
+            <label className="flex items-start justify-between gap-4 rounded-xl border border-white/8 bg-slate-950/25 p-3 text-sm text-slate-300">
+              <span><strong className="block text-white">Appear in player search</strong><small className="mt-1 block text-slate-500">Lets people find this profile from the Players page.</small></span>
+              <input aria-label="Appear in player search" checked={searchableDraft} className="mt-1 h-4 w-4" disabled={!publicProfileDraft} type="checkbox" onChange={(event) => setSearchableDraft(event.target.checked)} />
+            </label>
+            {publicProfileDraft ? (
+              <div className="grid gap-2 sm:grid-cols-3">
+                <label className="flex items-center justify-between gap-2 rounded-xl border border-white/8 px-3 py-2 text-xs font-semibold text-slate-300">Stats<input aria-label="Show public stats" checked={showStatsDraft} type="checkbox" onChange={(event) => setShowStatsDraft(event.target.checked)} /></label>
+                <label className="flex items-center justify-between gap-2 rounded-xl border border-white/8 px-3 py-2 text-xs font-semibold text-slate-300">Match history<input aria-label="Show public match history" checked={showMatchesDraft} type="checkbox" onChange={(event) => setShowMatchesDraft(event.target.checked)} /></label>
+                <label className="flex items-center justify-between gap-2 rounded-xl border border-white/8 px-3 py-2 text-xs font-semibold text-slate-300">Deck details<input aria-label="Show public deck details" checked={showDecksDraft} disabled={!showMatchesDraft} type="checkbox" onChange={(event) => setShowDecksDraft(event.target.checked)} /></label>
+              </div>
+            ) : null}
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button disabled={busy} onClick={() => void saveProfile()}>{busy ? "Saving..." : "Save changes"}</Button>
+            {profile.publicProfile && profile.handle ? <Button asChild variant="secondary"><a href={`/user/${encodeURIComponent(profile.handle)}`}>Open public profile</a></Button> : null}
             <Button asChild variant="secondary"><a href="/hubs">My Hubs</a></Button>
             <Button variant="secondary" onClick={() => void signOutForAccountSwitch()}>Sign out</Button>
           </div>

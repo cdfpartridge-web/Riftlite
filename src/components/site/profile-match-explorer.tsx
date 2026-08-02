@@ -778,7 +778,9 @@ export function ProfileMatchExplorer({
         </div>
       </div>
 
-      <DeckPerformance matches={filtered} showDecks={showDecks} showStats={showStats} onSelectMatch={selectMatch} />
+      <div className="scroll-mt-28" id="decks">
+        <DeckPerformance matches={filtered} showDecks={showDecks} showStats={showStats} onSelectMatch={selectMatch} />
+      </div>
     </div>
   );
 }
