@@ -1,9 +1,12 @@
 import {
+  CompleteReplaySchema,
+  MAX_COMPLETE_JSON_BYTES,
   ReplayV2Error,
   REPLAY_PROCESSING_RETRY_STATUS,
   completeReplay,
   isReplayId,
   noStoreJson,
+  readBoundedJson,
   replayApiError,
   requireReplayUser,
   serializeReplay,
@@ -24,7 +27,13 @@ export async function POST(request: Request, context: RouteContext) {
       throw new ReplayV2Error(400, "invalid_replay_id", "Replay id is invalid.");
     }
     const ownerUid = await requireReplayUser(request);
-    const record = await completeReplay(ownerUid, replayId);
+    const parsed = request.body
+      ? CompleteReplaySchema.safeParse(await readBoundedJson(request, MAX_COMPLETE_JSON_BYTES))
+      : CompleteReplaySchema.safeParse({});
+    if (!parsed.success) {
+      throw new ReplayV2Error(400, "invalid_completion", "Replay completion options are invalid.");
+    }
+    const record = await completeReplay(ownerUid, replayId, parsed.data);
     if (record.status !== "ready" || !record.canonicalArtifact) {
       throw new ReplayV2Error(
         REPLAY_PROCESSING_RETRY_STATUS,

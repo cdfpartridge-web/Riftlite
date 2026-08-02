@@ -22,6 +22,18 @@ export type ReplayPublicationQuality = {
   issues: ReplayPublicationIssue[];
 };
 
+const OVERRIDABLE_PUBLICATION_ISSUES = new Set<ReplayPublicationIssueCode>([
+  "missing_mulligan",
+]);
+
+export function blockingReplayPublicationIssues(
+  issues: ReplayPublicationIssue[],
+  allowIncomplete: boolean,
+): ReplayPublicationIssue[] {
+  if (!allowIncomplete) return [...issues];
+  return issues.filter((issue) => !OVERRIDABLE_PUBLICATION_ISSUES.has(issue.code));
+}
+
 export function assessReplayPublicationQuality(replay: CanonicalReplayV2): ReplayPublicationQuality {
   const issues: ReplayPublicationIssue[] = [];
   const participants = replay.series.participants;

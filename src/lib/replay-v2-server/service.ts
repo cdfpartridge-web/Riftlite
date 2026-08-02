@@ -6,7 +6,10 @@ import { FieldPath, Timestamp, type DocumentSnapshot, type Firestore } from "fir
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import { normalizeReplayProviderCapture } from "@/lib/replay-v2/provider-normalization";
-import { assessReplayPublicationQuality } from "@/lib/replay-v2/replay-quality";
+import {
+  assessReplayPublicationQuality,
+  blockingReplayPublicationIssues,
+} from "@/lib/replay-v2/replay-quality";
 import { summarizeReplayForListing, type ReplayListingMetadata } from "@/lib/replay-v2/replay-listing";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2/types";
 import { readImmutableArtifact, storeImmutableArtifact } from "@/lib/replay-v2-server/artifacts";
@@ -210,7 +213,11 @@ export async function uploadRawReplay(
   });
 }
 
-export async function completeReplay(ownerUid: string, replayId: string): Promise<ReplayRecord> {
+export async function completeReplay(
+  ownerUid: string,
+  replayId: string,
+  options: { allowIncomplete?: boolean } = {},
+): Promise<ReplayRecord> {
   const db = replayDb();
   const ownerUids = await replayOwnerIdentityUids(db, ownerUid);
   const replayRef = db.collection(REPLAY_COLLECTION).doc(replayId);
@@ -261,15 +268,33 @@ export async function completeReplay(ownerUid: string, replayId: string): Promis
     const rawPayload = decodeRawCapture(rawBytes);
     const canonical = normalizeCapture(rawPayload, claim.record.captureId, replayId, claim.record.platform);
     const quality = assessReplayPublicationQuality(canonical);
-    if (!quality.publishable) {
+    const blockingIssues = blockingReplayPublicationIssues(
+      quality.issues,
+      options.allowIncomplete === true,
+    );
+    if (blockingIssues.length) {
       throw new ReplayV2Error(
         422,
         "replay_capture_incomplete",
-        `Replay capture is incomplete: ${quality.issues.map((issue) => issue.message).join(" ")}`,
+        `Replay capture is incomplete: ${blockingIssues.map((issue) => issue.message).join(" ")}`,
       );
     }
-    const listing = summarizeReplayForListing(canonical);
-    const canonicalJson = Buffer.from(JSON.stringify(canonical), "utf8");
+    const canonicalForPublication = quality.issues.length
+      ? {
+          ...canonical,
+          diagnostics: [
+            ...canonical.diagnostics,
+            ...quality.issues.map((issue) => ({
+              id: `publication-${issue.code}`,
+              severity: "warning" as const,
+              code: `publication_${issue.code}`,
+              message: issue.message,
+            })),
+          ],
+        }
+      : canonical;
+    const listing = summarizeReplayForListing(canonicalForPublication);
+    const canonicalJson = Buffer.from(JSON.stringify(canonicalForPublication), "utf8");
     if (!canonicalJson.length || canonicalJson.length > MAX_CANONICAL_JSON_BYTES) {
       throw new ReplayV2Error(413, "canonical_too_large", "Normalized replay is too large.");
     }
@@ -291,7 +316,7 @@ export async function completeReplay(ownerUid: string, replayId: string): Promis
       replayId,
       generation,
       pointer,
-      canonical.source.messageCount,
+      canonicalForPublication.source.messageCount,
       listing,
     );
   } catch (error) {
