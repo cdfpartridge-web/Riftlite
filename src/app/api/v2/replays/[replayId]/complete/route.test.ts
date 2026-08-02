@@ -38,6 +38,21 @@ describe("Replay completion override", () => {
     });
   });
 
+  it("treats Vercel's non-null zero-byte request stream as strict completion", async () => {
+    const request = new Request(completeUrl(), {
+      method: "POST",
+      body: new Uint8Array(),
+    });
+    expect(request.body).not.toBeNull();
+
+    const response = await POST(request, context());
+
+    expect(response.status).toBe(200);
+    expect(completeReplayMock).toHaveBeenCalledWith("owner-1", REPLAY_ID, {
+      allowIncomplete: false,
+    });
+  });
+
   it("passes an explicit incomplete-capture override to the owner-only service", async () => {
     const response = await POST(new Request(completeUrl(), {
       method: "POST",
@@ -56,6 +71,17 @@ describe("Replay completion override", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ allowEverything: true }),
+    }), context());
+
+    expect(response.status).toBe(400);
+    expect(completeReplayMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-empty malformed completion body", async () => {
+    const response = await POST(new Request(completeUrl(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
     }), context());
 
     expect(response.status).toBe(400);
