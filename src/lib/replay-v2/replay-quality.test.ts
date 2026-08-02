@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { assessReplayPublicationQuality } from "@/lib/replay-v2/replay-quality";
+import {
+  assessReplayPublicationQuality,
+  blockingReplayPublicationIssues,
+} from "@/lib/replay-v2/replay-quality";
 import type { CanonicalReplayV2, ReplayGame, ReplayPlayerState } from "@/lib/replay-v2/types";
 
 describe("replay publication quality", () => {
@@ -45,6 +48,28 @@ describe("replay publication quality", () => {
       "missing_legend",
       "missing_battlefield",
     ]));
+  });
+
+  it("allows an explicit owner override only when the opening mulligan is missing", () => {
+    const missingMulligan = assessReplayPublicationQuality({
+      ...fixture(),
+      series: {
+        ...fixture().series,
+        games: [game("g1", 1, 1, ["in_game"])],
+      },
+    });
+
+    expect(missingMulligan.issues.map((issue) => issue.code)).toEqual(["missing_mulligan"]);
+    expect(blockingReplayPublicationIssues(missingMulligan.issues, false)).toHaveLength(1);
+    expect(blockingReplayPublicationIssues(missingMulligan.issues, true)).toEqual([]);
+
+    const unsafe = [
+      ...missingMulligan.issues,
+      { code: "missing_gameplay" as const, message: "Gameplay is missing." },
+    ];
+    expect(blockingReplayPublicationIssues(unsafe, true)).toEqual([
+      { code: "missing_gameplay", message: "Gameplay is missing." },
+    ]);
   });
 });
 

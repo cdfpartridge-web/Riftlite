@@ -77,6 +77,14 @@ export const InitReplaySchema = z
 
 export type InitReplayInput = z.infer<typeof InitReplaySchema>;
 
+export const CompleteReplaySchema = z
+  .object({
+    allowIncomplete: z.boolean().optional().default(false),
+  })
+  .strict();
+
+export type CompleteReplayInput = z.infer<typeof CompleteReplaySchema>;
+
 export const VisibilityUpdateSchema = z
   .object({
     visibility: ReplayVisibilitySchema,

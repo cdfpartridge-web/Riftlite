@@ -1,4 +1,5 @@
 export const MAX_INIT_JSON_BYTES = 64 * 1024;
+export const MAX_COMPLETE_JSON_BYTES = 1 * 1024;
 export const MAX_VISIBILITY_JSON_BYTES = 8 * 1024;
 export const MAX_RAW_GZIP_BYTES = 4 * 1024 * 1024;
 export const MAX_RAW_JSON_BYTES = 32 * 1024 * 1024;
