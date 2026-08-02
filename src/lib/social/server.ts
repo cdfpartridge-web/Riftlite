@@ -28,6 +28,7 @@ import {
 import { conflictingLinkedIdentityCanonicalUid } from "@/lib/account-link";
 import { getFirestoreAdmin, verifyFirebaseIdToken } from "@/lib/firebase/admin";
 import { canonicalIdentityUid } from "@/lib/identity-server";
+import { isReplayId } from "@/lib/replay-v2-server/ids";
 import {
   hubRoleHasCapability,
   normalizeHubMemberRole,
@@ -71,6 +72,27 @@ export type PublicProfile = {
   showHubBadges: boolean;
   updatedAt: number;
   searchPrefixes: string[];
+};
+
+export type DiscoverablePublicProfile = {
+  uid: string;
+  handle: string;
+  displayName: string;
+  updatedAt: number;
+};
+
+export type PublicProfileReplay = {
+  replayId: string;
+  title: string;
+  platform: string;
+  capturedAt: string;
+  createdAt: string;
+  playerName: string;
+  opponentName: string;
+  playerLegend: string;
+  opponentLegend: string;
+  format: "bo1" | "bo3" | "unknown";
+  result: "win" | "loss" | "draw" | "unknown";
 };
 
 export type UserAggregate = {
@@ -117,6 +139,8 @@ const GENERIC_DECK_NAMES = new Set([
 ]);
 const USER_MATCH_WINDOW = 500;
 const PROFILE_PAGE_MATCH_WINDOW = 250;
+const PROFILE_PAGE_REPLAY_WINDOW = 12;
+const PROFILE_REPLAY_SCAN_LIMIT = 48;
 const USER_BACKFILL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const LINK_SESSION_TTL_MS = 15 * 60 * 1000;
 const CURRENT_ONBOARDING_VERSION = 1;
@@ -1746,6 +1770,120 @@ export function buildUserAggregate(profile: AccountProfile, matches: CommunityMa
   };
 }
 
+function publicProfileTimestampIso(value: unknown): string {
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : "";
+  }
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString();
+  }
+  if (value && typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
+    const date = value.toDate();
+    return date instanceof Date && Number.isFinite(date.getTime()) ? date.toISOString() : "";
+  }
+  return "";
+}
+
+function publicProfileReplayChoice<T extends string>(
+  value: unknown,
+  choices: readonly T[],
+  fallback: T,
+): T {
+  return typeof value === "string" && choices.includes(value as T) ? value as T : fallback;
+}
+
+export function publicProfileReplayFromOwnerItem(
+  raw: Record<string, unknown>,
+): PublicProfileReplay | null {
+  const replayId = String(raw.replayId ?? "").trim();
+  if (raw.visibility !== "public" || raw.status !== "ready" || !isReplayId(replayId)) {
+    return null;
+  }
+  const listing = raw.listing && typeof raw.listing === "object" && !Array.isArray(raw.listing)
+    ? raw.listing as Record<string, unknown>
+    : {};
+  const clean = (value: unknown, fallback = "") => {
+    const text = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+    return text.slice(0, 100) || fallback;
+  };
+  return {
+    replayId,
+    title: clean(raw.title, "RiftLite Web Replay"),
+    platform: publicProfileReplayChoice(raw.platform, ["atlas", "tcga"] as const, "atlas"),
+    capturedAt: publicProfileTimestampIso(raw.capturedAt),
+    createdAt: publicProfileTimestampIso(raw.createdAt),
+    playerName: clean(listing.playerName),
+    opponentName: clean(listing.opponentName),
+    playerLegend: clean(listing.playerLegend),
+    opponentLegend: clean(listing.opponentLegend),
+    format: publicProfileReplayChoice(listing.format, ["bo1", "bo3", "unknown"] as const, "unknown"),
+    result: publicProfileReplayChoice(listing.result, ["win", "loss", "draw", "unknown"] as const, "unknown"),
+  };
+}
+
+async function listPublicProfileReplays(
+  uid: string,
+  db: Firestore,
+  limit = PROFILE_PAGE_REPLAY_WINDOW,
+): Promise<PublicProfileReplay[]> {
+  try {
+    const ownerUids = (await identityUidsFor(uid, db)).slice(0, 12);
+    const snapshots = await Promise.all(ownerUids.map(async (ownerUid) => {
+      const items = db.collection("replayV2Owners").doc(ownerUid).collection("items");
+      try {
+        return await items.orderBy("createdAt", "desc").limit(PROFILE_REPLAY_SCAN_LIMIT).get();
+      } catch {
+        return items.limit(PROFILE_REPLAY_SCAN_LIMIT).get();
+      }
+    }));
+    const replays = snapshots.flatMap((snapshot) => snapshot.docs)
+      .map((document) => publicProfileReplayFromOwnerItem(document.data() as Record<string, unknown>))
+      .filter((replay): replay is PublicProfileReplay => replay !== null);
+    return Array.from(new Map(replays.map((replay) => [replay.replayId, replay])).values())
+      .sort((left, right) => (
+        Date.parse(right.capturedAt || right.createdAt) - Date.parse(left.capturedAt || left.createdAt) ||
+        left.replayId.localeCompare(right.replayId)
+      ))
+      .slice(0, Math.max(1, limit));
+  } catch (error) {
+    console.warn("[social] Public profile replay lookup failed", uid, error);
+    return [];
+  }
+}
+
+function discoverableProfileFromData(
+  id: string,
+  data: Record<string, unknown>,
+): DiscoverablePublicProfile | null {
+  const handle = cleanHandle(data.handle ?? id);
+  const uid = String(data.uid ?? "").trim();
+  if (!uid || !validHandle(handle) || data.searchable !== true) return null;
+  return {
+    uid,
+    handle,
+    displayName: bestProfileDisplayName(uid, data.displayName, handle),
+    updatedAt: Number(data.updatedAt ?? 0),
+  };
+}
+
+export async function searchDiscoverablePublicProfiles(
+  search = "",
+  limit = 24,
+  providedDb?: Firestore,
+): Promise<DiscoverablePublicProfile[]> {
+  const db = providedDb ?? getFirestoreAdmin();
+  if (!db) return [];
+  const queryText = search.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24);
+  let query: Query = db.collection("publicProfiles").where("searchable", "==", true);
+  if (queryText) query = query.where("searchPrefixes", "array-contains", queryText);
+  const snapshot = await query.limit(Math.min(40, Math.max(1, limit))).get();
+  return snapshot.docs
+    .map((document) => discoverableProfileFromData(document.id, document.data() as Record<string, unknown>))
+    .filter((profile): profile is DiscoverablePublicProfile => profile !== null)
+    .sort((left, right) => right.updatedAt - left.updatedAt || left.displayName.localeCompare(right.displayName));
+}
+
 export async function getPublicProfileByHandle(handle: string) {
   const db = getFirestoreAdmin();
   if (!db) return null;
@@ -1756,8 +1894,9 @@ export async function getPublicProfileByHandle(handle: string) {
   const rawProfile = profileSnap.data() as PublicProfile;
   const profile: PublicProfile = {
     ...rawProfile,
-    displayName: cleanDisplayName(rawProfile.displayName, rawProfile.handle || clean),
+    displayName: bestProfileDisplayName(String(rawProfile.uid), rawProfile.displayName, rawProfile.handle || clean),
   };
+  const publicReplaysPromise = listPublicProfileReplays(String(profile.uid), db);
   let aggregateSnap = await db.collection("userAggregates").doc(String(profile.uid)).get();
   let aggregateData = aggregateSnap.data() ?? {};
   let matches = repairCachedProfileMatches(decodeMatches(String(aggregateData.matchesEncoded ?? "")));
@@ -1793,6 +1932,7 @@ export async function getPublicProfileByHandle(handle: string) {
   }
   return {
     profile,
+    publicReplays: await publicReplaysPromise,
     aggregate: {
       uid: profile.uid,
       handle: profile.handle,

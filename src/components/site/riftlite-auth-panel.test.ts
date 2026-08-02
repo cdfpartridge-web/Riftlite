@@ -299,6 +299,39 @@ describe("RiftLite desktop account sign in", () => {
     expect(management.getByText(/canoni\.\.\.7654/)).toBeInTheDocument();
     expect(management.queryByText(/deskto\.\.\.3456/)).not.toBeInTheDocument();
   });
+
+  it("makes public profile visibility and the direct profile link manageable on the website", async () => {
+    const account = testUser("public-profile-account");
+    const profile = {
+      ...completeProfile(account.uid),
+      publicProfile: true,
+      searchable: true,
+      showStats: true,
+      showMatches: true,
+      showDecks: true,
+    };
+    firebaseHarness.auth.currentUser = account;
+    const fetchMock = mockProfileFetch(profile);
+
+    const view = render(createElement(RiftLiteAuthPanel, { manageAccount: true }));
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Public player profile" })).toBeInTheDocument();
+    });
+    expect(view.getByRole("link", { name: "Open public profile" })).toHaveAttribute("href", "/user/bmu");
+    expect(view.getByRole("checkbox", { name: "Publish my profile" })).toBeChecked();
+    expect(view.getByRole("checkbox", { name: "Appear in player search" })).toBeChecked();
+
+    fireEvent.click(view.getByRole("checkbox", { name: "Show public deck details" }));
+    fireEvent.click(view.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([, init]) => {
+        if (init?.method !== "PATCH") return false;
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return body.publicProfile === true && body.searchable === true && body.showDecks === false;
+      })).toBe(true);
+    });
+  });
 });
 
 function testUser(
@@ -319,11 +352,31 @@ function testUser(
 }
 
 function completeProfile(uid: string) {
-  return { uid, displayName: "BMU", handle: "bmu", profileComplete: true };
+  return {
+    uid,
+    displayName: "BMU",
+    handle: "bmu",
+    profileComplete: true,
+    publicProfile: false,
+    searchable: false,
+    showStats: true,
+    showMatches: true,
+    showDecks: true,
+  };
 }
 
 function incompleteProfile(uid: string) {
-  return { uid, displayName: "RiftLite Player", handle: "", profileComplete: false };
+  return {
+    uid,
+    displayName: "RiftLite Player",
+    handle: "",
+    profileComplete: false,
+    publicProfile: false,
+    searchable: false,
+    showStats: true,
+    showMatches: true,
+    showDecks: true,
+  };
 }
 
 function mockProfileFetch(

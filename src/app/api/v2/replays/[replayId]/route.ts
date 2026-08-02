@@ -23,8 +23,10 @@ type RouteContext = {
 };
 
 export async function GET(request: Request, context: RouteContext) {
+  let requestedReplayId = "";
   try {
     const { replayId } = await context.params;
+    requestedReplayId = replayId;
     if (!isReplayId(replayId)) {
       throw new ReplayV2Error(400, "invalid_replay_id", "Replay id is invalid.");
     }
@@ -60,7 +62,57 @@ export async function GET(request: Request, context: RouteContext) {
       },
     });
   } catch (error) {
+    const developmentFallback = await readPublicProductionReplayInDevelopment(
+      request,
+      requestedReplayId,
+      error,
+    );
+    if (developmentFallback) return developmentFallback;
     return replayApiError(error);
+  }
+}
+
+/**
+ * Local development can read production Firestore metadata without holding a
+ * private Vercel Blob token. For public replay testing only, let a loopback
+ * server retrieve the already-public canonical artifact through the production
+ * API. This branch is unavailable in production and never forwards identity
+ * headers or cookies, so private and unlisted replays remain fail-closed.
+ */
+async function readPublicProductionReplayInDevelopment(
+  request: Request,
+  replayId: string,
+  error: unknown,
+): Promise<NextResponse | null> {
+  if (
+    process.env.NODE_ENV !== "development" ||
+    !(error instanceof ReplayV2Error) ||
+    error.code !== "artifact_read_failed" ||
+    !isReplayId(replayId)
+  ) {
+    return null;
+  }
+  const hostname = new URL(request.url).hostname.toLowerCase();
+  if (!["127.0.0.1", "localhost", "::1"].includes(hostname)) return null;
+
+  try {
+    const response = await fetch(
+      `https://www.riftlite.com/api/v2/replays/${encodeURIComponent(replayId)}`,
+      {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      },
+    );
+    if (!response.ok) return null;
+    const canonical = await response.json() as unknown;
+    return NextResponse.json(canonical, {
+      headers: {
+        "Cache-Control": "private, no-store, max-age=0",
+        "X-RiftLite-Local-Artifact-Source": "public-production-api",
+      },
+    });
+  } catch {
+    return null;
   }
 }
 

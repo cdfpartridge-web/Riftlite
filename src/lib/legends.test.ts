@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getLegendImageUrl } from "@/lib/legends";
+import { getLegendCardImageUrl, getLegendImageUrl } from "@/lib/legends";
 
 describe("getLegendImageUrl", () => {
   it("uses verified RiftAtlas card art for Vendetta legends", () => {
@@ -21,5 +21,17 @@ describe("getLegendImageUrl", () => {
 
   it("uses a current Data Dragon fallback for standard legends", () => {
     expect(getLegendImageUrl("Diana")).toContain("/cdn/16.13.1/");
+  });
+});
+
+describe("getLegendCardImageUrl", () => {
+  it("uses full Riftbound card artwork for the presenter", () => {
+    expect(getLegendCardImageUrl("Ahri")).toContain("OGN-255/full-desktop-2x.avif");
+    expect(getLegendCardImageUrl("Lux")).toContain("OGS-021/full-desktop-2x.avif");
+    expect(getLegendCardImageUrl("Diana")).toContain("8bd4006c34aa020211e501e3cb7ee14ab5b4c41f");
+  });
+
+  it("keeps the verified Vendetta card resolver", () => {
+    expect(getLegendCardImageUrl("Akali")).toContain("VEN-139");
   });
 });

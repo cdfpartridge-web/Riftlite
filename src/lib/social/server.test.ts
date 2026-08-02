@@ -20,8 +20,10 @@ import {
   publicProfileFromAccount,
   repairHistoricalDesktopIdentityAssociations,
   profileIsComplete,
+  publicProfileReplayFromOwnerItem,
   repairCachedProfileMatch,
   resolveTeamRole,
+  searchDiscoverablePublicProfiles,
   validHandle,
 } from "@/lib/social/server";
 import type { CommunityMatch } from "@/lib/types";
@@ -120,6 +122,47 @@ describe("social profile helpers", () => {
     expect(aggregate.recentMatches).toHaveLength(3);
   });
 
+  it("exposes only Public and Ready Web Replays on public profiles", () => {
+    const replayId = `rl2_${"a".repeat(32)}`;
+    const base = {
+      replayId,
+      visibility: "public",
+      status: "ready",
+      title: "BMU vs Tester",
+      platform: "atlas",
+      captureId: "private-capture-id",
+      ownerUid: "private-owner-id",
+      capturedAt: "2026-08-01T12:00:00.000Z",
+      createdAt: "2026-08-01T12:01:00.000Z",
+      listing: {
+        version: 1,
+        playerName: "BMU",
+        opponentName: "Tester",
+        playerLegend: "Ahri",
+        opponentLegend: "Jinx",
+        format: "bo1",
+        result: "win",
+      },
+    };
+
+    expect(publicProfileReplayFromOwnerItem({ ...base, visibility: "private" })).toBeNull();
+    expect(publicProfileReplayFromOwnerItem({ ...base, visibility: "unlisted" })).toBeNull();
+    expect(publicProfileReplayFromOwnerItem({ ...base, status: "processing" })).toBeNull();
+    expect(publicProfileReplayFromOwnerItem(base)).toEqual({
+      replayId,
+      title: "BMU vs Tester",
+      platform: "atlas",
+      capturedAt: "2026-08-01T12:00:00.000Z",
+      createdAt: "2026-08-01T12:01:00.000Z",
+      playerName: "BMU",
+      opponentName: "Tester",
+      playerLegend: "Ahri",
+      opponentLegend: "Jinx",
+      format: "bo1",
+      result: "win",
+    });
+  });
+
   it("treats the generic RiftLite Player name as missing and repairs from handle", () => {
     const profile = normalizeAccountProfile("uid-abcdef", {
       handle: "BMU",
@@ -172,6 +215,33 @@ describe("social profile helpers", () => {
   it("never exposes an email address as the social display name", () => {
     expect(bestProfileDisplayName("uid-abcdef", "player@example.com")).toBe("Player uidabc");
     expect(bestProfileDisplayName("uid-abcdef", "player@example.com", "BMU")).toBe("BMU");
+  });
+
+  it("repairs legacy email display names before listing discoverable profiles", async () => {
+    const query = {
+      where: () => query,
+      limit: () => query,
+      get: async () => ({
+        docs: [{
+          id: "Crow",
+          data: () => ({
+            uid: "uid-crow",
+            handle: "Crow",
+            displayName: "private@example.com",
+            searchable: true,
+            updatedAt: 100,
+          }),
+        }],
+      }),
+    };
+    const db = { collection: () => query } as unknown as Firestore;
+
+    await expect(searchDiscoverablePublicProfiles("", 24, db)).resolves.toEqual([{
+      uid: "uid-crow",
+      handle: "Crow",
+      displayName: "Crow",
+      updatedAt: 100,
+    }]);
   });
 
   it("finds UID-keyed hub memberships when the collection-group index is unavailable", async () => {

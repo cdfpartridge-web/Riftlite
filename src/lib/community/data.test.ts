@@ -12,6 +12,7 @@ describe("normalizeMatch", () => {
     const match = normalizeMatch("m1", {
       uid: "u1",
       username: "BMU",
+      platform: "Atlas",
       result: "Win",
       my_champion: "Pyke",
       opp_champion: "Fiora",
@@ -40,6 +41,7 @@ describe("normalizeMatch", () => {
         oppPoints: 3,
       },
     ]);
+    expect(match.platform).toBe("atlas");
   });
 
   it("keeps legacy snake_case per-game scores", () => {

@@ -10,6 +10,7 @@ const items = [
   { href: "/community/matrix", label: "Match Matrix" },
   { href: "/community/matches", label: "Recent Matches" },
   { href: "/community/decks", label: "Decks" },
+  { href: "/players", label: "Player Profiles" },
 ];
 
 export function CommunityNav() {

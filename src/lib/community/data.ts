@@ -82,6 +82,7 @@ type CommunityRangeStats = {
   detailMatchCount: number;
   firstCreatedAt: number;
   lastCreatedAt: number;
+  updatedAt?: number;
   rangeDays: CommunityRangeDays;
   legendMeta: LegendMetaRow[];
   matrix: MatrixView;
@@ -216,6 +217,7 @@ function buildRangeStats(
   days: CommunityRangeDays,
   statsMatches: CommunityMatch[],
   detailMatchCount: number,
+  updatedAt = Date.now(),
 ): CommunityRangeStats {
   const sorted = sortedByCreatedAtDesc(statsMatches);
   const times = sorted
@@ -229,6 +231,7 @@ function buildRangeStats(
     detailMatchCount,
     firstCreatedAt,
     lastCreatedAt,
+    updatedAt,
     rangeDays: days,
     legendMeta: buildLegendMeta(sorted),
     matrix: {
@@ -446,6 +449,7 @@ export function normalizeMatch(id: string, raw: Record<string, unknown>): Commun
     oppChampion: cleanLegendName(firstString(raw, "opp_champion", "oppChampion")),
     oppName: firstString(raw, "opp_name", "oppName"),
     fmt: firstString(raw, "fmt", "format") || "Bo1",
+    platform: firstString(raw, "platform").toLowerCase(),
     score: firstString(raw, "score"),
     wentFirst: firstString(raw, "went_first", "wentFirst"),
     myBattlefield: cleanBattlefieldName(firstString(raw, "my_battlefield", "myBattlefield")),
@@ -869,6 +873,7 @@ async function fetchRangeAggregatePayload(
   matches: CommunityMatch[];
   collectionBacked: boolean;
   stats: CommunityRangeStats | null;
+  updatedAt: number;
 } | null> {
   const db = getFirestoreAdmin();
   if (!db) {
@@ -907,11 +912,11 @@ async function fetchRangeAggregatePayload(
       if (!decoded) return null;
       matches.push(...decoded);
     }
-    return { matches, collectionBacked, stats };
+    return { matches, collectionBacked, stats, updatedAt };
   }
 
   const matches = decodeMatchesFromAggregateData(data);
-  return matches ? { matches, collectionBacked, stats } : null;
+  return matches ? { matches, collectionBacked, stats, updatedAt } : null;
 }
 
 async function fetchMatchesFromRangeAggregate(
@@ -928,7 +933,9 @@ async function fetchStatsFromRangeAggregate(
   if (!payload) {
     return null;
   }
-  return payload.stats ?? buildRangeStats(days, payload.matches, payload.matches.length);
+  return payload.stats
+    ? { ...payload.stats, updatedAt: payload.updatedAt || payload.stats.updatedAt }
+    : buildRangeStats(days, payload.matches, payload.matches.length, payload.updatedAt);
 }
 
 async function fetchRangeMatchesForRefresh(
@@ -1058,7 +1065,7 @@ async function writeMatchesToAggregate(
     const detailMatches =
       rangeWindows[days]?.detailMatches ??
       sortedByCreatedAtDesc(fallbackStatsMatches).slice(0, COMMUNITY_WINDOW_SIZE);
-    const rangeStats = buildRangeStats(days, statsMatches, detailMatches.length);
+    const rangeStats = buildRangeStats(days, statsMatches, detailMatches.length, updatedAt);
     const rangeChunks = chunkMatches(detailMatches, COMMUNITY_CHUNK_SIZE);
     for (let index = 0; index < rangeChunks.length; index += 1) {
       batch.set(db.collection(AGGREGATE_COLLECTION).doc(rangeChunkDocId(days, index)), {
@@ -1287,7 +1294,7 @@ async function fetchCommunityRangeStatsSafe(days: 7 | 14 | 30) {
     return fromAggregate;
   }
   const matches = await fetchCommunityRangeMatchesSafe(days);
-  return buildRangeStats(days, matches, matches.length);
+  return buildRangeStats(days, matches, matches.length, Date.now());
 }
 
 const cachedFetchCommunityRangeMatches = unstable_cache(
@@ -1298,7 +1305,7 @@ const cachedFetchCommunityRangeMatches = unstable_cache(
 
 const cachedFetchCommunityRangeStats = unstable_cache(
   fetchCommunityRangeStatsSafe,
-  ["community-range-stats-v1"],
+  ["community-range-stats-v2"],
   { revalidate: COMMUNITY_CACHE_TTL_SECONDS, tags: ["community-matches"] },
 );
 

@@ -74,6 +74,7 @@ export const SITE_PATHS = {
   matrix: "/community/matrix",
   matches: "/community/matches",
   decks: "/community/decks",
+  players: "/players",
   replays: "/replays",
   riftreplay: "/riftreplay",
   news: "/news",

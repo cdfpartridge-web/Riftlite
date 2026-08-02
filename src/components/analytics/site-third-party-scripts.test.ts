@@ -31,6 +31,14 @@ describe("site third-party scripts", () => {
     expect(view.queryByTestId("third-party-script")).not.toBeInTheDocument();
   });
 
+  it("suppresses analytics and advertising inside the private Meta Studio", () => {
+    mocks.pathname = "/meta-studio";
+    const view = render(createElement(SiteThirdPartyScripts));
+
+    expect(view.queryByTestId("page-view-tracker")).not.toBeInTheDocument();
+    expect(view.queryByTestId("third-party-script")).not.toBeInTheDocument();
+  });
+
   it("keeps analytics and advertising on ordinary website routes", () => {
     const view = render(createElement(SiteThirdPartyScripts));
 

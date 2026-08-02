@@ -28,6 +28,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { path: "/community/matches", changeFrequency: "daily", priority: 0.7 },
     { path: "/community/decks", changeFrequency: "daily", priority: 0.8 },
     { path: "/community/decks/compare", changeFrequency: "weekly", priority: 0.6 },
+    { path: "/players", changeFrequency: "daily", priority: 0.7 },
     { path: "/news", changeFrequency: "weekly", priority: 0.7 },
     { path: "/about", changeFrequency: "monthly", priority: 0.5 },
     { path: "/privacy", changeFrequency: "yearly", priority: 0.3 },

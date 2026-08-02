@@ -105,3 +105,28 @@ export async function createFirebaseCustomToken(uid: string) {
     return null;
   }
 }
+
+export async function createFirebaseSessionCookie(
+  idToken: string,
+  expiresInMs: number,
+) {
+  const app = getAdminApp();
+  if (!app) return null;
+
+  try {
+    return await getAuth(app).createSessionCookie(idToken, { expiresIn: expiresInMs });
+  } catch {
+    return null;
+  }
+}
+
+export async function verifyFirebaseSessionCookie(sessionCookie: string) {
+  const app = getAdminApp();
+  if (!app) return null;
+
+  try {
+    return await getAuth(app).verifySessionCookie(sessionCookie, true);
+  } catch {
+    return null;
+  }
+}
