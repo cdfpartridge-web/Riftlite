@@ -14,9 +14,9 @@ describe("creator video carousel config", () => {
     const config = normalizeCreatorVideoCarouselConfig(undefined);
 
     expect(config).toEqual(DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG);
-    expect(config.creators).toHaveLength(12);
+    expect(config.creators).toHaveLength(13);
     const videoCreators = config.creators.filter((creator) => creator.youtubeUrl);
-    expect(videoCreators).toHaveLength(9);
+    expect(videoCreators).toHaveLength(10);
     expect(config.creators.find((creator) => creator.id === "riftlab")?.videoSlots).toBe(4);
     expect(config.creators.find((creator) => creator.id === "riftlab")?.sourceMode).toBe("all");
     expect(config.creators.find((creator) => creator.id === "winthepanda")?.sourceMode)
@@ -24,6 +24,13 @@ describe("creator video carousel config", () => {
     expect(videoCreators.filter((creator) => creator.id !== "riftlab"))
       .toSatisfy((creators: typeof videoCreators) => creators.every((creator) => creator.videoSlots === 1));
     expect(config.creators.find((creator) => creator.id === "ritualtcg")?.youtubeUrl).toBe("");
+    expect(config.creators.find((creator) => creator.id === "tronisbad")).toMatchObject({
+      name: "TronIsBad",
+      youtubeUrl: "https://www.youtube.com/@tronisbad",
+      channelId: "UCNt_YObgG3Oj8ijtqF0xcKw",
+      sourceMode: "riftbound",
+      videoSlots: 1,
+    });
   });
 
   it("normalizes bounds, direct channel URLs, and handle URLs", () => {
