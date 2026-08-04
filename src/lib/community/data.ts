@@ -6,7 +6,11 @@ import type { Firestore } from "firebase-admin/firestore";
 import { unstable_cache } from "next/cache";
 
 import { canonicalChoice } from "@/lib/canonical";
-import { buildLegendMeta, buildMatrix } from "@/lib/community/aggregate";
+import {
+  buildLegendMeta,
+  buildMatrix,
+  ensureSymmetricMatrix,
+} from "@/lib/community/aggregate";
 import {
   BATTLEFIELD_ALIASES,
   BATTLEFIELDS,
@@ -441,6 +445,7 @@ export function normalizeMatch(id: string, raw: Record<string, unknown>): Commun
   );
   return {
     id,
+    localMatchId: firstString(raw, "local_match_id", "localMatchId"),
     uid,
     username,
     date: firstString(raw, "date"),
@@ -934,7 +939,15 @@ async function fetchStatsFromRangeAggregate(
     return null;
   }
   return payload.stats
-    ? { ...payload.stats, updatedAt: payload.updatedAt || payload.stats.updatedAt }
+    ? {
+        ...payload.stats,
+        updatedAt: payload.updatedAt || payload.stats.updatedAt,
+        // Range manifests created before symmetric-v1 contain the complete
+        // directional count matrix even when their detail rows are capped.
+        // Upgrade those counts losslessly instead of rebuilding statistics
+        // from the truncated drill-down window.
+        matrix: ensureSymmetricMatrix(payload.stats.matrix),
+      }
     : buildRangeStats(days, payload.matches, payload.matches.length, payload.updatedAt);
 }
 
@@ -1305,7 +1318,7 @@ const cachedFetchCommunityRangeMatches = unstable_cache(
 
 const cachedFetchCommunityRangeStats = unstable_cache(
   fetchCommunityRangeStatsSafe,
-  ["community-range-stats-v2"],
+  ["community-range-stats-v3-symmetric"],
   { revalidate: COMMUNITY_CACHE_TTL_SECONDS, tags: ["community-matches"] },
 );
 

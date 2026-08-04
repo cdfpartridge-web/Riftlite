@@ -6,6 +6,12 @@ import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import {
+  buildMatrixCellPresentations,
+  matrixCellKey,
+  matrixCellTooltip,
+  type MatrixCellPresentation,
+} from "@/components/site/matrix-presentation";
 import { getLegendImageUrl, getLegendInitials } from "@/lib/legends";
 import type {
   CommunityMatch,
@@ -272,12 +278,14 @@ function GameDetailCard({ index, game, match, totalGames }: { index: number; gam
 }
 
 function MatchupSummary({
-  cell,
+  presentation,
   matches,
 }: {
-  cell: MatchupCell;
+  presentation: MatrixCellPresentation;
   matches: CommunityMatch[];
 }) {
+  const { pooled: cell, direct, reverse } = presentation;
+  const directionalSamples = cell.myLegend === cell.oppLegend ? [direct] : [direct, reverse];
   const splits = useMemo(() => computeSplits(matches), [matches]);
   const overallWr = cell.decisiveGames === 0 ? 0 : (cell.wins / cell.decisiveGames) * 100;
   const overallColor =
@@ -300,7 +308,9 @@ function MatchupSummary({
           <span className="text-[11px] text-slate-400">{cell.myLegend.split(" ")[0]}</span>
         </div>
         <div className="flex flex-1 flex-col items-center">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">vs</span>
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+            Pooled for {matrixLegendLabel(cell.myLegend)}
+          </span>
           <div
             className="mt-1 text-center text-3xl font-bold"
             style={{ color: overallColor }}
@@ -315,6 +325,9 @@ function MatchupSummary({
       </div>
 
       <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+        <div className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+          Combined record from both capture directions
+        </div>
         <div className="grid grid-cols-4 gap-2 text-center">
           <div>
             <div className="text-lg font-bold text-emerald-300">{cell.wins}</div>
@@ -333,6 +346,45 @@ function MatchupSummary({
             <div className="text-[10px] uppercase tracking-wider text-slate-500">Total</div>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-cyan-300/10 bg-cyan-300/[0.025] px-4 py-3">
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-200/70">
+          Native pilot records
+        </div>
+        <div className="space-y-2 text-xs">
+          {directionalSamples.map((direction) => (
+              <div
+                className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
+                key={matrixCellKey(direction.pilotLegend, direction.opponentLegend)}
+              >
+                <span className="text-slate-400">
+                  {matrixLegendLabel(direction.pilotLegend)} pilots
+                </span>
+                <span className="font-semibold text-slate-200">
+                  {direction.totalGames > 0 ? (
+                    <>
+                      {direction.wins}W / {direction.losses}L / {direction.draws}D
+                      <span className="ml-1.5 font-normal text-slate-500">
+                        {direction.totalGames}{" "}
+                        {direction.totalGames === 1 ? "capture" : "captures"}
+                        {direction.decisiveGames > 0
+                          ? ` · ${formatPercent(direction.winRate)}`
+                          : ""}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="font-normal text-slate-500">No captures</span>
+                  )}
+                </span>
+              </div>
+            ))}
+        </div>
+      </div>
+
+      <div className="text-[11px] leading-relaxed text-slate-500">
+        The detailed splits below use captures where {matrixLegendLabel(cell.myLegend)} was the
+        RiftLite player. Select the mirrored cell for the other pilot cohort.
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -418,10 +470,12 @@ function MatchDetailPanel({
   matches,
   selectedId,
   onSelect,
+  captureLegend,
 }: {
   matches: CommunityMatch[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  captureLegend: string;
 }) {
   const shown = matches.slice(0, 20);
   const selected = matches.find((m) => m.id === selectedId) ?? null;
@@ -432,7 +486,7 @@ function MatchDetailPanel({
       <div>
         <div className="mb-2 flex items-center justify-between">
           <CardTitle className="text-sm uppercase tracking-[0.18em] text-slate-500">
-            Recent matches ({shown.length} of {matches.length})
+            Recent {matrixLegendLabel(captureLegend)} captures ({shown.length} of {matches.length})
           </CardTitle>
         </div>
         {shown.length === 0 ? (
@@ -568,30 +622,36 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
     onMouseLeave,
     onClickCapture,
   } = useDragScroll();
-  const firstCell = matrix.cells.find((c) => c.totalGames > 0);
+  const cellPresentations = useMemo(
+    () => buildMatrixCellPresentations(matrix.cells),
+    [matrix.cells],
+  );
+  const firstCell = Array.from(cellPresentations.values()).find(
+    (presentation) => presentation.pooled.totalGames > 0,
+  )?.pooled;
   const [selectedKey, setSelectedKey] = useState(
-    firstCell ? `${firstCell.myLegend}:::${firstCell.oppLegend}` : "",
+    firstCell ? matrixCellKey(firstCell.myLegend, firstCell.oppLegend) : "",
   );
 
-  const selected =
-    matrix.cells.find((c) => `${c.myLegend}:::${c.oppLegend}` === selectedKey) ?? null;
+  const selectedPresentation = cellPresentations.get(selectedKey) ?? null;
+  const selected = selectedPresentation?.pooled ?? null;
   const selectedMatches = useMemo(
     () => (selected ? matchupMatches(matches, selected) : []),
     [selected, matches],
   );
   const rowTotals = useMemo(() => {
     const totals = new Map<string, number>();
-    for (const cell of matrix.cells) {
-      if (cell.totalGames > 0) {
-        totals.set(cell.myLegend, (totals.get(cell.myLegend) ?? 0) + cell.totalGames);
+    for (const rowLegend of matrix.rows) {
+      for (const colLegend of matrix.columns) {
+        const cell = cellPresentations.get(matrixCellKey(rowLegend, colLegend))?.pooled;
+        if (cell && cell.totalGames > 0) {
+          totals.set(rowLegend, (totals.get(rowLegend) ?? 0) + cell.totalGames);
+        }
       }
     }
     return totals;
-  }, [matrix.cells]);
-  const matrixReadyTotal = useMemo(
-    () => matrix.cells.reduce((sum, cell) => sum + cell.totalGames, 0),
-    [matrix.cells],
-  );
+  }, [cellPresentations, matrix.columns, matrix.rows]);
+  const matrixReadyTotal = matrix.matrixReadyMatchCount;
   const dateSpan = useMemo(() => {
     if (matrix.sourceFirstCreatedAt && matrix.sourceLastCreatedAt) {
       return `${formatDate(new Date(matrix.sourceFirstCreatedAt).toISOString())} to ${formatDate(new Date(matrix.sourceLastCreatedAt).toISOString())}`;
@@ -624,10 +684,12 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
-              Click any cell to inspect the matchup
+              Pooled matchup view · click any cell to inspect
             </div>
             <div className="mt-1 text-sm text-slate-400">
-              {matrixReadyTotal.toLocaleString()} matrix-ready matches from{" "}
+              Each percentage combines captures from both pilot directions. Hover a cell for each
+              cohort’s record and sample size. {matrixReadyTotal.toLocaleString()} matrix-ready capture
+              records from{" "}
               {sourceMatchCount.toLocaleString()} public matches in this view
               {hasPartialDrilldown
                 ? ` (latest ${detailMatchCount.toLocaleString()} detailed rows for drilldown)`
@@ -683,17 +745,18 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
                           {matrixLegendLabel(rowLegend)}
                         </span>
                         <span className="text-[10px] font-semibold text-cyan-200">
-                          {(rowTotals.get(rowLegend) ?? 0).toLocaleString()} {(rowTotals.get(rowLegend) ?? 0) === 1 ? "match" : "matches"}
+                          {(rowTotals.get(rowLegend) ?? 0).toLocaleString()} {(rowTotals.get(rowLegend) ?? 0) === 1 ? "capture" : "captures"}
                         </span>
                       </span>
                     </Link>
                   </td>
                   {matrix.columns.map((colLegend) => {
-                    const cell = matrix.cells.find(
-                      (c) => c.myLegend === rowLegend && c.oppLegend === colLegend,
+                    const presentation = cellPresentations.get(
+                      matrixCellKey(rowLegend, colLegend),
                     );
+                    const cell = presentation?.pooled;
                     const active =
-                      cell && `${cell.myLegend}:::${cell.oppLegend}` === selectedKey;
+                      cell && matrixCellKey(cell.myLegend, cell.oppLegend) === selectedKey;
                     const hasGames = (cell?.totalGames ?? 0) > 0;
                     const style = cellStyle(cell?.winRate ?? 0, hasGames, !!active);
 
@@ -703,10 +766,12 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
                           className="flex w-full min-w-[76px] flex-col items-center justify-center rounded-[14px] border px-2 py-3 text-center transition-all duration-200 hover:brightness-125"
                           onClick={() => {
                             if (!cell) return;
-                            setSelectedKey(`${cell.myLegend}:::${cell.oppLegend}`);
+                            setSelectedKey(matrixCellKey(cell.myLegend, cell.oppLegend));
                             setSelectedMatchId(null);
                           }}
                           style={style}
+                          aria-label={presentation ? matrixCellTooltip(presentation) : undefined}
+                          title={presentation ? matrixCellTooltip(presentation) : undefined}
                           type="button"
                         >
                           <span
@@ -732,8 +797,8 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(340px,420px)_1fr]">
         <Card className="p-5">
-          {selected ? (
-            <MatchupSummary cell={selected} matches={selectedMatches} />
+          {selectedPresentation ? (
+            <MatchupSummary presentation={selectedPresentation} matches={selectedMatches} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center py-12 text-center">
               <div className="mb-3 text-4xl opacity-20">⊞</div>
@@ -747,6 +812,7 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
               matches={selectedMatches}
               onSelect={setSelectedMatchId}
               selectedId={effectiveMatchId}
+              captureLegend={selected.myLegend}
             />
           ) : (
             <div className="flex h-full flex-col items-center justify-center py-12 text-center">

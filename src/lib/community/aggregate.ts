@@ -8,9 +8,12 @@ import type {
   DeckSnapshot,
   LegendMetaRow,
   MatchGame,
+  MatchupCaptureBreakdown,
   MatchupCell,
   MatrixView,
 } from "@/lib/types";
+
+export const MATRIX_AGGREGATION_METHOD = "symmetric-v1" as const;
 
 function winRate(wins: number, decisiveGames: number) {
   return decisiveGames ? Number(((wins / decisiveGames) * 100).toFixed(1)) : 0;
@@ -98,23 +101,176 @@ export function buildLegendMeta(matches: CommunityMatch[]): LegendMetaRow[] {
     .sort((left, right) => right.games - left.games);
 }
 
+type MutableMatchupBucket = {
+  wins: number;
+  draws: number;
+  total: number;
+  losses: number;
+};
+
+function emptyMatchupBreakdown(): MatchupCaptureBreakdown {
+  return {
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    decisiveGames: 0,
+    totalGames: 0,
+    winRate: 0,
+  };
+}
+
+function matchupBreakdown(
+  bucket?: MutableMatchupBucket | MatchupCell,
+): MatchupCaptureBreakdown {
+  const wins = bucket?.wins ?? 0;
+  const losses = bucket?.losses ?? 0;
+  const draws = bucket?.draws ?? 0;
+  const decisiveGames = wins + losses;
+  const totalGames = "total" in (bucket ?? {})
+    ? (bucket as MutableMatchupBucket).total
+    : ((bucket as MatchupCell | undefined)?.totalGames ?? wins + losses + draws);
+  return {
+    wins,
+    losses,
+    draws,
+    decisiveGames,
+    totalGames,
+    winRate: winRate(wins, decisiveGames),
+  };
+}
+
+function matrixCellKey(myLegend: string, oppLegend: string): string {
+  return `${myLegend}:::${oppLegend}`;
+}
+
+function sortLegendsByParticipation(
+  legends: Iterable<string>,
+  directional: ReadonlyMap<string, MatchupCaptureBreakdown>,
+): string[] {
+  const totals = new Map(Array.from(legends, (legend) => [legend, 0]));
+  for (const [key, bucket] of directional) {
+    if (!bucket.totalGames) continue;
+    const [myLegend, oppLegend] = key.split(":::");
+    totals.set(myLegend, (totals.get(myLegend) ?? 0) + bucket.totalGames);
+    totals.set(oppLegend, (totals.get(oppLegend) ?? 0) + bucket.totalGames);
+  }
+  return [...totals.keys()].sort(
+    (left, right) =>
+      (totals.get(right) ?? 0) - (totals.get(left) ?? 0) ||
+      left.localeCompare(right),
+  );
+}
+
+/**
+ * Losslessly upgrades a directional matrix into the pooled display contract.
+ *
+ * The reverse cohort stays in its native perspective in `reverseCaptures`,
+ * while its losses become the row legend's wins (and vice versa) in the
+ * top-level pooled result. This lets callers disclose the sampling split
+ * without presenting two contradictory matchup percentages.
+ */
+export function ensureSymmetricMatrix(
+  matrix: Omit<MatrixView, "aggregationMethod" | "matrixReadyMatchCount"> &
+    Partial<
+      Pick<MatrixView, "aggregationMethod" | "matrixReadyMatchCount">
+    >,
+): MatrixView {
+  if (
+    matrix.aggregationMethod === MATRIX_AGGREGATION_METHOD &&
+    typeof matrix.matrixReadyMatchCount === "number"
+  ) {
+    return matrix as MatrixView;
+  }
+
+  const directional = new Map<string, MatchupCaptureBreakdown>();
+  const legends = new Set([...matrix.rows, ...matrix.columns]);
+  let matrixReadyMatchCount = 0;
+  for (const cell of matrix.cells) {
+    legends.add(cell.myLegend);
+    legends.add(cell.oppLegend);
+    const breakdown = matchupBreakdown(cell);
+    directional.set(matrixCellKey(cell.myLegend, cell.oppLegend), breakdown);
+    matrixReadyMatchCount += breakdown.totalGames;
+  }
+
+  const orderedLegends = sortLegendsByParticipation(legends, directional);
+  const cells: MatchupCell[] = [];
+  for (const myLegend of orderedLegends) {
+    for (const oppLegend of orderedLegends) {
+      const directCaptures =
+        directional.get(matrixCellKey(myLegend, oppLegend)) ??
+        emptyMatchupBreakdown();
+      // A mirror matchup has only one distinguishable capture direction.
+      // Reusing it as the reverse cohort would double every diagonal sample.
+      const reverseCaptures =
+        myLegend === oppLegend
+          ? emptyMatchupBreakdown()
+          : (directional.get(matrixCellKey(oppLegend, myLegend)) ??
+            emptyMatchupBreakdown());
+      const wins = directCaptures.wins + reverseCaptures.losses;
+      const losses = directCaptures.losses + reverseCaptures.wins;
+      const draws = directCaptures.draws + reverseCaptures.draws;
+      const decisiveGames = wins + losses;
+      cells.push({
+        myLegend,
+        oppLegend,
+        wins,
+        losses,
+        draws,
+        decisiveGames,
+        totalGames: directCaptures.totalGames + reverseCaptures.totalGames,
+        winRate: winRate(wins, decisiveGames),
+        directCaptures,
+        reverseCaptures,
+      });
+    }
+  }
+
+  return {
+    ...matrix,
+    rows: orderedLegends,
+    columns: orderedLegends,
+    cells,
+    aggregationMethod: MATRIX_AGGREGATION_METHOD,
+    matrixReadyMatchCount,
+  };
+}
+
+function uniqueMatrixMatches(matches: CommunityMatch[]): CommunityMatch[] {
+  const active = matches.filter(
+    (match) =>
+      match.id &&
+      !match.superseded &&
+      !match.mergedIntoMatchId &&
+      LEGENDS.includes(match.myChampion as (typeof LEGENDS)[number]) &&
+      LEGENDS.includes(match.oppChampion as (typeof LEGENDS)[number]),
+  );
+  const combinedSourceIds = new Set(
+    active.flatMap((match) => match.combinedFromMatchIds ?? []),
+  );
+  const seen = new Set<string>();
+  return active.filter((match) => {
+    if (
+      (match.localMatchId && combinedSourceIds.has(match.localMatchId)) ||
+      seen.has(match.id)
+    ) {
+      return false;
+    }
+    seen.add(match.id);
+    return true;
+  });
+}
+
 export function buildMatrix(matches: CommunityMatch[]): MatrixView {
   const lookup = new Map<
     string,
-    { wins: number; draws: number; total: number; losses: number }
+    MutableMatchupBucket
   >();
-  const myTotals = new Map<string, number>();
-  const oppTotals = new Map<string, number>();
+  const legends = new Set<string>();
+  let matrixReadyMatchCount = 0;
 
-  for (const match of matches) {
-    if (
-      !LEGENDS.includes(match.myChampion as (typeof LEGENDS)[number]) ||
-      !LEGENDS.includes(match.oppChampion as (typeof LEGENDS)[number])
-    ) {
-      continue;
-    }
-
-    const key = `${match.myChampion}:::${match.oppChampion}`;
+  for (const match of uniqueMatrixMatches(matches)) {
+    const key = matrixCellKey(match.myChampion, match.oppChampion);
     const bucket = lookup.get(key) ?? {
       wins: 0,
       losses: 0,
@@ -132,38 +288,53 @@ export function buildMatrix(matches: CommunityMatch[]): MatrixView {
     }
 
     lookup.set(key, bucket);
-    myTotals.set(match.myChampion, (myTotals.get(match.myChampion) ?? 0) + 1);
-    oppTotals.set(match.oppChampion, (oppTotals.get(match.oppChampion) ?? 0) + 1);
+    legends.add(match.myChampion);
+    legends.add(match.oppChampion);
+    matrixReadyMatchCount += 1;
   }
 
-  const rows = Array.from(myTotals.keys()).sort(
-    (a, b) => (myTotals.get(b) ?? 0) - (myTotals.get(a) ?? 0),
+  const directional = new Map(
+    Array.from(lookup, ([key, bucket]) => [key, matchupBreakdown(bucket)]),
   );
-  const columns = Array.from(oppTotals.keys()).sort(
-    (a, b) => (oppTotals.get(b) ?? 0) - (oppTotals.get(a) ?? 0),
-  );
+  const orderedLegends = sortLegendsByParticipation(legends, directional);
 
   const cells: MatchupCell[] = [];
-  for (const myLegend of rows) {
-    for (const oppLegend of columns) {
-      const bucket = lookup.get(`${myLegend}:::${oppLegend}`);
-      const wins = bucket?.wins ?? 0;
-      const losses = bucket?.losses ?? 0;
+  for (const myLegend of orderedLegends) {
+    for (const oppLegend of orderedLegends) {
+      const directCaptures =
+        directional.get(matrixCellKey(myLegend, oppLegend)) ??
+        emptyMatchupBreakdown();
+      const reverseCaptures =
+        myLegend === oppLegend
+          ? emptyMatchupBreakdown()
+          : (directional.get(matrixCellKey(oppLegend, myLegend)) ??
+            emptyMatchupBreakdown());
+      const wins = directCaptures.wins + reverseCaptures.losses;
+      const losses = directCaptures.losses + reverseCaptures.wins;
+      const draws = directCaptures.draws + reverseCaptures.draws;
       const decisiveGames = wins + losses;
       cells.push({
         myLegend,
         oppLegend,
         wins,
         losses,
-        draws: bucket?.draws ?? 0,
+        draws,
         decisiveGames,
-        totalGames: bucket?.total ?? 0,
+        totalGames: directCaptures.totalGames + reverseCaptures.totalGames,
         winRate: winRate(wins, decisiveGames),
+        directCaptures,
+        reverseCaptures,
       });
     }
   }
 
-  return { rows, columns, cells };
+  return {
+    rows: orderedLegends,
+    columns: orderedLegends,
+    cells,
+    aggregationMethod: MATRIX_AGGREGATION_METHOD,
+    matrixReadyMatchCount,
+  };
 }
 
 export function buildDeckGroups(matches: CommunityMatch[]): DeckGroup[] {
