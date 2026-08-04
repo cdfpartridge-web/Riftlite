@@ -42,6 +42,24 @@ export type AuthProviderHint = "google" | "email" | "discord";
 
 export type RiftLiteReadyResult = { message?: string } | void;
 
+const VERIFICATION_EMAIL_TIMEOUT_MS = 20_000;
+
+async function sendVerificationEmailWithTimeout(activeUser: User) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      sendEmailVerification(activeUser),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(
+          "The verification email is taking longer than expected. It may still arrive; wait a moment, then try again.",
+        )), VERIFICATION_EMAIL_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export function RiftLiteAuthPanel({
   desktopLink,
   onReady,
@@ -79,12 +97,26 @@ export function RiftLiteAuthPanel({
   const [message, setMessage] = useState("");
   const [finished, setFinished] = useState(false);
   const [verificationUser, setVerificationUser] = useState<User | null>(null);
+  const [verificationAction, setVerificationAction] = useState<"checking" | "sending" | null>(null);
+  const verificationActionRef = useRef<"checking" | "sending" | null>(null);
   const actionUid = useRef("");
   const explicitAuthPending = useRef(false);
   const explicitAuthProvider = useRef<AuthProviderHint | null>(null);
   const explicitlySelectedUid = useRef("");
   const observedAuthKey = useRef("");
   const discordCompletionStarted = useRef(false);
+
+  function beginVerificationAction(action: "checking" | "sending") {
+    if (verificationActionRef.current) return false;
+    verificationActionRef.current = action;
+    setVerificationAction(action);
+    return true;
+  }
+
+  function endVerificationAction() {
+    verificationActionRef.current = null;
+    setVerificationAction(null);
+  }
 
   const requiresDesktopEmailVerification = useCallback((activeUser: User) => {
     if (!desktopLink || activeUser.emailVerified) return false;
@@ -205,6 +237,9 @@ export function RiftLiteAuthPanel({
       setProfile(null);
       setFinished(false);
       setVerificationUser(null);
+      if (!(nextUser && explicitAuthPending.current && explicitAuthProvider.current === "email")) {
+        endVerificationAction();
+      }
       if (actionUid.current && actionUid.current !== nextUser?.uid) actionUid.current = "";
     }
     setUser(nextUser);
@@ -266,6 +301,7 @@ export function RiftLiteAuthPanel({
     explicitlySelectedUid.current = "";
     setBusy(true);
     setMessage(create ? "Creating your account..." : "Signing in...");
+    if (create) beginVerificationAction("sending");
     try {
       if (create) {
         await createUserWithEmailAndPassword(auth, email, password);
@@ -278,10 +314,19 @@ export function RiftLiteAuthPanel({
       explicitAuthPending.current = false;
       if (requiresDesktopEmailVerification(activeUser)) {
         setVerificationUser(activeUser);
-        await sendEmailVerification(activeUser);
-        setMessage(`Verification email sent to ${activeUser.email || email}. Open it, then return here.`);
+        if (create) {
+          try {
+            await sendVerificationEmailWithTimeout(activeUser);
+            setMessage(`Verification email sent to ${activeUser.email || email}. Open it, then return here.`);
+          } finally {
+            endVerificationAction();
+          }
+        } else {
+          setMessage(`Verify ${activeUser.email || email} before linking this desktop. Send a new verification email below if you need one.`);
+        }
         return;
       }
+      if (create) endVerificationAction();
       const nextProfile = await loadProfile(activeUser);
       if (nextProfile && shouldFinishProfile(activeUser, nextProfile)) {
         await finishAction(activeUser, nextProfile);
@@ -291,6 +336,7 @@ export function RiftLiteAuthPanel({
           : "Almost done — choose the name other players will see.");
       }
     } catch (error) {
+      if (create) endVerificationAction();
       explicitAuthPending.current = false;
       if (!auth.currentUser || auth.currentUser.isAnonymous) {
         explicitlySelectedUid.current = "";
@@ -368,21 +414,19 @@ export function RiftLiteAuthPanel({
   }
 
   async function resendVerificationEmail() {
-    if (!verificationUser) return;
-    setBusy(true);
+    if (!verificationUser || !beginVerificationAction("sending")) return;
     try {
-      await sendEmailVerification(verificationUser);
+      await sendVerificationEmailWithTimeout(verificationUser);
       setMessage(`Verification email sent to ${verificationUser.email || "your email address"}.`);
     } catch (error) {
       setMessage(friendlyAuthError(error));
     } finally {
-      setBusy(false);
+      endVerificationAction();
     }
   }
 
   async function checkEmailVerification() {
-    if (!verificationUser) return;
-    setBusy(true);
+    if (!verificationUser || !beginVerificationAction("checking")) return;
     setMessage("Checking your email verification...");
     try {
       await verificationUser.reload();
@@ -401,7 +445,7 @@ export function RiftLiteAuthPanel({
     } catch (error) {
       setMessage(friendlyAuthError(error));
     } finally {
-      setBusy(false);
+      endVerificationAction();
     }
   }
 
@@ -411,6 +455,7 @@ export function RiftLiteAuthPanel({
     explicitlySelectedUid.current = "";
     actionUid.current = "";
     setVerificationUser(null);
+    endVerificationAction();
     await signOut(auth);
   }
 
@@ -434,11 +479,20 @@ export function RiftLiteAuthPanel({
           </CardDescription>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button disabled={busy} onClick={() => void checkEmailVerification()}>{busy ? "Checking..." : "I've verified my email"}</Button>
-          <Button disabled={busy} variant="secondary" onClick={() => void resendVerificationEmail()}>Send verification email again</Button>
-          <Button disabled={busy} variant="secondary" onClick={() => void signOutForAccountSwitch()}>Use a different account</Button>
+          <Button
+            disabled={verificationAction !== null}
+            onClick={() => void checkEmailVerification()}
+            type="button"
+          >{verificationAction === "checking" ? "Checking..." : "I've verified my email"}</Button>
+          <Button
+            disabled={verificationAction !== null}
+            variant="secondary"
+            onClick={() => void resendVerificationEmail()}
+            type="button"
+          >{verificationAction === "sending" ? "Sending verification email..." : "Send verification email again"}</Button>
+          <Button variant="secondary" onClick={() => void signOutForAccountSwitch()} type="button">Use a different account</Button>
         </div>
-        {message ? <p className="text-sm text-cyan-200">{message}</p> : null}
+        {message ? <p aria-live="polite" className="text-sm text-cyan-200" role="status">{message}</p> : null}
       </Card>
     );
   }
@@ -599,5 +653,7 @@ function friendlyAuthError(error: unknown) {
     .replace("Firebase: Error (auth/popup-closed-by-user).", "Google sign in was closed before it finished.")
     .replace("Firebase: Error (auth/invalid-credential).", "That email or password did not match.")
     .replace("Firebase: Error (auth/email-already-in-use).", "That email already has an account. Choose Sign in with email.")
-    .replace("Firebase: Error (auth/weak-password).", "Choose a stronger password with at least six characters.");
+    .replace("Firebase: Error (auth/weak-password).", "Choose a stronger password with at least six characters.")
+    .replace("Firebase: Error (auth/too-many-requests).", "Too many verification emails were requested. Wait a few minutes, then try again.")
+    .replace("Firebase: Error (auth/network-request-failed).", "Could not reach email verification. Check your connection and try again.");
 }

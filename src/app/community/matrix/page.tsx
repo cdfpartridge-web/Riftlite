@@ -32,7 +32,7 @@ export default async function MatrixPage({
         eyebrow="Match Matrix"
         headingLevel={1}
         title="Find the matchups that swing your win rate"
-        description="Every cell shows the head-to-head win rate between two legends — click through to study the actual games behind the numbers."
+        description="Every cell pools captures from both directions into one head-to-head estimate. Hover to compare each pilot cohort, then click through to study the games behind the numbers."
       />
       <AdSlot placement="community-top" slots={adSlots} />
       <CommunityFilterBar filters={filters} />

@@ -32,6 +32,7 @@ export type DeckSnapshot = {
 
 export type CommunityMatch = {
   id: string;
+  localMatchId?: string;
   uid: string;
   username: string;
   date: string;
@@ -80,9 +81,7 @@ export type LegendMetaRow = {
   winRate: number;
 };
 
-export type MatchupCell = {
-  myLegend: string;
-  oppLegend: string;
+export type MatchupCaptureBreakdown = {
   wins: number;
   losses: number;
   draws: number;
@@ -91,10 +90,21 @@ export type MatchupCell = {
   winRate: number;
 };
 
+export type MatchupCell = MatchupCaptureBreakdown & {
+  myLegend: string;
+  oppLegend: string;
+  /** Captures recorded by players piloting `myLegend`. */
+  directCaptures: MatchupCaptureBreakdown;
+  /** Captures recorded by players piloting `oppLegend`, before result inversion. */
+  reverseCaptures: MatchupCaptureBreakdown;
+};
+
 export type MatrixView = {
   rows: string[];
   columns: string[];
   cells: MatchupCell[];
+  aggregationMethod: "symmetric-v1";
+  matrixReadyMatchCount: number;
   sourceMatchCount?: number;
   detailMatchCount?: number;
   sourceFirstCreatedAt?: number;

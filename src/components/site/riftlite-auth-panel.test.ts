@@ -277,6 +277,95 @@ describe("RiftLite desktop account sign in", () => {
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/auth/link/bootstrap"))).toBe(false);
   });
 
+  it("keeps resend available after an existing unverified account signs in", async () => {
+    const account = testUser("existing-unverified-account", false, {
+      emailVerified: false,
+      providerId: "password",
+    });
+    firebaseHarness.signInWithEmailAndPassword.mockImplementation(async () => {
+      firebaseHarness.auth.currentUser = account;
+      firebaseHarness.listener?.(account);
+      return { user: account };
+    });
+    const view = render(createElement(RiftLiteAuthPanel, {
+      desktopLink,
+      preferredProvider: "email",
+    }));
+
+    fireEvent.change(view.getByPlaceholderText("Email address"), { target: { value: "player@example.com" } });
+    fireEvent.change(view.getByPlaceholderText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(view.getByRole("button", { name: "Sign in with email" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Verify your email" })).toBeInTheDocument();
+    });
+    const resend = view.getByRole("button", { name: "Send verification email again" });
+    expect(resend).toBeEnabled();
+    expect(firebaseHarness.sendEmailVerification).not.toHaveBeenCalled();
+
+    fireEvent.click(resend);
+    await waitFor(() => expect(firebaseHarness.sendEmailVerification).toHaveBeenCalledWith(account));
+    expect(await view.findByRole("status")).toHaveTextContent(
+      "Verification email sent to player@example.com.",
+    );
+    expect(view.getByRole("button", { name: "Send verification email again" })).toBeEnabled();
+  });
+
+  it("labels a pending first verification email and leaves account switching available", async () => {
+    const account = testUser("pending-verification-account", false, {
+      emailVerified: false,
+      providerId: "password",
+    });
+    let finishSend: (() => void) | undefined;
+    firebaseHarness.sendEmailVerification.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishSend = resolve;
+    }));
+    firebaseHarness.createUserWithEmailAndPassword.mockImplementation(async () => {
+      firebaseHarness.auth.currentUser = account;
+      firebaseHarness.listener?.(account);
+      return { user: account };
+    });
+    const view = render(createElement(RiftLiteAuthPanel, {
+      desktopLink,
+      preferredProvider: "email",
+    }));
+
+    fireEvent.change(view.getByPlaceholderText("Email address"), { target: { value: "player@example.com" } });
+    fireEvent.change(view.getByPlaceholderText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(view.getByRole("button", { name: "Create with email" }));
+
+    const sending = await view.findByRole("button", { name: "Sending verification email..." });
+    expect(sending).toBeDisabled();
+    expect(view.getByRole("button", { name: "Use a different account" })).toBeEnabled();
+
+    finishSend?.();
+    await waitFor(() => {
+      expect(view.getByRole("button", { name: "Send verification email again" })).toBeEnabled();
+    });
+  });
+
+  it("re-enables resend with a clear message after Firebase throttles it", async () => {
+    const account = testUser("throttled-verification-account", false, {
+      emailVerified: false,
+      providerId: "password",
+    });
+    firebaseHarness.auth.currentUser = account;
+    firebaseHarness.sendEmailVerification.mockRejectedValueOnce(
+      new Error("Firebase: Error (auth/too-many-requests)."),
+    );
+    const view = render(createElement(RiftLiteAuthPanel, { desktopLink }));
+
+    const resend = await view.findByRole("button", { name: "Send verification email again" });
+    fireEvent.click(resend);
+
+    await waitFor(() => {
+      expect(view.getByRole("status")).toHaveTextContent(
+        "Too many verification emails were requested. Wait a few minutes, then try again.",
+      );
+    });
+    expect(view.getByRole("button", { name: "Send verification email again" })).toBeEnabled();
+  });
+
   it("shows the canonical profile account ID in confirmation and account management", async () => {
     const account = testUser("desktop-alias-123456");
     const canonicalProfile = completeProfile("canonical-account-987654");

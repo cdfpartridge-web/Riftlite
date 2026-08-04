@@ -122,6 +122,7 @@ describe("normalizeMatch", () => {
 
   it("normalizes manual combine repair metadata", () => {
     const match = normalizeMatch("m5", {
+      local_match_id: "local-m5",
       uid: "u5",
       username: "BMU",
       result: "Win",
@@ -132,6 +133,7 @@ describe("normalizeMatch", () => {
       superseded_at: "2026-05-31T12:00:00.000Z",
     });
 
+    expect(match.localMatchId).toBe("local-m5");
     expect(match.manualRepair).toBe(true);
     expect(match.combinedFromMatchIds).toEqual(["g1", "g2"]);
     expect(match.mergedIntoMatchId).toBe("bo3");
