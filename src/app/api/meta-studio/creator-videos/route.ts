@@ -11,6 +11,7 @@ import {
   creatorVideoCarouselStorageFromConfig,
   normalizeCreatorVideoCarouselConfig,
 } from "@/lib/youtube/creator-video-config";
+import { getCreatorVideoCarouselPreview } from "@/lib/youtube/creator-video-feed";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,12 +29,17 @@ export async function GET(request: NextRequest) {
       .doc(HOME_CONFIG_DOCUMENT)
       .get();
     const data = snapshot.exists ? snapshot.data() ?? {} : {};
+    const config = normalizeCreatorVideoCarouselConfig(
+      data.creatorVideoCarousel,
+      data.communitySpotlights,
+    );
+    const preview = request.nextUrl.searchParams.get("preview") === "1"
+      ? await getCreatorVideoCarouselPreview(config)
+      : undefined;
     return metaStudioJson({
       ok: true,
-      config: normalizeCreatorVideoCarouselConfig(
-        data.creatorVideoCarousel,
-        data.communitySpotlights,
-      ),
+      config,
+      preview,
       updatedAt: Number(data.creatorVideoCarouselUpdatedAt ?? 0),
     });
   } catch (error) {
@@ -63,6 +69,13 @@ export async function PUT(request: NextRequest) {
   }
 
   const candidateConfig = normalizeCreatorVideoCarouselConfig(candidate);
+  const invalidPlaylistCreator = candidateConfig.creators.find((creator) =>
+    creator.enabled && creator.sourceMode === "playlist" && !creator.playlistId);
+  if (invalidPlaylistCreator) {
+    return metaStudioJson({
+      error: `${invalidPlaylistCreator.name || invalidPlaylistCreator.id} needs a valid YouTube playlist URL or ID.`,
+    }, 400);
+  }
   const communitySpotlights = communitySpotlightVideoProfilesFromConfig(candidateConfig);
   const config = normalizeCreatorVideoCarouselConfig(candidate, communitySpotlights);
   const storedCarousel = creatorVideoCarouselStorageFromConfig(config);

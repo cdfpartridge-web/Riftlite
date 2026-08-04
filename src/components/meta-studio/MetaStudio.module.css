@@ -1708,6 +1708,7 @@
 }
 
 .creatorField input,
+.creatorField select,
 .creatorField textarea {
   width: 100%;
   min-width: 0;
@@ -1724,6 +1725,20 @@
   height: 42px;
 }
 
+.creatorField select {
+  height: 42px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #78cfee 50%),
+    linear-gradient(135deg, #78cfee 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 17px,
+    calc(100% - 11px) 17px;
+  background-repeat: no-repeat;
+  background-size: 5px 5px, 5px 5px;
+  padding-right: 32px;
+}
+
 .creatorField textarea {
   min-height: 78px;
   resize: vertical;
@@ -1731,6 +1746,7 @@
 }
 
 .creatorField input:focus,
+.creatorField select:focus,
 .creatorField textarea:focus {
   border-color: rgba(91, 202, 255, 0.66);
   box-shadow: 0 0 0 3px rgba(67, 181, 236, 0.11);
@@ -1739,8 +1755,14 @@
 .creatorVideoIdGrid {
   display: grid;
   margin-top: 15px;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+.creatorField small {
+  color: #607b91;
+  font-size: 9px;
+  line-height: 1.4;
 }
 
 .creatorListHeader {
@@ -1822,6 +1844,203 @@
   border-radius: 14px;
 }
 
+.creatorPreview {
+  margin-top: 24px;
+  border: 1px solid rgba(116, 194, 239, 0.12);
+  border-radius: 15px;
+  padding: 14px;
+  background: rgba(6, 17, 32, 0.62);
+}
+
+.creatorPreviewHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+}
+
+.creatorPreviewHeader h3 {
+  margin: 0 0 3px;
+  font: 750 18px var(--font-rift-display), sans-serif;
+}
+
+.creatorPreviewHeader p {
+  margin: 0;
+  color: #7790a6;
+  font-size: 10px;
+}
+
+.creatorPreviewHeader > span {
+  color: #72cee9;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.creatorPreviewGroups {
+  display: grid;
+  gap: 10px;
+}
+
+.creatorPreviewGroup {
+  overflow: hidden;
+  border: 1px solid rgba(110, 193, 239, 0.1);
+  border-radius: 12px;
+  background: rgba(4, 13, 26, 0.66);
+}
+
+.creatorPreviewGroup > header {
+  display: flex;
+  min-height: 43px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(110, 193, 239, 0.08);
+}
+
+.creatorPreviewGroup > header strong,
+.creatorPreviewGroup > header span {
+  display: block;
+}
+
+.creatorPreviewGroup > header strong {
+  color: #e3f3fc;
+  font-size: 11px;
+}
+
+.creatorPreviewGroup > header span {
+  margin-top: 2px;
+  color: #637e94;
+  font-size: 9px;
+}
+
+.creatorPreviewGroup > header em {
+  border-radius: 999px;
+  padding: 4px 7px;
+  color: #ffabb7;
+  background: rgba(172, 47, 67, 0.12);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.creatorPreviewGroup > header em[data-success="true"] {
+  color: #9aefc7;
+  background: rgba(41, 157, 104, 0.13);
+}
+
+.creatorPreviewItems {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 8px;
+}
+
+.creatorPreviewItem {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 78px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid rgba(112, 197, 242, 0.08);
+  border-radius: 9px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.creatorPreviewItem img {
+  width: 78px;
+  height: 44px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #07111f;
+}
+
+.creatorPreviewCopy {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 7px;
+  align-items: center;
+}
+
+.creatorPreviewCopy > strong {
+  overflow: hidden;
+  color: #d9eaf4;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creatorPreviewCopy > span {
+  border-radius: 999px;
+  padding: 2px 5px;
+  color: #9debc5;
+  background: rgba(43, 165, 109, 0.12);
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.creatorPreviewCopy > span[data-status="filtered"] {
+  color: #f0cd79;
+  background: rgba(181, 130, 31, 0.13);
+}
+
+.creatorPreviewCopy > span[data-status="excluded"] {
+  color: #ffabb7;
+  background: rgba(172, 47, 67, 0.13);
+}
+
+.creatorPreviewCopy > small {
+  overflow: hidden;
+  grid-column: 1 / -1;
+  color: #647d92;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creatorPreviewItem > button {
+  min-height: 30px;
+  border: 1px solid rgba(107, 201, 245, 0.16);
+  border-radius: 8px;
+  padding: 0 8px;
+  color: #aaddf5;
+  background: rgba(39, 128, 174, 0.1);
+  font-size: 8px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.creatorPreviewItem > button:hover {
+  border-color: rgba(107, 201, 245, 0.4);
+  color: #fff;
+  background: rgba(44, 148, 201, 0.2);
+}
+
+.creatorPreviewItem > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.creatorPreviewError,
+.creatorPreviewEmpty {
+  margin: 0;
+  padding: 10px;
+  color: #8499aa;
+  font-size: 9px;
+}
+
+.creatorPreviewError {
+  color: #ffabb7;
+}
+
 .creatorConfigFooter {
   display: flex;
   min-height: 56px;
@@ -1863,15 +2082,26 @@
   }
 
   .creatorConfigToolbar,
-  .creatorListHeader {
+  .creatorListHeader,
+  .creatorPreviewHeader {
     align-items: stretch;
     flex-direction: column;
   }
 
   .creatorGlobalSettings,
   .creatorVideoIdGrid,
-  .creatorFields {
+  .creatorFields,
+  .creatorPreviewItems {
     grid-template-columns: 1fr;
+  }
+
+  .creatorPreviewItem {
+    grid-template-columns: 68px minmax(0, 1fr) auto;
+  }
+
+  .creatorPreviewItem img {
+    width: 68px;
+    height: 39px;
   }
 
   .creatorWideField {

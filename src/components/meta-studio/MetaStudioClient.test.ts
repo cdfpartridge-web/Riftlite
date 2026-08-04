@@ -10,6 +10,7 @@ const INITIAL_CONFIG: CreatorVideoCarouselConfig = {
   rotationSeconds: 10,
   maxItems: 8,
   excludedVideoIds: [],
+  includedVideoIds: [],
   pinnedVideoIds: [],
   creators: [
     {
@@ -17,7 +18,9 @@ const INITIAL_CONFIG: CreatorVideoCarouselConfig = {
       name: "Riftlab",
       spotlightId: "riftlab",
       youtubeUrl: "https://www.youtube.com/@RiftlabTCG",
-      channelId: "UCDQDmAPxp49TXOK9ZjLbCuA",
+      channelId: "UCDFo4wpERqN20cMxs3WzPsQ",
+      sourceMode: "all",
+      playlistId: "",
       enabled: true,
       videoSlots: 4,
     },
@@ -27,6 +30,8 @@ const INITIAL_CONFIG: CreatorVideoCarouselConfig = {
       spotlightId: "dunc",
       youtubeUrl: "https://www.youtube.com/@dunctcg",
       channelId: "UCiM8nhAwh94QqH9qm9yjKYA",
+      sourceMode: "riftbound",
+      playlistId: "",
       enabled: true,
       videoSlots: 1,
     },
@@ -75,6 +80,9 @@ describe("Meta Studio creator video carousel panel", () => {
     fireEvent.change(view.getByLabelText("Excluded YouTube video IDs"), {
       target: { value: "abcdefghijk" },
     });
+    fireEvent.change(view.getByLabelText("Always include YouTube video IDs"), {
+      target: { value: "12345678901" },
+    });
     fireEvent.click(view.getByRole("button", { name: "Add creator" }));
     fireEvent.change(view.getByLabelText("Creator 3 name"), {
       target: { value: "New Creator" },
@@ -84,6 +92,12 @@ describe("Meta Studio creator video carousel panel", () => {
     });
     fireEvent.change(view.getByLabelText("Creator 3 video slots"), {
       target: { value: "3" },
+    });
+    fireEvent.change(view.getByLabelText("Creator 3 source mode"), {
+      target: { value: "playlist" },
+    });
+    fireEvent.change(view.getByLabelText("Creator 3 playlist URL or ID"), {
+      target: { value: "https://www.youtube.com/playlist?list=PLQfZRuxub-RU" },
     });
 
     expect(view.getByText("8", { selector: "strong" })).toBeInTheDocument();
@@ -102,12 +116,65 @@ describe("Meta Studio creator video carousel panel", () => {
     };
     expect(saved.config.pinnedVideoIds).toEqual(["12345678901", "abcdefghijk"]);
     expect(saved.config.excludedVideoIds).toEqual(["abcdefghijk"]);
+    expect(saved.config.includedVideoIds).toEqual(["12345678901"]);
     expect(saved.config.creators[2]).toMatchObject({
       id: "creator-3",
       name: "New Creator",
       youtubeUrl: "https://www.youtube.com/@NewCreator",
+      sourceMode: "playlist",
+      playlistId: "https://www.youtube.com/playlist?list=PLQfZRuxub-RU",
       videoSlots: 3,
     });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/meta-studio/creator-videos?preview=1");
+  });
+
+  it("turns preview decisions into include and hide overrides", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({
+        config: INITIAL_CONFIG,
+        preview: [{
+          creatorId: "dunc",
+          creatorName: "Dunc",
+          sourceMode: "riftbound",
+          playlistId: "",
+          succeeded: true,
+          error: "",
+          items: [{
+            videoId: "filtered001",
+            title: "Other game update",
+            url: "https://www.youtube.com/watch?v=filtered001",
+            embedUrl: "https://www.youtube-nocookie.com/embed/filtered001",
+            thumbnailUrl: "https://i.ytimg.com/vi/filtered001/hqdefault.jpg",
+            creatorId: "dunc",
+            creatorName: "Dunc",
+            channelUrl: "https://www.youtube.com/@dunctcg",
+            publishedAt: "2026-08-04T09:00:00.000Z",
+            status: "filtered",
+            reason: "No Riftbound terms found",
+          }],
+        }],
+      }))
+      .mockImplementationOnce(async (_input, init) => {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        return jsonResponse({ config: body.config });
+      });
+    const view = render(createElement(CreatorVideoCarouselPanel, { onClose: vi.fn() }));
+
+    await waitFor(() => expect(view.getByRole("button", {
+      name: "Always include Other game update",
+    })).toBeInTheDocument());
+    fireEvent.click(view.getByRole("button", { name: "Always include Other game update" }));
+
+    expect(view.getByLabelText("Always include YouTube video IDs"))
+      .toHaveValue("filtered001");
+    expect(view.getByRole("button", { name: "Hide Other game update" })).toBeInTheDocument();
+
+    fireEvent.click(view.getByRole("button", { name: "Save carousel" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const saved = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+      config: CreatorVideoCarouselConfig;
+    };
+    expect(saved.config.includedVideoIds).toEqual(["filtered001"]);
   });
 
   it("refreshes from the server and closes without saving", async () => {
@@ -122,7 +189,7 @@ describe("Meta Studio creator video carousel panel", () => {
     fireEvent.click(view.getByRole("button", { name: "Refresh" }));
     await waitFor(() => {
       expect(view.getByLabelText("Rotation seconds")).toHaveValue(25);
-      expect(view.getByText(/settings refreshed/i)).toBeInTheDocument();
+      expect(view.getByText(/settings and feed preview refreshed/i)).toBeInTheDocument();
     });
     fireEvent.click(view.getByRole("button", { name: "Close creator video carousel settings" }));
 

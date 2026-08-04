@@ -17,6 +17,7 @@ import {
   type CreatorVideoCarouselConfig,
   type CreatorVideoCreatorConfig,
 } from "@/lib/youtube/creator-video-config";
+import type { CreatorVideoCreatorPreview } from "@/lib/youtube/creator-video-feed";
 
 const DEFAULT_FILTERS: MetaStudioFilters = {
   range: "7d",
@@ -47,6 +48,7 @@ function copyCreatorVideoConfig(
   return {
     ...config,
     excludedVideoIds: [...config.excludedVideoIds],
+    includedVideoIds: [...config.includedVideoIds],
     pinnedVideoIds: [...config.pinnedVideoIds],
     creators: config.creators.map((creator) => ({ ...creator })),
   };
@@ -75,10 +77,25 @@ function newCreator(creators: CreatorVideoCreatorConfig[]): CreatorVideoCreatorC
     spotlightId: "",
     youtubeUrl: "",
     channelId: "",
+    sourceMode: "riftbound",
+    playlistId: "",
     enabled: true,
     videoSlots: 1,
   };
 }
+
+function addVideoId(ids: string[], videoId: string) {
+  return ids.includes(videoId) ? ids : [...ids, videoId];
+}
+
+function removeVideoId(ids: string[], videoId: string) {
+  return ids.filter((id) => id !== videoId);
+}
+
+type CreatorVideoConfigResponse = {
+  config: CreatorVideoCarouselConfig;
+  preview: CreatorVideoCreatorPreview[];
+};
 
 type CreatorVideoCarouselPanelProps = {
   onClose: () => void;
@@ -91,29 +108,37 @@ export function CreatorVideoCarouselPanel({
     copyCreatorVideoConfig(DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState<CreatorVideoCreatorPreview[]>([]);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
 
   const requestConfig = useCallback(async () => {
-    const response = await fetch("/api/meta-studio/creator-videos", {
+    const response = await fetch("/api/meta-studio/creator-videos?preview=1", {
       credentials: "same-origin",
       cache: "no-store",
     });
     const payload = await response.json() as {
       config?: CreatorVideoCarouselConfig;
+      preview?: CreatorVideoCreatorPreview[];
       error?: string;
     };
     if (!response.ok || !payload.config) {
       throw new Error(payload.error ?? "Creator video carousel settings could not be loaded.");
     }
-    return copyCreatorVideoConfig(payload.config);
+    return {
+      config: copyCreatorVideoConfig(payload.config),
+      preview: Array.isArray(payload.preview) ? payload.preview : [],
+    } satisfies CreatorVideoConfigResponse;
   }, []);
 
   useEffect(() => {
     let mounted = true;
     void requestConfig()
-      .then((nextConfig) => {
-        if (mounted) setConfig(nextConfig);
+      .then((result) => {
+        if (mounted) {
+          setConfig(result.config);
+          setPreview(result.preview);
+        }
       })
       .catch((reason: unknown) => {
         if (!mounted) return;
@@ -134,8 +159,10 @@ export function CreatorVideoCarouselPanel({
     setError("");
     setFeedback("");
     try {
-      setConfig(await requestConfig());
-      setFeedback("Creator video carousel settings refreshed.");
+      const result = await requestConfig();
+      setConfig(result.config);
+      setPreview(result.preview);
+      setFeedback("Creator video settings and feed preview refreshed.");
     } catch (reason) {
       setError(reason instanceof Error
         ? reason.message
@@ -162,6 +189,35 @@ export function CreatorVideoCarouselPanel({
     }));
     setError("");
     setFeedback("Unsaved changes.");
+  }
+
+  function updatePreviewVideo(videoId: string, action: "include" | "exclude") {
+    setConfig((current) => action === "include"
+      ? {
+          ...current,
+          includedVideoIds: addVideoId(current.includedVideoIds, videoId),
+          excludedVideoIds: removeVideoId(current.excludedVideoIds, videoId),
+        }
+      : {
+          ...current,
+          excludedVideoIds: addVideoId(current.excludedVideoIds, videoId),
+          includedVideoIds: removeVideoId(current.includedVideoIds, videoId),
+          pinnedVideoIds: removeVideoId(current.pinnedVideoIds, videoId),
+        });
+    setPreview((current) => current.map((creator) => ({
+      ...creator,
+      items: creator.items.map((item) => item.videoId === videoId
+        ? {
+            ...item,
+            status: action === "include" ? "included" : "excluded",
+            reason: action === "include" ? "Allowed manually" : "Hidden manually",
+          }
+        : item),
+    })));
+    setError("");
+    setFeedback(action === "include"
+      ? "Video will always pass the Riftbound filter after you save."
+      : "Video will be hidden after you save.");
   }
 
   async function saveConfig() {
@@ -198,7 +254,9 @@ export function CreatorVideoCarouselPanel({
 
   const busy = loading || saving;
   const enabledVideoCreators = config.creators.filter((creator) =>
-    creator.enabled && Boolean(creator.youtubeUrl || creator.channelId));
+    creator.enabled && (creator.sourceMode === "playlist"
+      ? Boolean(creator.playlistId)
+      : Boolean(creator.youtubeUrl || creator.channelId)));
   const totalVideoSlots = enabledVideoCreators.reduce(
     (total, creator) => total + Math.max(0, Math.trunc(Number(creator.videoSlots) || 0)),
     0,
@@ -212,8 +270,8 @@ export function CreatorVideoCarouselPanel({
             <span>DESKTOP HOME CONTENT</span>
             <h2 id="creator-video-panel-title">Creator video carousel</h2>
             <p>
-              RiftLite automatically reads each featured creator&apos;s YouTube social link,
-              then fills Home with their newest videos using the weights below.
+              Choose how RiftLite reads each creator&apos;s YouTube feed, then fill Home with
+              the most relevant videos using the weights and exceptions below.
             </p>
           </div>
           <button aria-label="Close creator video carousel settings" className={styles.creatorIconButton} onClick={onClose} type="button">
@@ -301,15 +359,25 @@ export function CreatorVideoCarouselPanel({
                   value={config.excludedVideoIds.join("\n")}
                 />
               </label>
+              <label className={styles.creatorField}>
+                <span>Always-include YouTube video IDs</span>
+                <textarea
+                  aria-label="Always include YouTube video IDs"
+                  onChange={(event) => updateConfig({ includedVideoIds: videoIdList(event.target.value) })}
+                  placeholder="Riftbound filter exceptions, one ID per line"
+                  value={config.includedVideoIds.join("\n")}
+                />
+                <small>Lets a video through the Riftbound filter. Hidden IDs still take priority.</small>
+              </label>
             </div>
 
             <div className={styles.creatorListHeader}>
               <div>
                 <h3>Featured creators</h3>
                 <p>
-                  YouTube links are the creators&apos; canonical social links. Creators without one
-                  stay in the catalogue but are skipped by the video feed. Four slots receives
-                  roughly four times the selection opportunity of one slot.
+                  Keep a creator&apos;s social link canonical, then choose all uploads, automatic
+                  Riftbound filtering, or a dedicated playlist. Four slots receives roughly four
+                  times the selection opportunity of one slot.
                 </p>
               </div>
               <button
@@ -376,8 +444,10 @@ export function CreatorVideoCarouselPanel({
                         type="url"
                         value={creator.youtubeUrl}
                       />
-                      <small>{creator.youtubeUrl
-                        ? "Newest uploads are collected automatically."
+                      <small>{creator.sourceMode === "playlist"
+                        ? "Used as the creator's public channel link; the playlist controls the feed."
+                        : creator.youtubeUrl
+                          ? "Recent channel uploads are collected automatically."
                         : "No YouTube link — this creator is not included in the video carousel."}</small>
                     </label>
                     <label className={styles.creatorField}>
@@ -401,6 +471,37 @@ export function CreatorVideoCarouselPanel({
                         value={creator.videoSlots}
                       />
                     </label>
+                    <label className={styles.creatorField}>
+                      <span>Video source</span>
+                      <select
+                        aria-label={`Creator ${index + 1} source mode`}
+                        onChange={(event) => updateCreator(index, {
+                          sourceMode: event.target.value as CreatorVideoCreatorConfig["sourceMode"],
+                        })}
+                        value={creator.sourceMode}
+                      >
+                        <option value="riftbound">Riftbound only</option>
+                        <option value="all">All uploads</option>
+                        <option value="playlist">YouTube playlist</option>
+                      </select>
+                      <small>{creator.sourceMode === "riftbound"
+                        ? "Uses title and description terms, plus manual exceptions."
+                        : creator.sourceMode === "all"
+                          ? "Allows every recent upload from this channel."
+                          : "Allows every video returned by the selected playlist."}</small>
+                    </label>
+                    {creator.sourceMode === "playlist" ? (
+                      <label className={`${styles.creatorField} ${styles.creatorWideField}`}>
+                        <span>Playlist URL or ID</span>
+                        <input
+                          aria-label={`Creator ${index + 1} playlist URL or ID`}
+                          onChange={(event) => updateCreator(index, { playlistId: event.target.value })}
+                          placeholder="https://www.youtube.com/playlist?list=..."
+                          value={creator.playlistId}
+                        />
+                        <small>Paste a YouTube playlist URL or its list ID.</small>
+                      </label>
+                    ) : null}
                   </div>
                 </article>
               ))}
@@ -408,6 +509,59 @@ export function CreatorVideoCarouselPanel({
                 <div className={styles.creatorEmptyState}>No creators configured. Add one to begin the rotation.</div>
               ) : null}
             </div>
+
+            <section aria-labelledby="creator-feed-preview-title" className={styles.creatorPreview}>
+              <div className={styles.creatorPreviewHeader}>
+                <div>
+                  <h3 id="creator-feed-preview-title">Feed preview</h3>
+                  <p>Review what the current saved sources return. Use Refresh after changing a source.</p>
+                </div>
+                <span>{preview.reduce((total, creator) => total + creator.items.length, 0)} videos checked</span>
+              </div>
+              <div className={styles.creatorPreviewGroups}>
+                {preview.map((creator) => (
+                  <section className={styles.creatorPreviewGroup} key={creator.creatorId}>
+                    <header>
+                      <div>
+                        <strong>{creator.creatorName || creator.creatorId}</strong>
+                        <span>{creator.sourceMode === "playlist" ? "Playlist" : creator.sourceMode === "all" ? "All uploads" : "Riftbound filter"}</span>
+                      </div>
+                      <em data-success={creator.succeeded}>{creator.succeeded ? `${creator.items.length} found` : "Feed unavailable"}</em>
+                    </header>
+                    {creator.error ? <p className={styles.creatorPreviewError}>{creator.error}</p> : null}
+                    <div className={styles.creatorPreviewItems}>
+                      {creator.items.map((item) => (
+                        <article className={styles.creatorPreviewItem} key={`${creator.creatorId}-${item.videoId}`}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img alt="" loading="lazy" src={item.thumbnailUrl} />
+                          <div className={styles.creatorPreviewCopy}>
+                            <strong title={item.title}>{item.title}</strong>
+                            <span data-status={item.status}>{item.status}</span>
+                            <small>{item.reason}</small>
+                          </div>
+                          <button
+                            aria-label={`${item.status === "included" ? "Hide" : "Always include"} ${item.title}`}
+                            disabled={busy}
+                            onClick={() => updatePreviewVideo(item.videoId, item.status === "included" ? "exclude" : "include")}
+                            type="button"
+                          >
+                            {item.status === "included" ? "Hide" : "Always include"}
+                          </button>
+                        </article>
+                      ))}
+                      {creator.succeeded && !creator.items.length ? (
+                        <p className={styles.creatorPreviewEmpty}>No recent videos were returned.</p>
+                      ) : null}
+                    </div>
+                  </section>
+                ))}
+                {!preview.length ? (
+                  <p className={styles.creatorPreviewEmpty}>
+                    No enabled creator feeds are available to preview. Check the source settings, then refresh.
+                  </p>
+                ) : null}
+              </div>
+            </section>
           </fieldset>
         )}
 

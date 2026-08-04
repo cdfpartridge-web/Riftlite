@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   requireMetaStudioSession: vi.fn(),
   revalidatePath: vi.fn(),
   revalidateTag: vi.fn(),
+  getCreatorVideoCarouselPreview: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({
@@ -21,6 +22,10 @@ vi.mock("@/lib/community/meta-studio-auth", async (importOriginal) => {
     requireMetaStudioSession: mocks.requireMetaStudioSession,
   };
 });
+
+vi.mock("@/lib/youtube/creator-video-feed", () => ({
+  getCreatorVideoCarouselPreview: mocks.getCreatorVideoCarouselPreview,
+}));
 
 import { GET, PUT } from "@/app/api/meta-studio/creator-videos/route";
 import {
@@ -49,6 +54,7 @@ describe("Meta Studio creator video carousel route", () => {
     vi.clearAllMocks();
     mocks.get.mockResolvedValue({ exists: false, data: () => undefined });
     mocks.set.mockResolvedValue(undefined);
+    mocks.getCreatorVideoCarouselPreview.mockResolvedValue([]);
     mocks.requireMetaStudioSession.mockResolvedValue({
       uid: "canonical-bmu",
       decoded: { uid: "canonical-bmu" },
@@ -151,6 +157,53 @@ describe("Meta Studio creator video carousel route", () => {
     }, { merge: true });
     expect(mocks.revalidateTag).toHaveBeenCalledWith(CREATOR_VIDEO_FEED_CACHE_TAG, "max");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/api/app/home");
+  });
+
+  it("returns a private feed preview only when the admin requests one", async () => {
+    mocks.getCreatorVideoCarouselPreview.mockResolvedValue([{
+      creatorId: "riftlab",
+      creatorName: "Riftlab",
+      sourceMode: "all",
+      playlistId: "",
+      succeeded: true,
+      error: "",
+      items: [],
+    }]);
+
+    const response = await GET(new NextRequest(
+      "https://www.riftlite.com/api/meta-studio/creator-videos?preview=1",
+      { headers: { Cookie: "riftlite_meta_studio=signed" } },
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.preview).toEqual([expect.objectContaining({ creatorId: "riftlab" })]);
+    expect(mocks.getCreatorVideoCarouselPreview).toHaveBeenCalledWith(payload.config);
+  });
+
+  it("rejects playlist mode without a valid YouTube playlist", async () => {
+    const response = await PUT(new NextRequest(
+      "https://www.riftlite.com/api/meta-studio/creator-videos",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: {
+            creators: [{
+              id: "mixed",
+              name: "Mixed creator",
+              sourceMode: "playlist",
+              playlistId: "https://evil.example/not-a-playlist",
+              enabled: true,
+            }],
+          },
+        }),
+      },
+    ));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringMatching(/playlist/i) });
+    expect(mocks.set).not.toHaveBeenCalled();
   });
 
   it("rejects a missing configuration without changing Home", async () => {
