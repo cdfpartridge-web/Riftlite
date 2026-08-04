@@ -19,6 +19,7 @@ import {
   listOwnerReplays,
   listPublicReplays,
   readCanonicalReplay,
+  readOwnerReplayDeliveryStatus,
   serializeReplay,
   updateReplayVisibility,
 } from "@/lib/replay-v2-server/service";
@@ -130,6 +131,43 @@ describe("replay captured-time persistence", () => {
     expect(fake.transaction.update).not.toHaveBeenCalled();
     expect(fake.transaction.set).not.toHaveBeenCalled();
     expect(serializeReplay(result.record, true).capturedAt).toBe("2026-07-08T12:00:00.000Z");
+  });
+
+  it("serializes persisted partial-capture warnings into the replay library contract", () => {
+    const summary = serializeReplay({
+      ...replayRecord(),
+      warnings: [{
+        code: "replay_capture_missing_mulligan",
+        message: "The replay did not capture the opening mulligan.",
+      }],
+    }, true);
+
+    expect(summary.warnings).toEqual([{
+      code: "replay_capture_missing_mulligan",
+      message: "The replay did not capture the opening mulligan.",
+    }]);
+  });
+
+  it("serializes persisted structured failure guidance without reclassifying it", () => {
+    const summary = serializeReplay({
+      ...replayRecord(),
+      status: "failed",
+      failure: {
+        code: "normalization_failed",
+        message: "Raw replay could not be normalized.",
+        class: "request",
+        retryable: false,
+        recommendedAction: "contact-support",
+      },
+    }, true);
+
+    expect(summary.failure).toEqual({
+      code: "normalization_failed",
+      message: "Raw replay could not be normalized.",
+      class: "request",
+      retryable: false,
+      recommendedAction: "contact-support",
+    });
   });
 
   it("rejects an idempotent retry that changes the replay provider", async () => {
@@ -248,6 +286,26 @@ describe("historical replay owner aliases", () => {
     );
     await expect(readCanonicalReplay(record.replayId, "owner-1"))
       .resolves.toMatchObject({ record: { ownerUid: "desktop-alias" } });
+  });
+
+  it("uses the same owner/alias authorization for the delivery-status contract", async () => {
+    const record = {
+      ...replayRecord(),
+      replayId: "historical-status-replay",
+      ownerUid: "desktop-alias",
+      status: "processing" as const,
+      processingGeneration: "canonical-1",
+      updatedAt: Timestamp.now(),
+    };
+    const fake = fakeAliasReplayDb(record, false);
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(readOwnerReplayDeliveryStatus("owner-1", record.replayId)).resolves.toMatchObject({
+      replayId: record.replayId,
+      status: "processing",
+      stage: "processing",
+      recommendedAction: "wait",
+    });
   });
 
   it("stops scanning a historical owner index once reference migration is complete", async () => {

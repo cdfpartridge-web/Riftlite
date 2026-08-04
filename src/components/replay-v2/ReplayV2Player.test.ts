@@ -357,6 +357,34 @@ describe("ReplayV2Player presentation prelude", () => {
       .not.toHaveAttribute("data-card-hidden-at-battlefield");
   });
 
+  it("steps over Atlas synchronization packets and payment bookkeeping", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/?t=0.001");
+    const replay = technicalSteppingReplay();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_technical_steps" }));
+
+    try {
+      fireEvent.click(await view.findByRole("button", { name: "More" }));
+      await waitFor(() => expect(view.getByText("3 / 10")).toBeInTheDocument());
+
+      fireEvent.click(view.getByRole("button", { name: "Next action" }));
+      await waitFor(() => expect(view.getByText("7 / 10")).toBeInTheDocument());
+
+      fireEvent.click(view.getByRole("button", { name: "Next action" }));
+      await waitFor(() => expect(view.getByText("10 / 10")).toBeInTheDocument());
+
+      fireEvent.click(view.getByRole("button", { name: "Previous action" }));
+      await waitFor(() => expect(view.getByText("7 / 10")).toBeInTheDocument());
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl || "/");
+    }
+  });
+
   it("hydrates opener art, keeps its shade mounted, and reveals the selected landscape battlefields", async () => {
     const view = render(createElement(ReplayV2Player, { replayId: "rp_test" }));
 
@@ -876,6 +904,8 @@ describe("ReplayV2Player presentation prelude", () => {
     });
 
     expect(lanes[0]).toHaveAttribute("data-battlefield-name", "Risen Altar");
+    expect(lanes[0].querySelector("[data-battlefield-card] img"))
+      .toHaveAttribute("src", "https://cdn.piltoverarchive.com/cards/VEN-163.webp");
     expect(lanes[0].querySelector('[aria-label="Ambessa, The Wolf"]')).toBeInTheDocument();
     expect(lanes[0].querySelector('[aria-label="Twilight Reveler"]')).toBeInTheDocument();
     expect(lanes[0].querySelector('[aria-label="Honest Broker"]')).not.toBeInTheDocument();
@@ -1889,6 +1919,60 @@ function futureKnownAnalysisReplay(): CanonicalReplayV2 {
       }],
     },
   });
+  return replay;
+}
+
+function technicalSteppingReplay(): CanonicalReplayV2 {
+  const replay = sideboardingAtZeroReplay();
+  const action = (
+    index: number,
+    atMs: number,
+    actionType: string,
+  ): CanonicalReplayV2["events"][number] => ({
+    id: `event-${actionType}-${index}`,
+    index,
+    at: 1_000 + atMs,
+    atMs,
+    sourceMessageId: `message-${index}`,
+    gameId: "game-1",
+    kind: "action",
+    actionType,
+    action: { type: actionType },
+    confirmation: {
+      status: "confirmed",
+      authority: "authoritative_patch_commit",
+      correlation: "intent_not_observed",
+      commitMessageId: `message-${index}`,
+    },
+    patch: { operations: [] },
+  });
+  const unknown = (
+    index: number,
+    atMs: number,
+    packetType: string,
+  ): CanonicalReplayV2["events"][number] => ({
+    id: `event-${packetType}-${index}`,
+    index,
+    at: 1_000 + atMs,
+    atMs,
+    sourceMessageId: `message-${index}`,
+    gameId: "game-1",
+    kind: "unknown",
+    packetType,
+    reason: "unsupported_packet",
+    payload: {},
+  });
+
+  replay.events.push(
+    unknown(3, 100, "authoritative_patch_commit"),
+    action(4, 200, "payment_batch"),
+    unknown(5, 300, "rewind_confirmation_state"),
+    action(6, 400, "move_card"),
+    action(7, 500, "payment_batch"),
+    unknown(8, 600, "authoritative_patch_commit"),
+    action(9, 700, "end_turn"),
+  );
+  replay.series.games[0].eventEndIndex = replay.events.length - 1;
   return replay;
 }
 

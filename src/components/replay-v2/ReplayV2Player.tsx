@@ -78,6 +78,8 @@ import {
   isBattlefieldCard,
   isDuplicateCard,
   legendCard,
+  replayActionStepIndex,
+  replayDisplayEvent,
   replayDurationMs,
   resolveReplayPlayers,
   turnMarkers,
@@ -354,7 +356,10 @@ export function ReplayV2Player({
   const canonicalState = projection?.state ?? null;
   const state = analysisSession?.state ?? canonicalState;
   const eventIndex = projection?.eventIndex ?? -1;
-  const currentEvent = replay?.events[eventIndex];
+  const currentEvent = useMemo(
+    () => (replay ? replayDisplayEvent(replay, eventIndex) : undefined),
+    [eventIndex, replay],
+  );
   const turns = useMemo(() => (replay ? turnMarkers(replay) : []), [replay]);
 
   useEffect(() => {
@@ -544,8 +549,8 @@ export function ReplayV2Player({
           return;
         }
       }
-      const base = eventIndex < 0 ? 0 : eventIndex;
-      const targetIndex = Math.min(replay.events.length - 1, Math.max(0, base + direction));
+      const targetIndex = replayActionStepIndex(replay, eventIndex, direction);
+      if (targetIndex === undefined) return;
       const target = replay.events[targetIndex];
       seekTo(target.atMs, { immediate: direction < 0, eventIndex: targetIndex });
     },
@@ -1353,6 +1358,10 @@ function ReplayBoard({
         suppressCanonicalOpening && canonicalScene === "opening" ? null : canonicalScene
       );
   const action = replay.events[eventIndex];
+  const captionEvent = useMemo(
+    () => replayDisplayEvent(replay, eventIndex),
+    [eventIndex, replay],
+  );
   const openHands = isConsentedDualPerspectiveReplay(replay);
   const deckPeek = useMemo(
     () => buildDeckPeekPresentation(replay, state, eventIndex),
@@ -1523,7 +1532,7 @@ function ReplayBoard({
         key={action?.id ?? "replay-ready"}
       >
         <span className={styles.actionDot} />
-        {analysisActive ? "Analysis mode · Changes are temporary" : banishLabel || eventLabel(action)}
+        {analysisActive ? "Analysis mode · Changes are temporary" : banishLabel || eventLabel(captionEvent)}
       </div>
       {analysisActive ? (
         <div className={styles.analysisBoardBadge} data-analysis-status="active">
