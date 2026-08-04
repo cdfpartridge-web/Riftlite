@@ -246,6 +246,20 @@
   background: rgba(8, 18, 34, 0.82);
 }
 
+.creatorManagerButton {
+  width: auto;
+  gap: 7px;
+  padding: 0 12px;
+  color: #92ddff;
+}
+
+.creatorManagerButton span {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .iconButton:disabled {
   opacity: 0.35;
   cursor: not-allowed;
@@ -1456,6 +1470,413 @@
   font-size: 13px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.creatorConfigBackdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #eaf5ff;
+  background: rgba(1, 5, 13, 0.82);
+  backdrop-filter: blur(14px);
+}
+
+.creatorConfigPanel {
+  display: flex;
+  width: min(1180px, 100%);
+  max-height: min(920px, calc(100vh - 48px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(114, 207, 255, 0.2);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(102, 76, 210, 0.16), transparent 31%),
+    linear-gradient(155deg, rgba(11, 27, 48, 0.99), rgba(5, 12, 24, 0.99));
+  box-shadow: 0 36px 110px rgba(0, 0, 0, 0.72);
+}
+
+.creatorConfigHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 26px 20px;
+  border-bottom: 1px solid rgba(118, 199, 244, 0.12);
+}
+
+.creatorConfigHeader > div {
+  min-width: 0;
+}
+
+.creatorConfigHeader span,
+.creatorCardHeader span {
+  display: block;
+  color: #70cef8;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+}
+
+.creatorConfigHeader h2 {
+  margin: 4px 0 5px;
+  font: 750 30px/1.1 var(--font-rift-display), sans-serif;
+}
+
+.creatorConfigHeader p,
+.creatorListHeader p {
+  max-width: 780px;
+  margin: 0;
+  color: #8298ad;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.creatorIconButton,
+.creatorConfigActions button,
+.creatorListHeader button,
+.creatorCardActions button,
+.creatorConfigFooter button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(114, 207, 255, 0.18);
+  border-radius: 10px;
+  padding: 0 13px;
+  color: #ccecff;
+  background: rgba(49, 129, 180, 0.11);
+  font: 700 11px var(--font-rift-body), sans-serif;
+  cursor: pointer;
+  transition: 140ms ease;
+}
+
+.creatorIconButton {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+}
+
+.creatorIconButton:hover,
+.creatorConfigActions button:hover,
+.creatorListHeader button:hover,
+.creatorCardActions button:hover,
+.creatorConfigFooter button:hover {
+  border-color: rgba(114, 207, 255, 0.42);
+  color: #fff;
+  background: rgba(58, 161, 221, 0.2);
+}
+
+.creatorIconButton:disabled,
+.creatorConfigActions button:disabled,
+.creatorListHeader button:disabled,
+.creatorCardActions button:disabled,
+.creatorConfigFooter button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.creatorConfigToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 26px;
+  border-bottom: 1px solid rgba(118, 199, 244, 0.1);
+  background: rgba(5, 14, 27, 0.62);
+}
+
+.creatorConfigSummary {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 9px;
+}
+
+.creatorConfigSummary strong {
+  grid-row: 1 / span 2;
+  color: #79d7ff;
+  font: 800 28px/1 var(--font-rift-display), sans-serif;
+}
+
+.creatorConfigSummary span {
+  color: #dcedf8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.creatorConfigSummary small {
+  color: #668098;
+  font-size: 10px;
+}
+
+.creatorConfigActions,
+.creatorCardActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.creatorConfigActions .creatorPrimaryButton {
+  border-color: rgba(96, 215, 161, 0.27);
+  color: #d7ffeb;
+  background: rgba(48, 167, 111, 0.16);
+}
+
+.creatorConfigLoading,
+.creatorEmptyState {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  color: #7990a6;
+  font-size: 12px;
+}
+
+.creatorConfigBody {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow-y: auto;
+  border: 0;
+  padding: 20px 26px 26px;
+}
+
+.creatorConfigBody:disabled {
+  opacity: 0.72;
+}
+
+.creatorGlobalSettings {
+  display: grid;
+  grid-template-columns: minmax(310px, 1fr) 180px 180px;
+  gap: 12px;
+}
+
+.creatorToggleField,
+.creatorField {
+  display: grid;
+  gap: 7px;
+}
+
+.creatorToggleField {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid rgba(116, 194, 239, 0.12);
+  border-radius: 12px;
+  padding: 11px 14px;
+  background: rgba(7, 18, 34, 0.58);
+}
+
+.creatorToggleField strong,
+.creatorToggleField small {
+  display: block;
+}
+
+.creatorToggleField strong {
+  color: #e5f4fd;
+  font-size: 12px;
+}
+
+.creatorToggleField small {
+  margin-top: 3px;
+  color: #61798f;
+  font-size: 9px;
+}
+
+.creatorToggleField input,
+.creatorCardActions input {
+  width: 18px;
+  height: 18px;
+  accent-color: #5cc9f5;
+}
+
+.creatorField > span {
+  margin-left: 3px;
+  color: #7a91a8;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.creatorField input,
+.creatorField textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(120, 202, 248, 0.14);
+  border-radius: 10px;
+  outline: none;
+  padding: 10px 11px;
+  color: #e3f2fb;
+  background: rgba(5, 15, 29, 0.78);
+  font: 600 11px var(--font-rift-body), sans-serif;
+}
+
+.creatorField input {
+  height: 42px;
+}
+
+.creatorField textarea {
+  min-height: 78px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.creatorField input:focus,
+.creatorField textarea:focus {
+  border-color: rgba(91, 202, 255, 0.66);
+  box-shadow: 0 0 0 3px rgba(67, 181, 236, 0.11);
+}
+
+.creatorVideoIdGrid {
+  display: grid;
+  margin-top: 15px;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.creatorListHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 24px 0 12px;
+}
+
+.creatorListHeader h3 {
+  margin: 0 0 3px;
+  font: 750 20px var(--font-rift-display), sans-serif;
+}
+
+.creatorList {
+  display: grid;
+  gap: 12px;
+}
+
+.creatorCard {
+  overflow: hidden;
+  border: 1px solid rgba(116, 194, 239, 0.12);
+  border-radius: 15px;
+  background: rgba(8, 20, 37, 0.7);
+}
+
+.creatorCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 13px;
+  border-bottom: 1px solid rgba(116, 194, 239, 0.09);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.creatorCardHeader strong {
+  display: block;
+  overflow: hidden;
+  max-width: 460px;
+  margin-top: 2px;
+  color: #e7f5fd;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creatorCardActions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #94aabe;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.creatorCardActions button {
+  min-height: 32px;
+  border-color: rgba(255, 112, 127, 0.16);
+  color: #ffb3bc;
+  background: rgba(141, 35, 48, 0.09);
+}
+
+.creatorFields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+
+.creatorWideField {
+  grid-column: span 2;
+}
+
+.creatorEmptyState {
+  min-height: 120px;
+  border: 1px dashed rgba(119, 195, 238, 0.14);
+  border-radius: 14px;
+}
+
+.creatorConfigFooter {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 10px 26px;
+  border-top: 1px solid rgba(118, 199, 244, 0.11);
+  background: rgba(3, 10, 20, 0.76);
+}
+
+.creatorConfigFooter p {
+  margin: 0;
+  font-size: 10px;
+}
+
+.creatorConfigFeedback {
+  color: #9fcce3;
+}
+
+.creatorConfigError {
+  color: #ffadb8;
+}
+
+@media (max-width: 800px) {
+  .creatorConfigBackdrop {
+    padding: 10px;
+  }
+
+  .creatorConfigPanel {
+    max-height: calc(100vh - 20px);
+  }
+
+  .creatorConfigHeader,
+  .creatorConfigToolbar,
+  .creatorConfigFooter {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .creatorConfigToolbar,
+  .creatorListHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .creatorGlobalSettings,
+  .creatorVideoIdGrid,
+  .creatorFields {
+    grid-template-columns: 1fr;
+  }
+
+  .creatorWideField {
+    grid-column: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
