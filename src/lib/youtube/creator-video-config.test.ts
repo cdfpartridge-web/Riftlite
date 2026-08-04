@@ -14,9 +14,9 @@ describe("creator video carousel config", () => {
     const config = normalizeCreatorVideoCarouselConfig(undefined);
 
     expect(config).toEqual(DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG);
-    expect(config.creators).toHaveLength(13);
+    expect(config.creators).toHaveLength(14);
     const videoCreators = config.creators.filter((creator) => creator.youtubeUrl);
-    expect(videoCreators).toHaveLength(10);
+    expect(videoCreators).toHaveLength(11);
     expect(config.creators.find((creator) => creator.id === "riftlab")?.videoSlots).toBe(4);
     expect(config.creators.find((creator) => creator.id === "riftlab")?.sourceMode).toBe("all");
     expect(config.creators.find((creator) => creator.id === "winthepanda")?.sourceMode)
@@ -28,6 +28,13 @@ describe("creator video carousel config", () => {
       name: "TronIsBad",
       youtubeUrl: "https://www.youtube.com/@tronisbad",
       channelId: "UCNt_YObgG3Oj8ijtqF0xcKw",
+      sourceMode: "riftbound",
+      videoSlots: 1,
+    });
+    expect(config.creators.find((creator) => creator.id === "bloody")).toMatchObject({
+      name: "Bloody",
+      youtubeUrl: "https://www.youtube.com/@Blooby",
+      channelId: "UC3X3wpJhqCIHpcQo9o7lkCg",
       sourceMode: "riftbound",
       videoSlots: 1,
     });

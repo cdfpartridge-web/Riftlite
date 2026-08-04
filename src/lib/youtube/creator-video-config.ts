@@ -75,6 +75,7 @@ export const DEFAULT_COMMUNITY_SPOTLIGHT_VIDEO_PROFILES: CommunitySpotlightVideo
   spotlight("maskedswan", "MaskedSwan", "https://www.youtube.com/@MaskedSwanRiftbound", "UCbpB82os6Y9LEXIpSl6FaGA"),
   spotlight("arg0ntcg", "Arg0n", "https://www.youtube.com/@arg0nTCG", "UCpVmfDlTNEZJ3T41Lgixu1A"),
   spotlight("tronisbad", "TronIsBad", "https://www.youtube.com/@tronisbad", "UCNt_YObgG3Oj8ijtqF0xcKw"),
+  spotlight("bloody", "Bloody", "https://www.youtube.com/@Blooby", "UC3X3wpJhqCIHpcQo9o7lkCg"),
 ];
 
 export const DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG: CreatorVideoCarouselConfig = {
