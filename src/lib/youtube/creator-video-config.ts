@@ -4,9 +4,14 @@ export type CreatorVideoCreatorConfig = {
   spotlightId: string;
   youtubeUrl: string;
   channelId: string;
+  sourceMode: CreatorVideoSourceMode;
+  playlistId: string;
   enabled: boolean;
   videoSlots: number;
 };
+
+export const CREATOR_VIDEO_SOURCE_MODES = ["all", "riftbound", "playlist"] as const;
+export type CreatorVideoSourceMode = typeof CREATOR_VIDEO_SOURCE_MODES[number];
 
 export type CommunitySpotlightVideoProfile = {
   id: string;
@@ -23,14 +28,26 @@ export type CreatorVideoCarouselConfig = {
   rotationSeconds: number;
   maxItems: number;
   excludedVideoIds: string[];
+  includedVideoIds: string[];
   pinnedVideoIds: string[];
   creators: CreatorVideoCreatorConfig[];
 };
 
 const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_CHANNEL_ID_PATTERN = /^UC[A-Za-z0-9_-]{22}$/;
+const YOUTUBE_PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]{10,100}$/;
 const CREATOR_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const YOUTUBE_HANDLE_PATTERN = /^@[A-Za-z0-9._-]{3,100}$/;
+const ALL_UPLOAD_CREATOR_IDS = new Set([
+  "riftlab",
+  "runesandrift",
+  "agitoswiftly",
+  "maskedswan",
+]);
+const LEGACY_CREATOR_CHANNEL_CORRECTIONS = new Map([
+  ["riftlab:UCDQDmAPxp49TXOK9ZjLbCuA", "UCDFo4wpERqN20cMxs3WzPsQ"],
+  ["daemonxgg:UCARZJejxRnmQ0m_tU7MgRiA", "UCvrYHVF7XBCnKFCAeRqlmig"],
+]);
 
 const DEFAULT_ROTATION_SECONDS = 10;
 const DEFAULT_MAX_ITEMS = 12;
@@ -45,7 +62,7 @@ const MAX_VIDEO_ID_LIST_ITEMS = 100;
 export const CREATOR_VIDEO_FEED_CACHE_TAG = "youtube-creator-videos";
 
 export const DEFAULT_COMMUNITY_SPOTLIGHT_VIDEO_PROFILES: CommunitySpotlightVideoProfile[] = [
-  spotlight("riftlab", "Riftlab", "https://www.youtube.com/@RiftlabTCG", "UCDQDmAPxp49TXOK9ZjLbCuA"),
+  spotlight("riftlab", "Riftlab", "https://www.youtube.com/@RiftlabTCG", "UCDFo4wpERqN20cMxs3WzPsQ"),
   spotlight("runesandrift", "Runes & Rift", "https://www.youtube.com/@RunesAndRift", "UCw6Qfsm4P--Bq2BPKf031SQ"),
   spotlight("challengertcg", "Challenger TCG", "https://www.youtube.com/@ChallengerTCG", "UCC5qY4_dp975yikMmtsdNCw"),
   spotlight("noveggies", "NoVeggies"),
@@ -54,7 +71,7 @@ export const DEFAULT_COMMUNITY_SPOTLIGHT_VIDEO_PROFILES: CommunitySpotlightVideo
   spotlight("winthepanda", "WinThePanda", "https://www.youtube.com/channel/UCRC9Y9QDdw-8OpZcehO42pg", "UCRC9Y9QDdw-8OpZcehO42pg"),
   spotlight("agitoswiftly", "AgitoSwiftly", "https://www.youtube.com/@AgitoswiftlyIsRiftbound", "UCoGg-z_wT5LUl-HKj53zN7w"),
   spotlight("mrtoolshed", "Mrtoolshed"),
-  spotlight("daemonxgg", "DaemonXGG", "https://www.youtube.com/@DaemonXGG", "UCARZJejxRnmQ0m_tU7MgRiA"),
+  spotlight("daemonxgg", "DaemonXGG", "https://www.youtube.com/@DaemonXTCG", "UCvrYHVF7XBCnKFCAeRqlmig"),
   spotlight("maskedswan", "MaskedSwan", "https://www.youtube.com/@MaskedSwanRiftbound", "UCbpB82os6Y9LEXIpSl6FaGA"),
   spotlight("arg0ntcg", "Arg0n", "https://www.youtube.com/@arg0nTCG", "UCpVmfDlTNEZJ3T41Lgixu1A"),
 ];
@@ -64,6 +81,7 @@ export const DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG: CreatorVideoCarouselConfig =
   rotationSeconds: DEFAULT_ROTATION_SECONDS,
   maxItems: DEFAULT_MAX_ITEMS,
   excludedVideoIds: [],
+  includedVideoIds: [],
   pinnedVideoIds: [],
   creators: creatorConfigsFromSpotlights(DEFAULT_COMMUNITY_SPOTLIGHT_VIDEO_PROFILES),
 };
@@ -76,6 +94,30 @@ export function normalizeYoutubeVideoId(value: unknown): string {
 export function normalizeYoutubeChannelId(value: unknown): string {
   if (typeof value !== "string") return "";
   return value.trim().match(YOUTUBE_CHANNEL_ID_PATTERN)?.[0] ?? "";
+}
+
+export function normalizeYoutubePlaylistId(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const raw = value.trim();
+  if (YOUTUBE_PLAYLIST_ID_PATTERN.test(raw)) return raw;
+  try {
+    const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const url = new URL(candidate);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (url.protocol !== "https:" || !["youtube.com", "m.youtube.com", "youtu.be"].includes(host)) {
+      return "";
+    }
+    const playlistId = url.searchParams.get("list")?.trim() ?? "";
+    return playlistId.match(YOUTUBE_PLAYLIST_ID_PATTERN)?.[0] ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function normalizeCreatorVideoSourceMode(value: unknown): CreatorVideoSourceMode {
+  return CREATOR_VIDEO_SOURCE_MODES.includes(value as CreatorVideoSourceMode)
+    ? value as CreatorVideoSourceMode
+    : "riftbound";
 }
 
 export function youtubeChannelIdFromUrl(value: unknown): string {
@@ -126,6 +168,8 @@ export function normalizeCreatorVideoCarouselConfig(
   const defaults = DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG;
   const excludedVideoIds = normalizeVideoIdList(payload?.excludedVideoIds);
   const excludedSet = new Set(excludedVideoIds);
+  const includedVideoIds = normalizeVideoIdList(payload?.includedVideoIds)
+    .filter((videoId) => !excludedSet.has(videoId));
   const pinnedVideoIds = normalizeVideoIdList(payload?.pinnedVideoIds)
     .filter((videoId) => !excludedSet.has(videoId));
   const profileSource = spotlightProfiles === undefined
@@ -152,6 +196,7 @@ export function normalizeCreatorVideoCarouselConfig(
       MAX_MAX_ITEMS,
     ),
     excludedVideoIds,
+    includedVideoIds,
     pinnedVideoIds,
     creators,
   };
@@ -177,18 +222,28 @@ export function creatorVideoCarouselStorageFromConfig(
     rotationSeconds: config.rotationSeconds,
     maxItems: config.maxItems,
     excludedVideoIds: [...config.excludedVideoIds],
+    includedVideoIds: [...config.includedVideoIds],
     pinnedVideoIds: [...config.pinnedVideoIds],
     creators: config.creators.map((creator) => ({
       id: creator.id,
       enabled: creator.enabled,
       videoSlots: creator.videoSlots,
+      sourceMode: creator.sourceMode,
+      playlistId: creator.playlistId,
     })),
   };
 }
 
+type CreatorVideoOverride = {
+  enabled?: boolean;
+  videoSlots?: number;
+  sourceMode?: CreatorVideoSourceMode;
+  playlistId?: string;
+};
+
 function creatorConfigsFromSpotlights(
   profiles: CommunitySpotlightVideoProfile[],
-  overrides = new Map<string, { enabled?: boolean; videoSlots?: number }>(),
+  overrides = new Map<string, CreatorVideoOverride>(),
 ): CreatorVideoCreatorConfig[] {
   return profiles.map((profile) => {
     const override = overrides.get(profile.id);
@@ -198,6 +253,8 @@ function creatorConfigsFromSpotlights(
       spotlightId: profile.id,
       youtubeUrl: profile.links.youtube,
       channelId: profile.channelId,
+      sourceMode: override?.sourceMode ?? defaultCreatorSourceMode(profile.id),
+      playlistId: override?.playlistId ?? "",
       enabled: override?.enabled ?? profile.enabled,
       videoSlots: boundedInteger(
         override?.videoSlots,
@@ -221,7 +278,7 @@ function normalizeCommunitySpotlightVideoProfile(
   const rawYoutubeUrl = payload.youtubeUrl ?? links?.youtube;
   let youtubeUrl = normalizeYoutubeChannelUrl(rawYoutubeUrl);
   const urlChannelId = youtubeChannelIdFromUrl(youtubeUrl);
-  const channelId = explicitChannelId || urlChannelId;
+  const channelId = correctedLegacyCreatorChannelId(id, explicitChannelId || urlChannelId);
   if (typeof rawYoutubeUrl === "string" && rawYoutubeUrl.trim() && !youtubeUrl && !channelId) {
     return null;
   }
@@ -239,7 +296,7 @@ function normalizeCommunitySpotlightVideoProfile(
 }
 
 function creatorOverrides(value: unknown) {
-  const result = new Map<string, { enabled?: boolean; videoSlots?: number }>();
+  const result = new Map<string, CreatorVideoOverride>();
   if (!Array.isArray(value)) return result;
   for (const item of value.slice(0, 40)) {
     const payload = recordValue(item);
@@ -248,9 +305,21 @@ function creatorOverrides(value: unknown) {
     result.set(id, {
       enabled: typeof payload.enabled === "boolean" ? payload.enabled : undefined,
       videoSlots: typeof payload.videoSlots === "number" ? payload.videoSlots : undefined,
+      sourceMode: payload.sourceMode === undefined
+        ? undefined
+        : normalizeCreatorVideoSourceMode(payload.sourceMode),
+      playlistId: normalizeYoutubePlaylistId(payload.playlistId ?? payload.playlistUrl),
     });
   }
   return result;
+}
+
+function defaultCreatorSourceMode(creatorId: string): CreatorVideoSourceMode {
+  return ALL_UPLOAD_CREATOR_IDS.has(creatorId) ? "all" : "riftbound";
+}
+
+function correctedLegacyCreatorChannelId(creatorId: string, channelId: string): string {
+  return LEGACY_CREATOR_CHANNEL_CORRECTIONS.get(`${creatorId}:${channelId}`) ?? channelId;
 }
 
 function normalizeVideoIdList(value: unknown): string[] {
