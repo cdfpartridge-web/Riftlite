@@ -3,10 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getFirestoreAdmin: vi.fn(),
   get: vi.fn(),
+  getCreatorVideoCarousel: vi.fn(),
 }));
 
 vi.mock("@/lib/firebase/admin", () => ({
   getFirestoreAdmin: mocks.getFirestoreAdmin,
+}));
+
+vi.mock("@/lib/youtube/creator-video-feed", () => ({
+  getCreatorVideoCarousel: mocks.getCreatorVideoCarousel,
 }));
 
 import { GET } from "@/app/api/app/home/route";
@@ -24,6 +29,10 @@ describe("desktop homepage config", () => {
       collection: () => ({
         doc: () => ({ get: mocks.get }),
       }),
+    });
+    mocks.getCreatorVideoCarousel.mockResolvedValue({
+      videos: [],
+      updatedAt: "",
     });
   });
 
@@ -64,6 +73,13 @@ describe("desktop homepage config", () => {
       },
     ]);
     expect(body.featuredVideo).toEqual(body.featuredVideos[0]);
+    expect(body.creatorVideos).toEqual([]);
+    expect(body.creatorVideoCarousel).toEqual({
+      enabled: true,
+      rotationSeconds: 10,
+      maxItems: 12,
+    });
+    expect(body.creatorVideosUpdatedAt).toBe("");
     expect(response.headers.get("cache-control")).toContain("s-maxage=1800");
   });
 
@@ -142,5 +158,86 @@ describe("desktop homepage config", () => {
       "https://www.youtube.com/watch?v=4n0x_t-wprg",
       "https://www.youtube.com/watch?v=gUHFg8zSnSY",
     ]);
+  });
+
+  it("normalizes carousel config and adds creator videos without changing legacy fields", async () => {
+    const creatorVideos = [{
+      videoId: "abcdefghijk",
+      title: "Creator guide",
+      url: "https://www.youtube.com/watch?v=abcdefghijk",
+      embedUrl: "https://www.youtube-nocookie.com/embed/abcdefghijk",
+      thumbnailUrl: "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg",
+      creatorId: "creator",
+      creatorName: "Creator",
+      channelUrl: "https://www.youtube.com/@CreatorOne",
+      publishedAt: "2026-08-04T08:00:00.000Z",
+    }];
+    mocks.get.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        featuredVideos: [{
+          title: "Legacy remains",
+          url: "https://www.youtube.com/watch?v=4n0x_t-wprg",
+        }],
+        creatorVideoCarousel: {
+          enabled: true,
+          rotationSeconds: 30,
+          maxItems: 6,
+          excludedVideoIds: ["12345678901"],
+          pinnedVideoIds: ["abcdefghijk"],
+          creators: [{
+            id: "creator",
+            videoSlots: 2,
+          }],
+        },
+        communitySpotlights: [{
+          id: "creator",
+          name: "Creator",
+          enabled: true,
+          links: { youtube: "https://www.youtube.com/@CreatorOne" },
+          channelId: "UCDQDmAPxp49TXOK9ZjLbCuA",
+        }],
+      }),
+    });
+    mocks.getCreatorVideoCarousel.mockResolvedValue({
+      videos: creatorVideos,
+      updatedAt: "2026-08-04T09:00:00.000Z",
+    });
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.featuredVideo.title).toBe("Legacy remains");
+    expect(body.featuredVideos).toHaveLength(2);
+    expect(body.creatorVideos).toEqual(creatorVideos);
+    expect(body.creatorVideoCarousel).toEqual({
+      enabled: true,
+      rotationSeconds: 30,
+      maxItems: 6,
+    });
+    expect(body.creatorVideosUpdatedAt).toBe("2026-08-04T09:00:00.000Z");
+    expect(mocks.getCreatorVideoCarousel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        excludedVideoIds: ["12345678901"],
+        pinnedVideoIds: ["abcdefghijk"],
+        creators: [expect.objectContaining({ id: "creator", videoSlots: 2 })],
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the legacy response available when creator ingestion fails unexpectedly", async () => {
+    mocks.get.mockResolvedValue({ exists: false, data: () => null });
+    mocks.getCreatorVideoCarousel.mockRejectedValue(new Error("feed unavailable"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.featuredVideo).toEqual(body.featuredVideos[0]);
+    expect(body.featuredVideos).toHaveLength(2);
+    expect(body.creatorVideos).toEqual([]);
+    expect(body.creatorVideosUpdatedAt).toBe("");
   });
 });

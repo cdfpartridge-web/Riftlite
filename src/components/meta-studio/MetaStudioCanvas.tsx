@@ -13,6 +13,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Table2,
+  Video,
 } from "lucide-react";
 import {
   useEffect,
@@ -41,6 +42,7 @@ type MetaStudioCanvasProps = {
   error: string;
   preview: boolean;
   onFiltersChange: (filters: MetaStudioFilters) => void;
+  onOpenCreatorVideos: () => void;
   onLock: () => void;
   onRefresh: () => void;
 };
@@ -695,6 +697,7 @@ export function MetaStudioCanvas({
   error,
   preview,
   onFiltersChange,
+  onOpenCreatorVideos,
   onLock,
   onRefresh,
 }: MetaStudioCanvasProps) {
@@ -963,6 +966,17 @@ export function MetaStudioCanvas({
                 <Grid3X3 aria-hidden="true" size={18} />
               </button>
             </div>
+            <button
+              aria-label="Manage creator video carousel"
+              className={`${styles.iconButton} ${styles.creatorManagerButton} ${clean ? styles.chromeHidden : ""}`}
+              disabled={loading || preview}
+              onClick={onOpenCreatorVideos}
+              title={preview ? "Disabled in local fixture preview" : "Manage the desktop Home creator video carousel"}
+              type="button"
+            >
+              <Video aria-hidden="true" size={19} />
+              <span>Creator videos</span>
+            </button>
             <button
               aria-label="Refresh report"
               className={styles.iconButton}

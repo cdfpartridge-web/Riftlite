@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import { normalizeCreatorVideoCarouselConfig } from "@/lib/youtube/creator-video-config";
+import {
+  type CreatorVideoCarouselResult,
+  getCreatorVideoCarousel,
+} from "@/lib/youtube/creator-video-feed";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,16 +37,53 @@ const JSON_HEADERS = {
 };
 
 export async function GET() {
-  const featuredVideos = await readFeaturedVideos();
+  const homeConfig = await readHomeConfig();
+  const featuredVideos = readFeaturedVideos(homeConfig.data);
+  const creatorVideoCarousel = normalizeCreatorVideoCarouselConfig(
+    homeConfig.data?.creatorVideoCarousel,
+    homeConfig.data?.communitySpotlights,
+  );
+  const creatorVideoResult = await readCreatorVideoCarousel(
+    creatorVideoCarousel,
+    homeConfig.db,
+  );
   return NextResponse.json({
     // Keep the singular field for older desktop builds while current builds
     // use the ordered array to populate both homepage video slots.
     featuredVideo: featuredVideos[0],
     featuredVideos,
+    creatorVideos: creatorVideoResult.videos,
+    creatorVideoCarousel: {
+      enabled: creatorVideoCarousel.enabled,
+      rotationSeconds: creatorVideoCarousel.rotationSeconds,
+      maxItems: creatorVideoCarousel.maxItems,
+    },
+    creatorVideosUpdatedAt: creatorVideoResult.updatedAt,
   }, { headers: JSON_HEADERS });
 }
 
-async function readFeaturedVideos(): Promise<HomeFeaturedVideo[]> {
+type HomeConfigRead = {
+  db: ReturnType<typeof getFirestoreAdmin>;
+  data: Record<string, unknown> | null;
+};
+
+async function readHomeConfig(): Promise<HomeConfigRead> {
+  const db = getFirestoreAdmin();
+  if (!db) return { db: null, data: null };
+  try {
+    const snapshot = await db.collection("app_config").doc("home").get();
+    return {
+      db,
+      data: snapshot.exists ? snapshot.data() ?? null : null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[api/app/home] Failed to read home config:", message);
+    return { db, data: null };
+  }
+}
+
+function readFeaturedVideos(data: Record<string, unknown> | null): HomeFeaturedVideo[] {
   const envVideos = parseFeaturedVideoSlots([
     {
       title: process.env.RIFTLITE_HOME_VIDEO_TITLE,
@@ -55,23 +97,23 @@ async function readFeaturedVideos(): Promise<HomeFeaturedVideo[]> {
     },
   ]);
   const fallback = fillFeaturedVideoSlots(envVideos, defaultFeaturedVideoSlots());
+  if (!data) return fallback;
+  const configuredVideos = parseFeaturedVideoSlots(
+    data.featuredVideos ?? (data.featuredVideo ? [data.featuredVideo] : data),
+  );
+  return fillFeaturedVideoSlots(configuredVideos, toFeaturedVideoSlots(fallback));
+}
 
-  const db = getFirestoreAdmin();
-  if (!db) {
-    return fallback;
-  }
-
+async function readCreatorVideoCarousel(
+  config: ReturnType<typeof normalizeCreatorVideoCarouselConfig>,
+  db: ReturnType<typeof getFirestoreAdmin>,
+): Promise<CreatorVideoCarouselResult> {
   try {
-    const snapshot = await db.collection("app_config").doc("home").get();
-    const data = snapshot.exists ? snapshot.data() : null;
-    const configuredVideos = parseFeaturedVideoSlots(
-      data?.featuredVideos ?? (data?.featuredVideo ? [data.featuredVideo] : data),
-    );
-    return fillFeaturedVideoSlots(configuredVideos, toFeaturedVideoSlots(fallback));
+    return await getCreatorVideoCarousel(config, db);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error("[api/app/home] Failed to read home config:", message);
-    return fallback;
+    console.error("[api/app/home] Failed to read creator videos:", message);
+    return { videos: [], updatedAt: "" };
   }
 }
 
