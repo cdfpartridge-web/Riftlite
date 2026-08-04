@@ -31,15 +31,23 @@ import {
   type ReplayVisibility,
 } from "@/lib/replay-v2-server/contracts";
 import { replayProcessingClaimIsActive } from "@/lib/replay-v2-server/completion-claim";
-import { ReplayV2Error, replayFailure } from "@/lib/replay-v2-server/errors";
+import {
+  replayOwnerDeliveryStatus,
+  type ReplayOwnerDeliveryStatus,
+} from "@/lib/replay-v2-server/delivery-status";
+import { normalizeStoredReplayFailure, ReplayV2Error, replayFailure } from "@/lib/replay-v2-server/errors";
 import { privateReplayHubAccessAllowsViewer } from "@/lib/replay-v2-server/hub-grants";
 import { createArtifactGeneration, deterministicReplayId, sha256Hex } from "@/lib/replay-v2-server/ids";
-import type { ReplayRecord, ReplaySummary } from "@/lib/replay-v2-server/model";
+import type { ReplayPublicationWarning, ReplayRecord, ReplaySummary } from "@/lib/replay-v2-server/model";
 import {
   projectReplaySummaryRecord,
   sanitizeCanonicalReplay,
   sortReplaySummariesByCapturedAt,
 } from "@/lib/replay-v2-server/projection";
+import {
+  replayPublicationFailureCode,
+  replayPublicationWarnings,
+} from "@/lib/replay-v2-server/publication-status";
 import { identityUidsFor } from "@/lib/social/server";
 
 export type InitReplayResult = {
@@ -275,10 +283,11 @@ export async function completeReplay(
     if (blockingIssues.length) {
       throw new ReplayV2Error(
         422,
-        "replay_capture_incomplete",
+        replayPublicationFailureCode(blockingIssues),
         `Replay capture is incomplete: ${blockingIssues.map((issue) => issue.message).join(" ")}`,
       );
     }
+    const publicationWarnings = replayPublicationWarnings(quality.issues);
     const canonicalForPublication = quality.issues.length
       ? {
           ...canonical,
@@ -318,6 +327,7 @@ export async function completeReplay(
       pointer,
       canonicalForPublication.source.messageCount,
       listing,
+      publicationWarnings,
     );
   } catch (error) {
     await markProcessingFailed(db, ownerUid, ownerUids, replayId, generation, error);
@@ -388,6 +398,15 @@ export async function readOwnerRawReplay(ownerUid: string, replayId: string): Pr
     record,
     bytes: await readImmutableArtifact(db, record.rawArtifact),
   };
+}
+
+export async function readOwnerReplayDeliveryStatus(
+  ownerUid: string,
+  replayId: string,
+): Promise<ReplayOwnerDeliveryStatus> {
+  const db = replayDb();
+  const record = await ownedReplay(db, await replayOwnerIdentityUids(db, ownerUid), replayId);
+  return replayOwnerDeliveryStatus(record);
 }
 
 export async function updateReplayVisibility(
@@ -474,6 +493,7 @@ async function finalizeCanonicalGeneration(
   canonicalArtifact: NonNullable<ReplayRecord["canonicalArtifact"]>,
   messageCount: number,
   listing: ReplayListingMetadata,
+  warnings: ReplayPublicationWarning[],
 ): Promise<ReplayRecord> {
   const replayRef = db.collection(REPLAY_COLLECTION).doc(replayId);
   return db.runTransaction(async (transaction) => {
@@ -496,6 +516,7 @@ async function finalizeCanonicalGeneration(
       canonicalArtifact,
       messageCount,
       listing,
+      warnings,
       processingGeneration: "",
       failure: null,
       processedAt: now,
@@ -506,6 +527,7 @@ async function finalizeCanonicalGeneration(
       canonicalArtifact,
       messageCount,
       listing,
+      warnings,
       processingGeneration: "",
       failure: null,
       processedAt: now,
@@ -741,14 +763,11 @@ function isSafeReplayCursorId(value: unknown): value is string {
 function serializeSummary(data: Record<string, unknown>, ownerView: boolean): ReplaySummary {
   const visibility = ReplayVisibilitySchema.safeParse(data.visibility);
   const status = ReplayStatusSchema.safeParse(data.status);
-  const failure = isRecord(data.failure)
-    ? {
-        code: stringValue(data.failure.code),
-        message: stringValue(data.failure.message),
-      }
-    : undefined;
+  const failureCode = isRecord(data.failure) ? stringValue(data.failure.code) : "";
+  const failure = failureCode ? normalizeStoredReplayFailure(data.failure) : undefined;
   const capturedAt = timestampIso(data.capturedAt);
   const listing = parseListingMetadata(data.listing);
+  const warnings = parsePublicationWarnings(data.warnings);
   return {
     replayId: stringValue(data.replayId),
     ...(ownerView ? { captureId: stringValue(data.captureId) } : {}),
@@ -762,8 +781,19 @@ function serializeSummary(data: Record<string, unknown>, ownerView: boolean): Re
     ...(capturedAt ? { capturedAt } : {}),
     createdAt: timestampIso(data.createdAt),
     updatedAt: timestampIso(data.updatedAt),
+    ...(warnings.length ? { warnings } : {}),
     ...(ownerView && failure?.code ? { failure } : {}),
   };
+}
+
+function parsePublicationWarnings(value: unknown): ReplayPublicationWarning[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 8).flatMap((warning) => {
+    if (!isRecord(warning)) return [];
+    const code = stringValue(warning.code).slice(0, 80);
+    const message = stringValue(warning.message).slice(0, 300);
+    return code && message ? [{ code, message }] : [];
+  });
 }
 
 async function hydrateReplayListings(

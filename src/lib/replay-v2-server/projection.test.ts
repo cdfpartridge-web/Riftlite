@@ -63,6 +63,10 @@ describe("replay public projections", () => {
       capturedAt: new Date("2026-07-09T18:00:12.000Z"),
       createdAt: new Date(),
       updatedAt: new Date(),
+      warnings: [{
+        code: "replay_capture_missing_mulligan",
+        message: "The replay did not capture the opening mulligan.",
+      }],
     } as ReplayRecord;
 
     const projected = projectReplaySummaryRecord(record, false);
@@ -71,6 +75,7 @@ describe("replay public projections", () => {
     expect(projected).not.toHaveProperty("roomCode");
     expect(projected.capturedAt).toEqual(record.capturedAt);
     expect(projected.listing).toEqual(record.listing);
+    expect(projected.warnings).toEqual(record.warnings);
   });
 
   it("preserves perspective-mapped game results while removing transport identity", () => {

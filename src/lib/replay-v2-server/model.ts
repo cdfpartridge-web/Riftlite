@@ -1,5 +1,11 @@
 import type { ReplayStatus, ReplayVisibility } from "@/lib/replay-v2-server/contracts";
+import type { ReplayFailureDetails } from "@/lib/replay-v2-server/errors";
 import type { ReplayListingMetadata } from "@/lib/replay-v2/replay-listing";
+
+export type ReplayPublicationWarning = {
+  code: string;
+  message: string;
+};
 
 export type ReplayArtifactKind = "raw" | "canonical";
 
@@ -45,10 +51,8 @@ export type ReplayRecord = {
   rawArtifact?: ReplayArtifactPointer;
   canonicalArtifact?: ReplayArtifactPointer;
   processingGeneration?: string;
-  failure?: {
-    code: string;
-    message: string;
-  } | null;
+  failure?: ReplayFailureDetails | null;
+  warnings?: ReplayPublicationWarning[];
   capturedAt?: unknown;
   createdAt: unknown;
   updatedAt: unknown;
@@ -69,8 +73,6 @@ export type ReplaySummary = {
   capturedAt?: string;
   createdAt: string;
   updatedAt: string;
-  failure?: {
-    code: string;
-    message: string;
-  };
+  failure?: ReplayFailureDetails;
+  warnings?: ReplayPublicationWarning[];
 };

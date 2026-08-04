@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ReplayCardState, ReplayPlayerState, ReplayState } from "@/lib/replay-v2";
+import type { ReplayCardState, ReplayEvent, ReplayPlayerState, ReplayState } from "@/lib/replay-v2";
 
 import {
   attachedToCardId,
@@ -16,12 +16,85 @@ import {
   championCard,
   championZoneCard,
   customCardLabels,
+  eventLabel,
   groupCardsWithAttachments,
   isBattlefieldCard,
   isDuplicateCard,
+  isReplayActionStep,
+  isTechnicalReplayActionType,
   legendCard,
+  replayActionStepIndex,
+  replayDisplayEvent,
   safeCardImageUrl,
 } from "./model";
+
+describe("replay action navigation", () => {
+  it("skips provider bookkeeping and unknown packets in both directions", () => {
+    const events: ReplayEvent[] = [
+      replayAction(0, "move_card"),
+      replayUnknown(1, "authoritative_patch_commit"),
+      replayAction(2, "payment_batch", "BMU paid 2 energy."),
+      replayUnknown(3, "rewind_confirmation_state"),
+      replayAction(4, "play_card"),
+    ];
+
+    expect(replayActionStepIndex({ events }, 0, 1)).toBe(4);
+    expect(replayActionStepIndex({ events }, 4, -1)).toBe(0);
+    expect(replayActionStepIndex({ events }, -1, 1)).toBe(0);
+  });
+
+  it("keeps player-facing event families while excluding unknown synchronization frames", () => {
+    expect(isReplayActionStep({
+      id: "phase",
+      index: 0,
+      at: 1,
+      atMs: 0,
+      sourceMessageId: "message-phase",
+      gameId: "game-1",
+      kind: "phase",
+      phase: "in_game",
+      rawPhase: "in_game",
+      gameNumber: 1,
+    })).toBe(true);
+    expect(isReplayActionStep({
+      id: "snapshot",
+      index: 1,
+      at: 2,
+      atMs: 1,
+      sourceMessageId: "message-snapshot",
+      gameId: "game-1",
+      kind: "snapshot",
+      snapshot: {
+        room: { phase: "in_game", rawPhase: "in_game", gameNumber: 1, fields: {} },
+        players: {},
+        chain: [],
+        log: [],
+      },
+    })).toBe(true);
+    expect(isReplayActionStep(replayUnknown(1, "authoritative_patch_commit"))).toBe(false);
+    expect(isTechnicalReplayActionType("Rewind Confirmation State")).toBe(true);
+    expect(isTechnicalReplayActionType("move_cards_to_trash_batch")).toBe(false);
+  });
+
+  it("uses a human match-log description for technical actions", () => {
+    expect(eventLabel(replayAction(0, "payment_batch", "BMU paid 2 energy.")))
+      .toBe("BMU paid 2 energy.");
+    expect(eventLabel(replayAction(1, "authoritative_patch_commit"))).toBe("Board updated");
+  });
+
+  it("keeps technical packet names out of playback captions", () => {
+    const events: ReplayEvent[] = [
+      replayAction(0, "move_card"),
+      replayUnknown(1, "authoritative_patch_commit"),
+      replayAction(2, "payment_batch", "BMU paid 2 energy."),
+      replayUnknown(3, "rewind_confirmation_state"),
+    ];
+
+    expect(replayDisplayEvent({ events }, 1)?.index).toBe(0);
+    expect(eventLabel(replayDisplayEvent({ events }, 3))).toBe("BMU paid 2 energy.");
+    expect(replayDisplayEvent({ events }, -1)).toBeUndefined();
+  });
+});
 
 describe("replay card image URLs", () => {
   it("accepts same-origin paths and the dedicated card-art hosts", () => {
@@ -86,6 +159,26 @@ describe("replay card image URLs", () => {
       .toBe("https://cdn.piltoverarchive.com/cards/UNL-217.webp");
     expect(cardImageUrl(card("valley", "Valley of Idols")))
       .toBe("https://cdn.piltoverarchive.com/cards/UNL-218.webp");
+  });
+
+  it.each([
+    ["Dragon Roost", "VEN-157"],
+    ["Heisho, Shell of the World", "VEN-158"],
+    ["Kinkou Temple", "VEN-159"],
+    ["Mystic Vortex", "VEN-160"],
+    ["Piltovan Forge", "VEN-161"],
+    ["Piltover Forge", "VEN-161"],
+    ["Protective Sands", "VEN-162"],
+    ["Risen Altar", "VEN-163"],
+    ["Sandswept Tomb", "VEN-164"],
+    ["Shadow Temple", "VEN-165"],
+    ["Threshold of the Gray", "VEN-166"],
+    ["Threshold of the Grey", "VEN-166"],
+  ])("resolves the name-only Vendetta battlefield %s", (name, code) => {
+    const battlefield = card(`battlefield-${code}`, name);
+    expect(isBattlefieldCard(battlefield)).toBe(true);
+    expect(cardImageUrl(battlefield))
+      .toBe(`https://cdn.piltoverarchive.com/cards/${code}.webp`);
   });
 
   it.each([
@@ -427,5 +520,48 @@ function replayState(
     chain: [],
     log: [],
     chat: [],
+  };
+}
+
+function replayAction(index: number, actionType: string, logText?: string): ReplayEvent {
+  return {
+    id: `action-${index}`,
+    index,
+    at: 1_000 + index,
+    atMs: index,
+    sourceMessageId: `message-${index}`,
+    gameId: "game-1",
+    kind: "action",
+    actionType,
+    action: { type: actionType },
+    confirmation: {
+      status: "confirmed",
+      authority: "authoritative_patch_commit",
+      correlation: "intent_not_observed",
+      commitMessageId: `message-${index}`,
+    },
+    patch: {
+      operations: logText ? [{
+        id: `log-${index}`,
+        op: "log_insert",
+        index: 0,
+        entries: [{ id: `entry-${index}`, text: logText, fields: {} }],
+      }] : [],
+    },
+  };
+}
+
+function replayUnknown(index: number, packetType: string): ReplayEvent {
+  return {
+    id: `unknown-${index}`,
+    index,
+    at: 1_000 + index,
+    atMs: index,
+    sourceMessageId: `message-${index}`,
+    gameId: "game-1",
+    kind: "unknown",
+    packetType,
+    reason: "unsupported_packet",
+    payload: {},
   };
 }

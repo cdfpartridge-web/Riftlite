@@ -689,6 +689,7 @@
 .cardFacts strong { color: #aebbd8; }
 
 .failureMessage,
+.warningMessage,
 .processingMessage {
   margin: 14px 0 0;
   font-size: 0.72rem;
@@ -699,6 +700,12 @@
   display: flex;
   gap: 7px;
   color: #ff9ba6;
+}
+
+.warningMessage {
+  display: flex;
+  gap: 7px;
+  color: #e7bd70;
 }
 
 .processingMessage { color: #8ea6cd; }

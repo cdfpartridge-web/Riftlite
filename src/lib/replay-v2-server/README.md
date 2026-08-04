@@ -8,6 +8,23 @@ Replay v2 uses an authenticated, idempotent three-step upload:
 2. `PUT /api/v2/replays/:replayId/raw` sends gzip bytes with the returned declaration headers.
 3. `POST /api/v2/replays/:replayId/complete` normalizes the raw capture and atomically switches the canonical generation.
 
+Init, raw upload, and successful completion responses expose the same owner status path. A client must persist the
+replay ID and `statusEndpoint` as soon as init succeeds, because the source upload may be durable even when the
+completion request is interrupted. `GET /api/v2/replays/:replayId/status` requires the same Firebase bearer token
+and returns the owner-only delivery stage, retryability, recommended action, optional failure, and publication
+warnings. Processing conflicts return HTTP 425 with `Retry-After: 5`; clients should poll the status endpoint and
+resume the idempotent completion step instead of starting a second capture or treating 425 as a permanent failure.
+
+Replay API errors retain the compatible top-level `error` and `code` fields and also include `errorClass`,
+`retryable`, `recommendedAction`, and, when applicable, `retryAfterMs`. Clients should branch on the stable code and
+structured action rather than matching the English message.
+
+The only incomplete-capture override is a missing opening mulligan. Strict completion reports
+`replay_capture_missing_mulligan`; retrying completion with `{ "allowIncomplete": true }` publishes the replay with
+a persisted warning. Missing gameplay, players, legends, battlefields, Game 1, or unambiguous game boundaries remain
+blocking failures. Owner and public library summaries surface the warning while the canonical replay remains
+watchable.
+
 All management calls require a non-anonymous, linked-account Firebase bearer token. Raw captures and canonical generations are immutable private
 artifacts, even when the replay is public. Only the owner diagnostics route can return raw bytes. Public and
 unlisted canonical replays are read through `GET /api/v2/replays/:replayId`. Private canonical reads require an

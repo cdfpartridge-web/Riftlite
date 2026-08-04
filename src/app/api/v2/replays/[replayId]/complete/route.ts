@@ -50,6 +50,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
     return noStoreJson({
       replay: serializeReplay(record, true),
+      statusEndpoint: `/api/v2/replays/${encodeURIComponent(replayId)}/status`,
       canonicalEndpoint: `/api/v2/replays/${encodeURIComponent(replayId)}`,
       playerPath: `/replays/${encodeURIComponent(replayId)}`,
     });

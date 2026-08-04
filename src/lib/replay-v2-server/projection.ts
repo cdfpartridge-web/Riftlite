@@ -77,6 +77,7 @@ export function projectReplaySummaryRecord(record: ReplayRecord, ownerView: bool
     ...(record.capturedAt ? { capturedAt: record.capturedAt } : {}),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+    ...(record.warnings?.length ? { warnings: record.warnings } : {}),
     ...(ownerView && record.failure ? { failure: record.failure } : {}),
   };
 }

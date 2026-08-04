@@ -40,6 +40,7 @@ export async function POST(request: Request) {
             }
           : null,
         completeEndpoint: `/api/v2/replays/${encodeURIComponent(replayId)}/complete`,
+        statusEndpoint: `/api/v2/replays/${encodeURIComponent(replayId)}/status`,
         canonicalEndpoint: `/api/v2/replays/${encodeURIComponent(replayId)}`,
         playerPath: `/replays/${encodeURIComponent(replayId)}`,
       },
