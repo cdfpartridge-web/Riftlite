@@ -79,6 +79,29 @@ describe("embedded replay library", () => {
     expect(view.getByText(/9 Jul 2026/)).toBeInTheDocument();
   });
 
+  it("shows the persisted partial-capture warning on a ready replay", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify({
+      items: String(input).includes("scope=mine") ? [{
+        ...publicReplay("rl2_partial", "Partial replay"),
+        visibility: "private",
+        warnings: [{
+          code: "replay_capture_missing_mulligan",
+          message: "The replay did not capture the opening mulligan.",
+        }],
+      }] : [],
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+
+    const view = render(createElement(ReplayLibrary, { embedded: true }));
+
+    await waitFor(() => {
+      expect(view.getByText("Partial capture: The replay did not capture the opening mulligan.")).toBeInTheDocument();
+    });
+    expect(view.getByRole("link", { name: /Watch replay/i })).toBeEnabled();
+  });
+
   it("keeps the manual combiner hidden from the website replay library", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), {
       headers: { "content-type": "application/json" },

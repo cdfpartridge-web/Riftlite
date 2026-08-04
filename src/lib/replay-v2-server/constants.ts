@@ -15,6 +15,11 @@ export const FIRESTORE_ARTIFACT_FALLBACK_ENV = "REPLAY_V2_ALLOW_FIRESTORE_ARTIFA
 // on that retryable lane so one successful worker cannot leave another caller
 // with a permanent local failure.
 export const REPLAY_PROCESSING_RETRY_STATUS = 425;
+export const REPLAY_PROCESSING_RETRY_AFTER_SECONDS = 5;
+
+// Stable product/API code used by desktop and website recovery controls. Keep
+// this independent from the human-readable quality message.
+export const REPLAY_CAPTURE_MISSING_MULLIGAN_CODE = "replay_capture_missing_mulligan";
 
 export const REPLAY_COLLECTION = "replayV2";
 export const REPLAY_OWNER_COLLECTION = "replayV2Owners";

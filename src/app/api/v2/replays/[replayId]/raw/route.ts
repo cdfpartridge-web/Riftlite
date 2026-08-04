@@ -37,6 +37,7 @@ export async function PUT(request: Request, context: RouteContext) {
     return noStoreJson({
       replay: serializeReplay(record, true),
       completeEndpoint: `/api/v2/replays/${encodeURIComponent(replayId)}/complete`,
+      statusEndpoint: `/api/v2/replays/${encodeURIComponent(replayId)}/status`,
     });
   } catch (error) {
     return replayApiError(error);

@@ -58,6 +58,10 @@ type ReplaySummary = {
     code: string;
     message: string;
   };
+  warnings?: Array<{
+    code: string;
+    message: string;
+  }>;
 };
 
 type UploadStage =
@@ -87,6 +91,7 @@ type InitReplayResponse = {
     headers?: Record<string, string>;
   } | null;
   completeEndpoint?: string;
+  statusEndpoint?: string;
   playerPath?: string;
 };
 
@@ -878,6 +883,11 @@ function ReplayCard({
         {replay.status === "failed" && replay.failure?.message ? (
           <p className={styles.failureMessage}><AlertCircle aria-hidden="true" size={15} /> {replay.failure.message}</p>
         ) : null}
+        {replay.status === "ready" && replay.warnings?.length ? (
+          <p className={styles.warningMessage}>
+            <AlertCircle aria-hidden="true" size={15} /> Partial capture: {replay.warnings[0].message}
+          </p>
+        ) : null}
         {replay.status === "processing" ? <p className={styles.processingMessage}>The replay is being rebuilt into deterministic actions.</p> : null}
         {replay.status === "uploading" ? <p className={styles.processingMessage}>Select the original capture above to safely resume this upload.</p> : null}
       </div>
@@ -1095,6 +1105,7 @@ function readReplayItems(payload: Record<string, unknown>): ReplaySummary[] {
     if (!isRecord(value) || typeof value.replayId !== "string" || !value.replayId) return [];
     if (!isReplayStatus(value.status) || !isReplayVisibility(value.visibility)) return [];
     const listing = readListingMetadata(value.listing);
+    const warnings = readReplayWarnings(value.warnings);
     return [{
       replayId: value.replayId,
       visibility: value.visibility,
@@ -1113,8 +1124,18 @@ function readReplayItems(payload: Record<string, unknown>): ReplaySummary[] {
       ...(isRecord(value.failure) && typeof value.failure.message === "string" && typeof value.failure.code === "string"
         ? { failure: { code: value.failure.code, message: value.failure.message } }
         : {}),
+      ...(warnings.length ? { warnings } : {}),
     }];
   });
+}
+
+function readReplayWarnings(value: unknown): NonNullable<ReplaySummary["warnings"]> {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 8).flatMap((warning) => (
+    isRecord(warning) && typeof warning.code === "string" && typeof warning.message === "string"
+      ? [{ code: warning.code, message: warning.message }]
+      : []
+  ));
 }
 
 function readReplayPageInfo(payload: Record<string, unknown>): { hasMore: boolean; nextCursor: string | null } {

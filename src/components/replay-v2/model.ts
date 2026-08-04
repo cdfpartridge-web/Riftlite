@@ -34,6 +34,12 @@ const RIFT_ATLAS_TOKEN_IMAGE_URLS: Record<string, string> = {
   sandsoldier: "https://play.riftatlas.com/tokens/SandSoldier.webp",
   sprite: "https://play.riftatlas.com/tokens/Sprite.webp",
 };
+const TECHNICAL_ACTION_STEP_TYPES = new Set([
+  "authoritativepatchcommit",
+  "paymentbatch",
+  "rewindconfirmationstate",
+  "unknownaction",
+]);
 const CANONICAL_RUNE_CARD_CODES: Record<string, string> = {
   bodyrune: "OGN-126",
   calmrune: "OGN-042",
@@ -77,6 +83,7 @@ const BATTLEFIELD_CARD_CODES: Record<string, string> = {
   bandletree: "OGN-278",
   blackflamealtar: "UNL-208",
   dreamingtree: "OGN-292",
+  dragonroost: "VEN-157",
   duskroselab: "UNL-209",
   emperorsdais: "SFD-207",
   forbiddingwaste: "UNL-210",
@@ -90,20 +97,29 @@ const BATTLEFIELD_CARD_CODES: Record<string, string> = {
   halloflegend: "SFD-210",
   halloflegends: "SFD-210",
   hallowedtomb: "OGN-281",
+  heishoshelloftheworld: "VEN-158",
+  kinkoutemple: "VEN-159",
   maraispire: "SFD-211",
   minefield: "SFD-212",
   monasteryofhirana: "OGN-282",
+  mysticvortex: "VEN-160",
   navorifightingpit: "OGN-283",
   obeliskofpower: "OGN-284",
   ornnsforge: "SFD-213",
+  piltoverforge: "VEN-161",
+  piltovanforge: "VEN-161",
   powernexus: "SFD-214",
+  protectivesands: "VEN-162",
   ravenbloomconservatory: "SFD-215",
   ravensbloomconservatory: "SFD-215",
   reaversrow: "OGN-285",
   reckonersarena: "OGN-286",
   rippersbay: "UNL-214",
+  risenaltar: "VEN-163",
   rockfallpath: "SFD-216",
+  sandswepttomb: "VEN-164",
   seatofpower: "SFD-217",
+  shadowtemple: "VEN-165",
   sigilofthestorm: "OGN-287",
   starspring: "UNL-215",
   startippedpeak: "OGN-288",
@@ -116,6 +132,8 @@ const BATTLEFIELD_CARD_CODES: Record<string, string> = {
   thedreamingtree: "OGN-292",
   thegrandplaza: "OGN-293",
   thepapertree: "SFD-219",
+  thresholdofthegray: "VEN-166",
+  thresholdofthegrey: "VEN-166",
   trappinggrounds: "UNL-217",
   treasurehoard: "SFD-220",
   trifarianwarcamp: "OGN-294",
@@ -757,8 +775,16 @@ export function replayDurationMs(replay: CanonicalReplayV2): number {
 export function eventLabel(event: ReplayEvent | undefined): string {
   if (!event) return "Replay ready";
   switch (event.kind) {
-    case "action":
+    case "action": {
+      if (isTechnicalReplayActionType(event.actionType)) {
+        const logEntry = [...event.patch.operations]
+          .reverse()
+          .find((operation) => operation.op === "log_insert")
+          ?.entries.at(-1);
+        return logEntry?.text || "Board updated";
+      }
       return titleCase(event.actionType || "Action");
+    }
     case "chat":
       return event.entries.at(-1)?.text || "Chat message";
     case "log":
@@ -776,6 +802,48 @@ export function eventLabel(event: ReplayEvent | undefined): string {
     default:
       return "Replay event";
   }
+}
+
+export function isTechnicalReplayActionType(actionType: string): boolean {
+  return TECHNICAL_ACTION_STEP_TYPES.has(normalizeKey(actionType));
+}
+
+export function isReplayActionStep(event: ReplayEvent): boolean {
+  if (event.kind === "unknown") return false;
+  return event.kind !== "action" || !isTechnicalReplayActionType(event.actionType);
+}
+
+export function replayActionStepIndex(
+  replay: Pick<CanonicalReplayV2, "events">,
+  currentEventIndex: number,
+  direction: -1 | 1,
+): number | undefined {
+  const start = direction > 0
+    ? Math.max(0, Math.trunc(currentEventIndex) + 1)
+    : Math.min(replay.events.length - 1, Math.trunc(currentEventIndex) - 1);
+  for (
+    let index = start;
+    index >= 0 && index < replay.events.length;
+    index += direction
+  ) {
+    if (isReplayActionStep(replay.events[index])) return index;
+  }
+  return undefined;
+}
+
+export function replayDisplayEvent(
+  replay: Pick<CanonicalReplayV2, "events">,
+  currentEventIndex: number,
+): ReplayEvent | undefined {
+  for (
+    let index = Math.min(replay.events.length - 1, Math.trunc(currentEventIndex));
+    index >= 0;
+    index -= 1
+  ) {
+    const event = replay.events[index];
+    if (event.kind !== "unknown") return event;
+  }
+  return undefined;
 }
 
 export function visibleCardFields(card: ReplayCardState): Array<[string, string]> {
