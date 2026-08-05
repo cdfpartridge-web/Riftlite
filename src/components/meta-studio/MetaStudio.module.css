@@ -1138,6 +1138,21 @@
   white-space: nowrap;
 }
 
+.matrixRowCopy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.matrixRowCopy small {
+  color: #65c9df;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .matrixCell {
   display: flex;
   min-width: 0;
@@ -1192,6 +1207,17 @@
   color: currentColor;
   font-size: 7px;
   opacity: 0.64;
+}
+
+.matrixCellMirror,
+.matrixCellMirror:hover {
+  border-color: rgba(118, 187, 226, 0.035) !important;
+  background: rgba(3, 9, 17, 0.48);
+  box-shadow: none;
+  cursor: default;
+  filter: none;
+  pointer-events: none;
+  transform: none;
 }
 
 .matrixInspector {

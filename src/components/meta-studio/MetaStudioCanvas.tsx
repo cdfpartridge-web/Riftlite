@@ -559,7 +559,7 @@ function OverviewScene({
   );
 }
 
-function MatrixScene({
+export function MatrixScene({
   report,
   selection,
   onPreview,
@@ -577,15 +577,18 @@ function MatrixScene({
   const selectedLeader = leaderMap.get(selection?.legend ?? "") ?? leaders[0];
   const requestedMatchup = selectedLeader?.matchups.find(
     (matchup) =>
+      matchup.opponentLegend !== selectedLeader.legend &&
       matchup.opponentLegend === selection?.opponent &&
       leaderMap.has(matchup.opponentLegend),
   );
   const selectedMatchup = requestedMatchup ?? selectedLeader?.matchups.find(
-    (matchup) => leaderMap.has(matchup.opponentLegend),
+    (matchup) =>
+      matchup.opponentLegend !== selectedLeader.legend &&
+      leaderMap.has(matchup.opponentLegend),
   );
   const selectedOpponent = requestedMatchup?.opponentLegend
     ?? selectedMatchup?.opponentLegend
-    ?? leaders[0]?.legend
+    ?? leaders.find((leader) => leader.legend !== selectedLeader?.legend)?.legend
     ?? "";
   const effectiveSelection = selectedLeader && selectedOpponent
     ? { legend: selectedLeader.legend, opponent: selectedOpponent }
@@ -625,10 +628,24 @@ function MatrixScene({
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img alt="" src={legendArt(leader)} />
                 </span>
-                <strong>{legendShortName(leader.legend)}</strong>
+                <div className={styles.matrixRowCopy}>
+                  <strong>{legendShortName(leader.legend)}</strong>
+                  <small>{percent(leader.winRate)} overall</small>
+                </div>
               </div>,
             ];
             for (const opponent of leaders) {
+              if (leader.legend === opponent.legend) {
+                row.push(
+                  <div
+                    aria-label={`${leader.legend} mirror matchup hidden`}
+                    className={`${styles.matrixCell} ${styles.matrixCellMirror}`}
+                    data-matrix-mirror
+                    key={`${leader.legend}-${opponent.legend}`}
+                  />,
+                );
+                continue;
+              }
               const matchup = leader.matchups.find((item) => item.opponentLegend === opponent.legend);
               const active =
                 effectiveSelection?.legend === leader.legend &&
@@ -682,6 +699,7 @@ function MatrixScene({
               <div><span className={styles.evenDot} /> &gt;45% and &lt;55% even</div>
               <div><span className={styles.badDot} /> 45% or less unfavoured</div>
               <div><span className={styles.mutedDot} /> Below decisive sample</div>
+              <div><span className={styles.mutedDot} /> Mirrors hidden</div>
             </div>
           </>
         ) : null}

@@ -627,7 +627,9 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
     [matrix.cells],
   );
   const firstCell = Array.from(cellPresentations.values()).find(
-    (presentation) => presentation.pooled.totalGames > 0,
+    (presentation) =>
+      presentation.pooled.totalGames > 0 &&
+      presentation.pooled.myLegend !== presentation.pooled.oppLegend,
   )?.pooled;
   const [selectedKey, setSelectedKey] = useState(
     firstCell ? matrixCellKey(firstCell.myLegend, firstCell.oppLegend) : "",
@@ -639,15 +641,36 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
     () => (selected ? matchupMatches(matches, selected) : []),
     [selected, matches],
   );
-  const rowTotals = useMemo(() => {
-    const totals = new Map<string, number>();
+  const rowStats = useMemo(() => {
+    const totals = new Map<string, {
+      wins: number;
+      losses: number;
+      draws: number;
+      totalGames: number;
+      winRate: number;
+    }>();
     for (const rowLegend of matrix.rows) {
+      let wins = 0;
+      let losses = 0;
+      let draws = 0;
+      let totalGames = 0;
       for (const colLegend of matrix.columns) {
         const cell = cellPresentations.get(matrixCellKey(rowLegend, colLegend))?.pooled;
         if (cell && cell.totalGames > 0) {
-          totals.set(rowLegend, (totals.get(rowLegend) ?? 0) + cell.totalGames);
+          wins += cell.wins;
+          losses += cell.losses;
+          draws += cell.draws;
+          totalGames += cell.totalGames;
         }
       }
+      const decisiveGames = wins + losses;
+      totals.set(rowLegend, {
+        wins,
+        losses,
+        draws,
+        totalGames,
+        winRate: decisiveGames ? Number(((wins / decisiveGames) * 100).toFixed(1)) : 0,
+      });
     }
     return totals;
   }, [cellPresentations, matrix.columns, matrix.rows]);
@@ -745,12 +768,32 @@ export function MatrixBrowser({ matrix, matches }: MatrixBrowserProps) {
                           {matrixLegendLabel(rowLegend)}
                         </span>
                         <span className="text-[10px] font-semibold text-cyan-200">
-                          {(rowTotals.get(rowLegend) ?? 0).toLocaleString()} {(rowTotals.get(rowLegend) ?? 0) === 1 ? "capture" : "captures"}
+                          {(rowStats.get(rowLegend)?.wins ?? 0) + (rowStats.get(rowLegend)?.losses ?? 0)
+                            ? `${formatPercent(rowStats.get(rowLegend)?.winRate ?? 0)} overall`
+                            : "No decisive games"}
+                        </span>
+                        <span className="text-[9px] text-slate-500">
+                          {(rowStats.get(rowLegend)?.totalGames ?? 0).toLocaleString()} {(rowStats.get(rowLegend)?.totalGames ?? 0) === 1 ? "capture" : "captures"}
                         </span>
                       </span>
                     </Link>
                   </td>
                   {matrix.columns.map((colLegend) => {
+                    const mirror = rowLegend === colLegend;
+                    if (mirror) {
+                      return (
+                        <td
+                          aria-label={`${matrixLegendLabel(rowLegend)} mirror matchup hidden`}
+                          key={`${rowLegend}-${colLegend}`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className="block min-h-[58px] min-w-[76px] rounded-[14px] border border-white/[0.025] bg-black/20"
+                            data-matrix-mirror
+                          />
+                        </td>
+                      );
+                    }
                     const presentation = cellPresentations.get(
                       matrixCellKey(rowLegend, colLegend),
                     );

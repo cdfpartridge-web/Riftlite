@@ -31,7 +31,7 @@ function breakdown(wins: number, losses: number): MatchupCaptureBreakdown {
     draws: 0,
     decisiveGames,
     totalGames: decisiveGames,
-    winRate: Number(((wins / decisiveGames) * 100).toFixed(1)),
+    winRate: decisiveGames ? Number(((wins / decisiveGames) * 100).toFixed(1)) : 0,
   };
 }
 
@@ -83,7 +83,30 @@ describe("MatrixBrowser", () => {
     expect(pooledButton).toHaveTextContent("60.6%");
     expect(pooledButton).toHaveAttribute("aria-label", pooledButton.getAttribute("title"));
     expect(view.container).toHaveTextContent("33 matrix-ready capture records");
+    expect(view.container).toHaveTextContent("60.6% overall");
+    expect(view.container).toHaveTextContent("39.4% overall");
     expect(view.container).toHaveTextContent("10W / 1L / 0D");
     expect(view.container).toHaveTextContent("12W / 10L / 0D");
+  });
+
+  it("leaves populated mirror matchups blank while retaining the legend's overall rate", () => {
+    const direct = breakdown(8, 2);
+    const matrix: MatrixView = {
+      rows: ["Kennen"],
+      columns: ["Kennen"],
+      cells: [pooledCell("Kennen", "Kennen", direct, breakdown(0, 0))],
+      aggregationMethod: "symmetric-v1",
+      matrixReadyMatchCount: 10,
+      sourceMatchCount: 10,
+      detailMatchCount: 10,
+    };
+
+    const view = render(createElement(MatrixBrowser, { matrix, matches: [] }));
+    const mirror = view.getByLabelText("Kennen mirror matchup hidden");
+
+    expect(mirror).toHaveTextContent("");
+    expect(mirror.querySelector("button")).toBeNull();
+    expect(mirror.querySelector("[data-matrix-mirror]")).toBeInTheDocument();
+    expect(view.container).toHaveTextContent("80.0% overall");
   });
 });
