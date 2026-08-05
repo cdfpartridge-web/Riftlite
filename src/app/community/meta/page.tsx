@@ -31,7 +31,7 @@ export default async function MetaPage({
         description="Win rates and play counts for every legend, ranked by popularity so you can see what's defining the meta this week."
       />
       <AdSlot placement="community-top" slots={adSlots} />
-      <CommunityFilterBar filters={filters} />
+      <CommunityFilterBar filters={filters} showFormat />
       <MetaTable rows={rows} />
     </div>
   );

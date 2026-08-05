@@ -32,6 +32,7 @@ export function parseFilters(
     season: COMMUNITY_SEASON_IDS.includes(String(source.season ?? "") as (typeof COMMUNITY_SEASON_IDS)[number])
       ? String(source.season ?? "")
       : DEFAULT_FILTERS.season,
+    format: canonicalCommunityFormat(source.format),
     legend: String(source.legend ?? "").trim(),
     result: String(source.result ?? "").trim(),
     seat: String(source.seat ?? "").trim(),
@@ -74,7 +75,25 @@ export function applyCommunityFilters(
   matches: CommunityMatch[],
   filters: CommunityFilterParams,
 ) {
-  return matches.filter((match) => {
+  const activeMatches = matches.filter(
+    (match) => !match.superseded && !match.mergedIntoMatchId,
+  );
+  const combinedSourceIds = new Set(
+    activeMatches.flatMap((match) => match.combinedFromMatchIds ?? []),
+  );
+
+  return activeMatches.filter((match) => {
+    if (match.localMatchId && combinedSourceIds.has(match.localMatchId)) {
+      return false;
+    }
+
+    if (
+      filters.format &&
+      canonicalCommunityFormat(match.fmt) !== filters.format
+    ) {
+      return false;
+    }
+
     if (filters.legend) {
       const champs = [match.myChampion, match.oppChampion];
       if (!champs.includes(filters.legend)) {
@@ -110,6 +129,16 @@ export function applyCommunityFilters(
 
     return true;
   });
+}
+
+export function canonicalCommunityFormat(value: unknown): "bo1" | "bo3" | "" {
+  const format = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  if (format === "bo1" || format === "bestof1") return "bo1";
+  if (format === "bo3" || format === "bestof3") return "bo3";
+  return "";
 }
 
 export function paginate<T>(items: T[], page: number, pageSize: number) {

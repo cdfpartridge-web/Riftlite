@@ -29,6 +29,30 @@ describe("community api routes", () => {
     expect((await decks.json()).items.length).toBeGreaterThan(0);
   });
 
+  it("filters meta and matrix payloads by match format", async () => {
+    const [allMetaResponse, bo1MetaResponse, bo3MetaResponse, allMatrixResponse, bo3MatrixResponse] =
+      await Promise.all([
+        getMeta(new Request("http://localhost/api/community/meta?season=")),
+        getMeta(new Request("http://localhost/api/community/meta?season=&format=bo1")),
+        getMeta(new Request("http://localhost/api/community/meta?season=&format=bo3")),
+        getMatrix(new Request("http://localhost/api/community/matrix?season=")),
+        getMatrix(new Request("http://localhost/api/community/matrix?season=&format=bo3")),
+      ]);
+    const allMeta = await allMetaResponse.json() as Array<{ games: number }>;
+    const bo1Meta = await bo1MetaResponse.json() as Array<{ games: number }>;
+    const bo3Meta = await bo3MetaResponse.json() as Array<{ games: number }>;
+    const allMatrix = await allMatrixResponse.json() as { matrixReadyMatchCount: number };
+    const bo3Matrix = await bo3MatrixResponse.json() as { matrixReadyMatchCount: number };
+    const totalGames = (rows: Array<{ games: number }>) =>
+      rows.reduce((sum, row) => sum + row.games, 0);
+
+    expect(totalGames(bo1Meta)).toBeGreaterThan(0);
+    expect(totalGames(bo3Meta)).toBeGreaterThan(0);
+    expect(totalGames(bo1Meta) + totalGames(bo3Meta)).toBe(totalGames(allMeta));
+    expect(bo3Matrix.matrixReadyMatchCount).toBeGreaterThan(0);
+    expect(bo3Matrix.matrixReadyMatchCount).toBeLessThan(allMatrix.matrixReadyMatchCount);
+  });
+
   it("returns deck detail and twitch status", async () => {
     const deckResponse = await getDeckDetail(new Request("http://localhost"), {
       params: Promise.resolve({ deckKey: encodeURIComponent("source:ahri-tempo-001") }),

@@ -63,6 +63,7 @@ async function getUnfilteredRangeStats(filters: CommunityFilterParams) {
     !isRange ||
     filters.legend ||
     filters.season ||
+    filters.format ||
     filters.result ||
     filters.seat ||
     filters.battlefield ||

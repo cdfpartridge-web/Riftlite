@@ -91,6 +91,7 @@ export const SITE_PATHS = {
 export const DEFAULT_FILTERS: CommunityFilterParams = {
   range: "",
   season: "vendetta-preview",
+  format: "",
   legend: "",
   result: "",
   seat: "",

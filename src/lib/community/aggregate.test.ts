@@ -233,4 +233,46 @@ describe("community aggregation", () => {
     const filtered = applyCommunityFilters(FIXTURE_MATCHES, filters);
     expect(filtered).toHaveLength(2);
   });
+
+  it("parses and applies BO1 and BO3 aliases", () => {
+    const matches = [
+      matrixMatch("bo1", "Ahri", "Jinx", "Win", { fmt: "Bo1" }),
+      matrixMatch("best-of-one", "Ahri", "Jinx", "Loss", { fmt: "Best of 1" }),
+      matrixMatch("bo3", "Ahri", "Jinx", "Win", { fmt: "BO3" }),
+      matrixMatch("best-of-three", "Ahri", "Jinx", "Loss", { fmt: "best-of-3" }),
+    ];
+
+    const bo1 = applyCommunityFilters(
+      matches,
+      parseFilters({ season: "", format: "BEST OF 1" }),
+    );
+    const bo3 = applyCommunityFilters(
+      matches,
+      parseFilters({ season: "", format: "Bo3" }),
+    );
+
+    expect(bo1.map((match) => match.id)).toEqual(["bo1", "best-of-one"]);
+    expect(bo3.map((match) => match.id)).toEqual(["bo3", "best-of-three"]);
+    expect(parseFilters({ format: "unsupported" }).format).toBe("");
+  });
+
+  it("keeps BO3 source games out of the BO1 filter after a series is combined", () => {
+    const source = matrixMatch("source", "Ahri", "Jinx", "Win", {
+      fmt: "Bo1",
+      localMatchId: "source-local-id",
+    });
+    const series = matrixMatch("series", "Ahri", "Jinx", "Loss", {
+      fmt: "Bo3",
+      combinedFromMatchIds: ["source-local-id"],
+    });
+
+    expect(applyCommunityFilters(
+      [source, series],
+      parseFilters({ season: "", format: "bo1" }),
+    )).toEqual([]);
+    expect(applyCommunityFilters(
+      [source, series],
+      parseFilters({ season: "", format: "bo3" }),
+    ).map((match) => match.id)).toEqual(["series"]);
+  });
 });

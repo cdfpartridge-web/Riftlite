@@ -11,9 +11,13 @@ import type { CommunityFilterParams } from "@/lib/types";
 
 type CommunityFilterBarProps = {
   filters: CommunityFilterParams;
+  showFormat?: boolean;
 };
 
-export function CommunityFilterBar({ filters }: CommunityFilterBarProps) {
+export function CommunityFilterBar({
+  filters,
+  showFormat = false,
+}: CommunityFilterBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -46,7 +50,7 @@ export function CommunityFilterBar({ filters }: CommunityFilterBarProps) {
 
   return (
     <Card className="rounded-[24px] p-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
+      <div className={`grid gap-4 md:grid-cols-2 ${showFormat ? "xl:grid-cols-8" : "xl:grid-cols-7"}`}>
         <label className="space-y-2 text-sm text-slate-300">
           <span className="block text-xs uppercase tracking-[0.2em] text-slate-500">
             Season
@@ -63,6 +67,23 @@ export function CommunityFilterBar({ filters }: CommunityFilterBarProps) {
             ))}
           </select>
         </label>
+
+        {showFormat ? (
+          <label className="space-y-2 text-sm text-slate-300">
+            <span className="block text-xs uppercase tracking-[0.2em] text-slate-500">
+              Format
+            </span>
+            <select
+              className="h-11 w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 text-sm text-white outline-none transition focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20"
+              onChange={(event) => update("format", event.target.value)}
+              value={form.format}
+            >
+              <option value="">All formats</option>
+              <option value="bo1">Best of 1</option>
+              <option value="bo3">Best of 3</option>
+            </select>
+          </label>
+        ) : null}
 
         <label className="space-y-2 text-sm text-slate-300">
           <span className="block text-xs uppercase tracking-[0.2em] text-slate-500">

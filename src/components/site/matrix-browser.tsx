@@ -6,6 +6,7 @@ import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { canonicalCommunityFormat } from "@/lib/community/filters";
 import {
   buildMatrixCellPresentations,
   matrixCellKey,
@@ -193,7 +194,7 @@ function computeSplits(matches: CommunityMatch[]) {
 
   for (const match of matches) {
     const isWin = match.result === "Win";
-    const fmtKey = match.fmt === "Bo3" ? "Bo3" : "Bo1";
+    const fmtKey = canonicalCommunityFormat(match.fmt) === "bo3" ? "Bo3" : "Bo1";
     fmt[fmtKey].total += 1;
     if (isWin) fmt[fmtKey].wins += 1;
 
@@ -479,7 +480,7 @@ function MatchDetailPanel({
 }) {
   const shown = matches.slice(0, 20);
   const selected = matches.find((m) => m.id === selectedId) ?? null;
-  const gameSlots = selected?.fmt === "Bo3" ? 3 : 1;
+  const gameSlots = canonicalCommunityFormat(selected?.fmt) === "bo3" ? 3 : 1;
 
   return (
     <div className="space-y-4">
