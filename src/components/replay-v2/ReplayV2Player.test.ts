@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -13,7 +13,11 @@ vi.mock("firebase/auth", () => ({
 
 vi.mock("@/lib/firebase/client", () => ({ firebaseClientApp: {} }));
 
-import { ReplayV2Player, replayGamePlaybackStartMs } from "./ReplayV2Player";
+import {
+  ReplayV2Player,
+  replayCardMotionLayoutSignature,
+  replayGamePlaybackStartMs,
+} from "./ReplayV2Player";
 
 class TestResizeObserver {
   observe() {}
@@ -383,6 +387,128 @@ describe("ReplayV2Player presentation prelude", () => {
       view.unmount();
       window.history.replaceState({}, "", previousUrl || "/");
     }
+  });
+
+  it("keeps card motion stable across Atlas reorder and rewind bookkeeping", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/?t=0.9");
+    const replay = cardMotionBookkeepingReplay();
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    const animationCalls: Array<{ firstTransform: string; motionId: string }> = [];
+    let frameId = 0;
+    let now = 0;
+    let cardMotionInFlight = false;
+    let cardTranslationCancels = 0;
+
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
+      frameId += 1;
+      queuedFrames.set(frameId, callback);
+      return frameId;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn((id: number) => queuedFrames.delete(id)));
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function () {
+      if (!(this instanceof HTMLElement)) return motionRect(0, 0, 0, 0);
+      if (this.dataset.cardMotionId !== "self-hand") return motionRect(0, 0, 0, 0);
+      const zone = this.closest<HTMLElement>("[data-analysis-drop-zone]")
+        ?.dataset.analysisDropZone;
+      if (zone === "hand") return motionRect(100, 720, 80, 112);
+      if (zone === "base") {
+        return cardMotionInFlight
+          ? motionRect(350, 520, 80, 112)
+          : motionRect(600, 520, 80, 112);
+      }
+      return motionRect(0, 0, 80, 112);
+    });
+    vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(function (keyframes) {
+      const firstTransform = Array.isArray(keyframes) && typeof keyframes[0]?.transform === "string"
+        ? keyframes[0].transform
+        : "";
+      const motionId = this.dataset.cardMotionId ?? "";
+      animationCalls.push({ firstTransform, motionId });
+      if (motionId === "self-hand" && firstTransform.startsWith("translate(")) {
+        cardMotionInFlight = true;
+      }
+      const cardTranslation = motionId === "self-hand" && firstTransform.startsWith("translate(");
+      return {
+        cancel() {
+          if (cardTranslation) cardTranslationCancels += 1;
+        },
+        pause() {},
+        play() {},
+      } as Animation;
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_motion_bookkeeping" }));
+    const flushFrame = async (timestamp: number) => {
+      now = timestamp;
+      const callbacks = [...queuedFrames.values()];
+      queuedFrames.clear();
+      await act(async () => callbacks.forEach((callback) => callback(timestamp)));
+    };
+    const cardTranslations = () => animationCalls.filter((call) => (
+      call.motionId === "self-hand" && call.firstTransform.startsWith("translate(")
+    ));
+
+    try {
+      await waitFor(() => {
+        expect(view.container.querySelector('[data-card-motion-id="self-hand"]'))
+          .toBeInTheDocument();
+      });
+      await flushFrame(0);
+      animationCalls.length = 0;
+
+      fireEvent.click(view.getByRole("button", { name: "Play replay" }));
+      await flushFrame(35);
+      await waitFor(() => {
+        expect(view.container.querySelector(
+          '[data-analysis-drop-zone="base"] [data-card-motion-id="self-hand"]',
+        )).toBeInTheDocument();
+      });
+      expect(cardTranslations()).toHaveLength(1);
+
+      // The rewind bookkeeping frame arrives while the first 430ms FLIP is
+      // still visually halfway between hand and base. It must not start a
+      // second translation from that transient bounding box.
+      await flushFrame(80);
+      expect(view.container.querySelector(
+        '[data-analysis-drop-zone="base"] [data-card-motion-id="self-hand"]',
+      )).toBeInTheDocument();
+      expect(cardTranslations()).toHaveLength(1);
+      expect(cardTranslationCancels).toBe(0);
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl || "/");
+    }
+  });
+
+  it("keys card motion to DOM slots and layout state, not transient bounds", () => {
+    const root = document.createElement("div");
+    const hand = document.createElement("div");
+    const base = document.createElement("div");
+    const card = document.createElement("button");
+    card.dataset.cardMotionId = "card-1";
+    card.dataset.cardSize = "board";
+    card.dataset.cardExhausted = "false";
+    hand.append(card);
+    root.append(hand, base);
+
+    const boundsSpy = vi.spyOn(card, "getBoundingClientRect")
+      .mockReturnValueOnce(motionRect(100, 700, 80, 112))
+      .mockReturnValueOnce(motionRect(475, 430, 80, 112));
+    const initial = replayCardMotionLayoutSignature(root);
+    expect(replayCardMotionLayoutSignature(root)).toBe(initial);
+    expect(boundsSpy).not.toHaveBeenCalled();
+
+    base.append(card);
+    const moved = replayCardMotionLayoutSignature(root);
+    expect(moved).not.toBe(initial);
+
+    card.dataset.cardExhausted = "true";
+    expect(replayCardMotionLayoutSignature(root)).not.toBe(moved);
   });
 
   it("hydrates opener art, keeps its shade mounted, and reveals the selected landscape battlefields", async () => {
@@ -1976,6 +2102,98 @@ function technicalSteppingReplay(): CanonicalReplayV2 {
   return replay;
 }
 
+function cardMotionBookkeepingReplay(): CanonicalReplayV2 {
+  const replay = sideboardingAtZeroReplay();
+  const phase = replay.events[1];
+  const snapshot = replay.events[2];
+  if (phase.kind !== "phase" || snapshot.kind !== "snapshot") {
+    throw new Error("The replay fixture is missing its setup events.");
+  }
+  phase.phase = "in_game";
+  phase.rawPhase = "in_game";
+  snapshot.snapshot.room.phase = "in_game";
+  snapshot.snapshot.room.rawPhase = "in_game";
+  const movedCard = replayCard("self-hand", "Harnessed Dragon", "OGN-015", "mainDeck");
+
+  replay.events.push(
+    {
+      id: "event-move-card",
+      index: 3,
+      at: 1_930,
+      atMs: 930,
+      sourceMessageId: "message-move-card",
+      gameId: "game-1",
+      kind: "action",
+      actionType: "move_card",
+      actorPlayerId: "self",
+      action: { type: "move_card", cardId: movedCard.id },
+      confirmation: {
+        status: "confirmed",
+        authority: "authoritative_patch_commit",
+        correlation: "matched_intent",
+        commitMessageId: "message-move-card",
+      },
+      patch: {
+        sequence: 2,
+        operations: [
+          {
+            id: "patch-move-card",
+            op: "zone_move",
+            cardId: movedCard.id,
+            from: { playerId: "self", zone: "hand" },
+            to: { playerId: "self", zone: "base", index: 0 },
+            card: movedCard,
+          },
+          {
+            id: "patch-zone-reorder",
+            op: "unknown",
+            sourceOp: "zone_reorder",
+            payload: { op: "zone_reorder", playerId: "self", zone: "base" },
+          },
+        ],
+      },
+    },
+    {
+      id: "event-zone-reorder",
+      index: 4,
+      at: 1_930,
+      atMs: 930,
+      sourceMessageId: "message-move-card",
+      gameId: "game-1",
+      kind: "unknown",
+      packetType: "authoritative_patch_commit",
+      reason: "unknown_patch_operation",
+      payload: {
+        op: "unknown",
+        sourceOp: "zone_reorder",
+        payload: { op: "zone_reorder", playerId: "self", zone: "base" },
+      },
+    },
+    {
+      id: "event-rewind-confirmation",
+      index: 5,
+      at: 1_970,
+      atMs: 970,
+      sourceMessageId: "message-rewind-confirmation",
+      gameId: "game-1",
+      kind: "unknown",
+      packetType: "rewind_confirmation_state",
+      reason: "unsupported_packet",
+      payload: { type: "rewind_confirmation_state", confirmation: null },
+    },
+  );
+  replay.series.games[0].eventEndIndex = 5;
+  replay.series.games[0].phases = [{
+    phase: "in_game",
+    rawPhase: "in_game",
+    startEventIndex: 1,
+    endEventIndex: 5,
+    startedAtMs: 0,
+    endedAtMs: 970,
+  }];
+  return replay;
+}
+
 function banishedTransitionReplay(): CanonicalReplayV2 {
   const replay = sideboardingAtZeroReplay();
   const banished = replayCard("self-banished", "Daring Poro", "OGN-135", "mainDeck");
@@ -2013,6 +2231,20 @@ function banishedTransitionReplay(): CanonicalReplayV2 {
     },
   });
   return replay;
+}
+
+function motionRect(left: number, top: number, width: number, height: number): DOMRect {
+  return {
+    bottom: top + height,
+    height,
+    left,
+    right: left + width,
+    top,
+    width,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
 }
 
 function hiddenRune(id: string) {

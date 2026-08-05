@@ -1373,8 +1373,8 @@ function ReplayBoard({
     return banishedTransitions(previous, state);
   }, [eventIndex, replay, state]);
   const banishLabel = banishedEventLabel(banishChanges);
-  useCardMotion(boardRef, eventIndex, suppressMotion);
-  useEventEmphasis(boardRef, action);
+  useCardMotion(boardRef, eventIndex, speed, suppressMotion);
+  useEventEmphasis(boardRef, action, speed);
   const arrows = useTargetArrows(boardRef, state.chain, eventIndex);
 
   const clearDropTarget = useCallback(() => {
@@ -1751,6 +1751,7 @@ function PlayerHeroStack({
       {legend ? (
         <CardTile
           card={legend}
+          motionId={legend.id}
           onHover={onCardHover}
           onSelect={onCardSelect}
           orientation={orientation}
@@ -1762,6 +1763,7 @@ function PlayerHeroStack({
       {champion ? (
         <CardTile
           card={champion}
+          motionId={champion.id}
           onHover={onCardHover}
           onSelect={onCardSelect}
           orientation={orientation}
@@ -1868,6 +1870,7 @@ function PlayerHalf({
             }
             inspected={inspectedCard?.id === card.id}
             key={card.id}
+            motionId={card.id}
             onHover={onCardHover}
             onSelect={onCardSelect}
             orientation={orientation}
@@ -1974,6 +1977,7 @@ function RuneRail({
             card={card}
             inspected={inspectedCard?.id === card.id}
             key={card.id}
+            motionId={card.id}
             onHover={onCardHover}
             onSelect={onCardSelect}
             orientation={orientation}
@@ -2053,6 +2057,7 @@ function CardTile({
   card,
   forceFaceDown = false,
   inspected = false,
+  motionId,
   onHover,
   onSelect,
   orientation = "bottom",
@@ -2065,6 +2070,7 @@ function CardTile({
   card: ReplayCardState;
   forceFaceDown?: boolean;
   inspected?: boolean;
+  motionId?: string;
   onHover?: (card: ReplayCardState | null) => void;
   onSelect?: (card: ReplayCardState) => void;
   orientation?: "top" | "bottom";
@@ -2138,6 +2144,7 @@ function CardTile({
       data-card-hidden-at-battlefield={gameplayHidden ? "true" : undefined}
       data-card-id={card.id}
       data-card-label-count={labels.length || undefined}
+      data-card-motion-id={motionId}
       data-card-red-counter={redCounter !== undefined ? formatCounterValue(redCounter) : undefined}
       data-card-size={size}
       data-card-white-counter={whiteCounter !== undefined ? formatCounterValue(whiteCounter) : undefined}
@@ -2237,6 +2244,7 @@ function AttachedCardGroup({
         atBattlefield={atBattlefield}
         card={group.host}
         inspected={inspectedCard?.id === group.host.id}
+        motionId={group.host.id}
         onHover={onHover}
         onSelect={onSelect}
         orientation={orientation}
@@ -2264,6 +2272,7 @@ function AttachedCardGroup({
             atBattlefield={atBattlefield}
             card={card}
             inspected={inspectedCard?.id === card.id}
+            motionId={card.id}
             onHover={onHover}
             onSelect={onSelect}
             orientation={orientation}
@@ -2276,6 +2285,7 @@ function AttachedCardGroup({
           atBattlefield={atBattlefield}
           card={group.host}
           inspected={inspectedCard?.id === group.host.id}
+          motionId={group.host.id}
           onHover={onHover}
           onSelect={onSelect}
           orientation={orientation}
@@ -2358,6 +2368,7 @@ function CentralArena({
                 <BattlefieldTile
                   card={lane.battlefield}
                   flipped={lane.flipped}
+                  motionId={`battlefield:${lane.key}:${lane.owner.id}:${lane.battlefield.id}`}
                   onHover={onCardHover}
                   onSelect={onCardSelect}
                   owner={lane.owner.name}
@@ -2394,6 +2405,7 @@ function CentralArena({
                   analysisChainTargetIds={analysisChainTargetIds}
                   card={card}
                   key={entry.id}
+                  motionId={`chain:${entry.id}`}
                   onHover={onCardHover}
                   onSelect={onCardSelect}
                   size="hand"
@@ -2452,12 +2464,14 @@ function BattlefieldUnitRow({
 function BattlefieldTile({
   card,
   flipped = false,
+  motionId,
   onHover,
   onSelect,
   owner,
 }: {
   card: ReplayCardState;
   flipped?: boolean;
+  motionId?: string;
   onHover: (card: ReplayCardState | null) => void;
   onSelect: (card: ReplayCardState) => void;
   owner: string;
@@ -2472,6 +2486,7 @@ function BattlefieldTile({
       data-battlefield-card
       data-card-code={card.cardCode}
       data-card-id={card.id}
+      data-card-motion-id={motionId}
       onBlur={() => onHover(null)}
       onClick={() => onSelect(card)}
       onFocus={() => onHover(card)}
@@ -4588,48 +4603,157 @@ function usePlayerScale() {
 function useCardMotion(
   rootRef: { current: HTMLDivElement | null },
   eventIndex: number,
+  speed: PlaybackSpeed,
   suppressMotion: boolean,
 ) {
   const previous = useRef(new Map<string, { x: number; y: number }>());
+  const previousLayoutSignature = useRef<string | null>(null);
+  const activeMotions = useRef(new Map<string, {
+    animation: Animation;
+    element: HTMLElement;
+    playbackSpeed: number;
+  }>());
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     const rootBounds = root.getBoundingClientRect();
-    const scale = rootBounds.width / Math.max(1, root.offsetWidth);
+    const scale = rootBounds.width > 0
+      ? rootBounds.width / Math.max(1, root.offsetWidth)
+      : 1;
     const next = new Map<string, { x: number; y: number }>();
-    const elements = Array.from(root.querySelectorAll<HTMLElement>("[data-card-id]"));
+    const elements = Array.from(root.querySelectorAll<HTMLElement>("[data-card-motion-id]"));
+    const layoutSignature = replayCardMotionLayoutSignature(root, elements);
 
-    for (const element of elements) {
-      const id = element.dataset.cardId;
-      if (!id || next.has(id)) continue;
+    // Atlas emits no-op zone_reorder and rewind-confirmation packets a few
+    // milliseconds after many real moves. Their event index changes, but the
+    // rendered layout does not. Leaving the current FLIP animation untouched
+    // here prevents its in-flight transform from becoming a false new origin.
+    const playbackSpeed = Math.max(1, speed);
+    if (!suppressMotion && layoutSignature === previousLayoutSignature.current) {
+      for (const motion of activeMotions.current.values()) {
+        if (motion.playbackSpeed === playbackSpeed) continue;
+        const currentRate = Number.isFinite(motion.animation.playbackRate)
+          ? motion.animation.playbackRate
+          : 1;
+        const rate = currentRate * (playbackSpeed / motion.playbackSpeed);
+        try {
+          if (typeof motion.animation.updatePlaybackRate === "function") {
+            motion.animation.updatePlaybackRate(rate);
+          } else {
+            motion.animation.playbackRate = rate;
+          }
+          motion.playbackSpeed = playbackSpeed;
+        } catch {
+          // A just-completed animation does not need retiming.
+        }
+      }
+      return;
+    }
+    previousLayoutSignature.current = layoutSignature;
+
+    const measure = (element: HTMLElement) => {
       const bounds = element.getBoundingClientRect();
-      const position = {
+      return {
         x: (bounds.left + bounds.width / 2 - rootBounds.left) / scale,
         y: (bounds.top + bounds.height / 2 - rootBounds.top) / scale,
       };
+    };
+    const interruptedPositions = new Map<string, { x: number; y: number }>();
+    for (const element of elements) {
+      const id = element.dataset.cardMotionId;
+      const active = id ? activeMotions.current.get(id) : undefined;
+      if (id && active?.element === element) interruptedPositions.set(id, measure(element));
+    }
+    for (const { animation } of activeMotions.current.values()) {
+      try {
+        if (typeof animation.cancel === "function") animation.cancel();
+      } catch {
+        // The browser may already have collected a completed animation.
+      }
+    }
+    activeMotions.current.clear();
+
+    for (const element of elements) {
+      const id = element.dataset.cardMotionId;
+      if (!id || next.has(id)) continue;
+      const position = measure(element);
       next.set(id, position);
       if (suppressMotion) continue;
-      const old = previous.current.get(id);
+      const old = interruptedPositions.get(id) ?? previous.current.get(id);
+      let animation: Animation | undefined;
       if (old && (Math.abs(old.x - position.x) > 1 || Math.abs(old.y - position.y) > 1)) {
-        element.animate(
+        animation = element.animate(
           [
-            { transform: `translate(${old.x - position.x}px, ${old.y - position.y}px) scale(1.045)`, filter: "brightness(1.2)", zIndex: 40 },
-            { transform: "translate(0, 0) scale(1)", filter: "brightness(1)", zIndex: 1 },
+            { transform: `translate(${old.x - position.x}px, ${old.y - position.y}px) scale(1.045)`, zIndex: 40 },
+            { transform: "translate(0, 0) scale(1)", zIndex: 1 },
           ],
-          { duration: ACTION_ANIMATION_MS, easing: "cubic-bezier(.16,1,.3,1)" },
+          {
+            duration: Math.max(40, ACTION_ANIMATION_MS / playbackSpeed),
+            easing: "cubic-bezier(.16,1,.3,1)",
+          },
         );
       } else if (!old) {
-        element.animate(
+        animation = element.animate(
           [
             { opacity: 0, transform: "translateY(-20px) scale(.9)" },
             { opacity: 1, transform: "translateY(0) scale(1)" },
           ],
-          { duration: 340, easing: "cubic-bezier(.16,1,.3,1)" },
+          {
+            duration: Math.max(40, 340 / playbackSpeed),
+            easing: "cubic-bezier(.16,1,.3,1)",
+          },
         );
+      }
+      if (animation) {
+        const record = { animation, element, playbackSpeed };
+        activeMotions.current.set(id, record);
+        const clear = () => {
+          if (activeMotions.current.get(id) === record) activeMotions.current.delete(id);
+        };
+        animation.onfinish = clear;
+        animation.oncancel = clear;
       }
     }
     previous.current = next;
-  }, [eventIndex, rootRef, suppressMotion]);
+  }, [eventIndex, rootRef, speed, suppressMotion]);
+
+  useEffect(() => () => {
+    for (const { animation } of activeMotions.current.values()) {
+      try {
+        if (typeof animation.cancel === "function") animation.cancel();
+      } catch {
+        // The animation can disappear during unmount.
+      }
+    }
+    activeMotions.current.clear();
+  }, []);
+}
+
+export function replayCardMotionLayoutSignature(
+  root: HTMLElement,
+  providedElements?: HTMLElement[],
+): string {
+  const elements = providedElements ?? Array.from(
+    root.querySelectorAll<HTMLElement>("[data-card-motion-id]"),
+  );
+  return elements.map((element) => {
+    const path: number[] = [];
+    let node: HTMLElement | null = element;
+    while (node && node !== root) {
+      const parent: HTMLElement | null = node.parentElement;
+      if (!parent) break;
+      path.push(Array.prototype.indexOf.call(parent.children, node));
+      node = parent;
+    }
+    return [
+      element.dataset.cardMotionId ?? "",
+      path.reverse().join("."),
+      element.dataset.cardSize ?? "",
+      element.dataset.cardExhausted ?? "",
+      element.dataset.cardAttachedTo ?? "",
+      element.getAttribute("style") ?? "",
+    ].join(":");
+  }).join("|");
 }
 
 function useTargetArrows(
@@ -4688,6 +4812,7 @@ function useTargetArrows(
 function useEventEmphasis(
   rootRef: { current: HTMLDivElement | null },
   event: ReplayEvent | undefined,
+  speed: PlaybackSpeed,
 ) {
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -4711,14 +4836,17 @@ function useEventEmphasis(
       if (!element.dataset.cardId || !ids.has(element.dataset.cardId)) continue;
       element.animate(
         [
-          { filter: "brightness(1)", transform: "scale(1)" },
-          { filter: "brightness(1.35) drop-shadow(0 0 12px rgba(117,241,229,.85))", transform: "scale(1.08)", offset: 0.38 },
-          { filter: "brightness(1)", transform: "scale(1)" },
+          { filter: "brightness(1)" },
+          { filter: "brightness(1.35) drop-shadow(0 0 12px rgba(117,241,229,.85))", offset: 0.38 },
+          { filter: "brightness(1)" },
         ],
-        { duration: 520, easing: "cubic-bezier(.16,1,.3,1)" },
+        {
+          duration: Math.max(45, 520 / Math.max(1, speed)),
+          easing: "cubic-bezier(.16,1,.3,1)",
+        },
       );
     }
-  }, [event, rootRef]);
+  }, [event, rootRef, speed]);
 }
 
 function preludeStagesForGame(
