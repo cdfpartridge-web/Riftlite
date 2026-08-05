@@ -19,6 +19,16 @@ describe("ReplayV2Player board spacing", () => {
       .toContain("left: calc(");
   });
 
+  it("keeps caster output on the existing 1920 by 1080 broadcast canvas", () => {
+    expect(css).toMatch(/(?:^|\n)\.canvas\s*\{[^}]*width:\s*1920px/s);
+    expect(css).toMatch(/(?:^|\n)\.canvas\s*\{[^}]*height:\s*1080px/s);
+    expect(css).toMatch(/(?:^|\n)\.canvas\s*\{[^}]*grid-template-rows:\s*962px 118px/s);
+    expect(ruleBody(".casterLowerThird")).toContain("grid-row: 2");
+    expect(ruleBody(".casterInspectorRail")).toContain(
+      "grid-template-rows: 69px 35px minmax(0, 1fr) 62px",
+    );
+  });
+
   it("reserves the sideways footprint of exhausted board cards", () => {
     expect(css).toMatch(
       /\.laneCards\s*>\s*\.cardMotion\[data-card-exhausted="true"\][^{}]*\{[^{}]*margin-inline:\s*16px/s,

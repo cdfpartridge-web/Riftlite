@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Clapperboard,
   ChevronDown,
   ChevronUp,
   Eye,
@@ -15,6 +16,7 @@ import {
   Table2,
   Video,
 } from "lucide-react";
+import Link from "next/link";
 import {
   useEffect,
   useLayoutEffect,
@@ -984,6 +986,14 @@ export function MetaStudioCanvas({
                 <Grid3X3 aria-hidden="true" size={18} />
               </button>
             </div>
+            <Link
+              aria-label="Open Caster Studio"
+              className={`${styles.iconButton} ${clean ? styles.chromeHidden : ""}`}
+              href={preview ? "/meta-studio/caster?preview=1" : "/meta-studio/caster"}
+              title="Open private Caster Studio"
+            >
+              <Clapperboard aria-hidden="true" size={19} />
+            </Link>
             <button
               aria-label="Manage creator video carousel"
               className={`${styles.iconButton} ${styles.creatorManagerButton} ${clean ? styles.chromeHidden : ""}`}

@@ -299,6 +299,62 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(opponentMulligan?.querySelectorAll('[aria-label="Hidden card"]')).toHaveLength(0);
   });
 
+  it("provides a spoiler-safe private caster workspace and a clean recording feed", async () => {
+    const replayId = "rp_caster_studio";
+    window.localStorage.removeItem(`riftlite:caster-project:v1:${encodeURIComponent(replayId)}`);
+    const replay = asConsentedCombinedReplay(mulliganReplay());
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, {
+      mode: "caster",
+      replayId,
+    }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector("[data-caster-operator-panel]"))
+        .toBeInTheDocument();
+    });
+    expect(view.container.querySelector('[data-control="analysis"]')).not.toBeInTheDocument();
+    expect(view.container.querySelector(
+      '[data-player-id="opponent"] [data-card-id="opponent-mulligan-a"]',
+    )).toHaveAccessibleName("Hidden card");
+
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    expect(view.container.querySelector('[data-caster-clean="true"]')).not.toBeInTheDocument();
+
+    const addNoteButton = view.getByRole("button", { name: "Add timestamped note" });
+    addNoteButton.focus();
+    fireEvent.keyDown(addNoteButton, { key: " " });
+    expect(view.getByRole("button", { name: "Play replay" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "b" });
+    await waitFor(() => expect(view.getByText("1 saved moment")).toBeInTheDocument());
+    expect(view.getByLabelText("Caster bookmark markers").querySelectorAll("button"))
+      .toHaveLength(1);
+
+    const title = view.getByRole("textbox", { name: "Bookmark title" });
+    fireEvent.keyDown(title, { key: "p" });
+    expect(view.container.querySelector('[data-caster-clean="true"]')).not.toBeInTheDocument();
+
+    fireEvent.click(view.getByRole("button", { name: /Enter clean feed/i }));
+    expect(view.container.querySelector('[data-caster-clean="true"]')).toBeInTheDocument();
+    expect(view.container.querySelector("[data-caster-operator-panel]"))
+      .not.toBeInTheDocument();
+    expect(view.container.querySelector("[data-caster-lower-third]"))
+      .toBeInTheDocument();
+    expect(view.container.querySelector("[data-activity-panel]"))
+      .not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Capture replay frame" }))
+      .not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "p" });
+    expect(view.container.querySelector("[data-caster-operator-panel]"))
+      .toBeInTheDocument();
+    window.localStorage.removeItem(`riftlite:caster-project:v1:${encodeURIComponent(replayId)}`);
+  });
+
   it("allows either public hand in a consented combined replay to enter a temporary branch", async () => {
     const replay = asConsentedCombinedReplay(mulliganReplay());
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {

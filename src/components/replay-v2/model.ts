@@ -831,6 +831,49 @@ export function replayActionStepIndex(
   return undefined;
 }
 
+/**
+ * Caster navigation is intentionally stricter than the normal replay stepper.
+ * A commentator needs the next decision or visible game transition, not chat,
+ * log, or synchronization frames that leave the board looking unchanged.
+ */
+export function isReplayCasterStep(event: ReplayEvent): boolean {
+  if (event.kind === "action") return !isTechnicalReplayActionType(event.actionType);
+  return event.kind === "phase" || event.kind === "game_boundary";
+}
+
+export function replayCasterStepIndex(
+  replay: Pick<CanonicalReplayV2, "events">,
+  currentEventIndex: number,
+  direction: -1 | 1,
+): number | undefined {
+  const start = direction > 0
+    ? Math.max(0, Math.trunc(currentEventIndex) + 1)
+    : Math.min(replay.events.length - 1, Math.trunc(currentEventIndex) - 1);
+  for (
+    let index = start;
+    index >= 0 && index < replay.events.length;
+    index += direction
+  ) {
+    if (isReplayCasterStep(replay.events[index])) return index;
+  }
+  return undefined;
+}
+
+export function replayCasterDisplayEvent(
+  replay: Pick<CanonicalReplayV2, "events">,
+  currentEventIndex: number,
+): ReplayEvent | undefined {
+  for (
+    let index = Math.min(replay.events.length - 1, Math.trunc(currentEventIndex));
+    index >= 0;
+    index -= 1
+  ) {
+    const event = replay.events[index];
+    if (isReplayCasterStep(event)) return event;
+  }
+  return undefined;
+}
+
 export function replayDisplayEvent(
   replay: Pick<CanonicalReplayV2, "events">,
   currentEventIndex: number,

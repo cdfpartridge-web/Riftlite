@@ -6,6 +6,7 @@ import {
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
@@ -15,6 +16,7 @@ import {
   useState,
 } from "react";
 import { getAuth } from "firebase/auth";
+import Link from "next/link";
 
 import {
   seekReplay,
@@ -79,6 +81,8 @@ import {
   isDuplicateCard,
   legendCard,
   replayActionStepIndex,
+  replayCasterDisplayEvent,
+  replayCasterStepIndex,
   replayDisplayEvent,
   replayDurationMs,
   resolveReplayPlayers,
@@ -90,6 +94,23 @@ import {
   type ReplaySceneKind,
   type ReplayTurnMarker,
 } from "./model";
+import {
+  casterSpoilerSafeState,
+  casterSpotlightCardAtState,
+} from "./caster/caster-state";
+import {
+  addCasterBookmark,
+  casterYouTubeChapters,
+  clearCasterProject,
+  createCasterProject,
+  deleteCasterBookmark,
+  loadCasterProject,
+  resolveCasterBookmarkEventIndex,
+  saveCasterProject,
+  updateCasterBookmark,
+  type CasterBookmark,
+  type CasterProjectV1,
+} from "./caster/caster-project";
 
 const DESIGN_WIDTH = 1_920;
 const DESIGN_HEIGHT = 1_080;
@@ -133,6 +154,8 @@ export type ReplayV2PlayerProps = {
   replayId: string;
   embed?: boolean;
   apiBasePath?: string;
+  casterLibraryHref?: string;
+  mode?: "viewer" | "caster";
 };
 
 type LoadState =
@@ -234,7 +257,10 @@ export function ReplayV2Player({
   replayId,
   embed = false,
   apiBasePath = "/api/v2/replays",
+  casterLibraryHref = "/meta-studio/caster",
+  mode = "viewer",
 }: ReplayV2PlayerProps) {
+  const casterMode = mode === "caster";
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const [currentMs, setCurrentMs] = useState(0);
@@ -252,6 +278,13 @@ export function ReplayV2Player({
   const [activityTab, setActivityTab] = useState<"chat" | "log">("chat");
   const [suppressMotion, setSuppressMotion] = useState(false);
   const [notice, setNotice] = useState("");
+  const [casterClean, setCasterClean] = useState(false);
+  const [casterCursorIdle, setCasterCursorIdle] = useState(false);
+  const [casterProject, setCasterProject] = useState<CasterProjectV1>(() =>
+    createCasterProject(replayId),
+  );
+  const [casterBookmarkTitle, setCasterBookmarkTitle] = useState("");
+  const [casterBookmarkNote, setCasterBookmarkNote] = useState("");
   const [analysisSession, setAnalysisSession] = useState<ReplayAnalysisSession | null>(null);
   const [analysisSelectedCardId, setAnalysisSelectedCardId] = useState<string | null>(null);
   const [analysisAttachmentCardId, setAnalysisAttachmentCardId] = useState<string | null>(null);
@@ -265,6 +298,8 @@ export function ReplayV2Player({
   const pendingSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationLockedUntil = useRef(0);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const casterCursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const casterNoteRef = useRef<HTMLTextAreaElement>(null);
   const analysisDraggingCardIdRef = useRef<string | null>(null);
   const replay = loadState.status === "ready" ? loadState.replay : null;
   const { hostRef, scale } = usePlayerScale();
@@ -311,6 +346,7 @@ export function ReplayV2Player({
         setAnalysisContextMenu(null);
         analysisDraggingCardIdRef.current = null;
         setAnalysisDraggingCardId(null);
+        setCasterClean(false);
       } catch (error: unknown) {
         if (controller.signal.aborted) return;
         setLoadState({
@@ -354,10 +390,22 @@ export function ReplayV2Player({
     }
   }, [currentMs, manualEventIndex, presentationEventIndex, replay]);
   const canonicalState = projection?.state ?? null;
-  const state = analysisSession?.state ?? canonicalState;
+  const casterCanonicalState = useMemo(
+    () => (
+      casterMode && replay && canonicalState
+        ? casterSpoilerSafeState(replay, canonicalState)
+        : canonicalState
+    ),
+    [canonicalState, casterMode, replay],
+  );
+  const state = analysisSession?.state ?? casterCanonicalState;
   const eventIndex = projection?.eventIndex ?? -1;
   const currentEvent = useMemo(
     () => (replay ? replayDisplayEvent(replay, eventIndex) : undefined),
+    [eventIndex, replay],
+  );
+  const currentCasterEvent = useMemo(
+    () => (replay ? replayCasterDisplayEvent(replay, eventIndex) : undefined),
     [eventIndex, replay],
   );
   const turns = useMemo(() => (replay ? turnMarkers(replay) : []), [replay]);
@@ -392,8 +440,52 @@ export function ReplayV2Player({
     return () => {
       if (pendingSeekTimer.current) clearTimeout(pendingSeekTimer.current);
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      if (casterCursorTimer.current) clearTimeout(casterCursorTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!casterMode || !casterClean) {
+      if (casterCursorTimer.current) clearTimeout(casterCursorTimer.current);
+      return;
+    }
+    const showCursorBriefly = () => {
+      setCasterCursorIdle(false);
+      if (casterCursorTimer.current) clearTimeout(casterCursorTimer.current);
+      casterCursorTimer.current = setTimeout(() => setCasterCursorIdle(true), 1_800);
+    };
+    const frame = requestAnimationFrame(showCursorBriefly);
+    window.addEventListener("pointermove", showCursorBriefly, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("pointermove", showCursorBriefly);
+      if (casterCursorTimer.current) clearTimeout(casterCursorTimer.current);
+    };
+  }, [casterClean, casterMode]);
+
+  useEffect(() => {
+    if (!casterMode) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setCasterProject(loadCasterProject(replayId));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [casterMode, replayId]);
+
+  const persistCasterProject = useCallback((
+    update: (current: CasterProjectV1) => CasterProjectV1,
+  ) => {
+    setCasterProject((current) => {
+      const scoped = current.replayId === replayId
+        ? current
+        : createCasterProject(replayId);
+      const next = update(scoped);
+      saveCasterProject(next);
+      return next;
+    });
+  }, [replayId]);
 
   const flashNotice = useCallback((message: string) => {
     setNotice(message);
@@ -549,12 +641,14 @@ export function ReplayV2Player({
           return;
         }
       }
-      const targetIndex = replayActionStepIndex(replay, eventIndex, direction);
+      const targetIndex = casterMode
+        ? replayCasterStepIndex(replay, eventIndex, direction)
+        : replayActionStepIndex(replay, eventIndex, direction);
       if (targetIndex === undefined) return;
       const target = replay.events[targetIndex];
       seekTo(target.atMs, { immediate: direction < 0, eventIndex: targetIndex });
     },
-    [advancePresentation, currentMs, eventIndex, presentation, replay, seekTo, setMotionSuppressedBriefly, state],
+    [advancePresentation, casterMode, currentMs, eventIndex, presentation, replay, seekTo, setMotionSuppressedBriefly, state],
   );
 
   const stepGame = useCallback(
@@ -590,10 +684,74 @@ export function ReplayV2Player({
     flashNotice(`${next}× playback`);
   }, [flashNotice]);
 
+  const addCasterMoment = useCallback((quick = false) => {
+    if (!casterMode || !replay || !state) return;
+    const anchorEvent = replay.events[eventIndex];
+    const game = gameForState(replay, state);
+    const automaticTitle = eventLabel(currentCasterEvent) || `Replay moment ${formatClock(currentMs)}`;
+    persistCasterProject((current) => addCasterBookmark(current, {
+      atMs: currentMs,
+      eventId: anchorEvent?.id ?? "",
+      eventIndex,
+      gameId: state.gameId ?? game?.id ?? "",
+      gameNumber: game?.gameNumber ?? state.room.gameNumber ?? state.gameOrdinal ?? null,
+      turn: state.room.turnNumber ?? null,
+      title: quick ? automaticTitle : casterBookmarkTitle || automaticTitle,
+      note: quick ? "" : casterBookmarkNote,
+    }));
+    if (!quick) {
+      setCasterBookmarkTitle("");
+      setCasterBookmarkNote("");
+    }
+    flashNotice(`Moment bookmarked at ${formatClock(currentMs)}`);
+  }, [
+    casterBookmarkNote,
+    casterBookmarkTitle,
+    casterMode,
+    currentCasterEvent,
+    currentMs,
+    eventIndex,
+    flashNotice,
+    persistCasterProject,
+    replay,
+    state,
+  ]);
+
+  const jumpToCasterBookmark = useCallback((bookmark: CasterBookmark) => {
+    if (!replay) return;
+    const targetIndex = resolveCasterBookmarkEventIndex(bookmark, replay);
+    const target = replay.events[targetIndex];
+    setPlaying(false);
+    seekTo(target?.atMs ?? bookmark.atMs, {
+      immediate: (target?.atMs ?? bookmark.atMs) < currentMs,
+      eventIndex: target ? targetIndex : undefined,
+    });
+  }, [currentMs, replay, seekTo]);
+
+  const copyCasterChapters = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(casterYouTubeChapters(casterProject));
+      flashNotice("YouTube chapters copied");
+    } catch {
+      flashNotice("The browser blocked chapter copying");
+    }
+  }, [casterProject, flashNotice]);
+
   useEffect(() => {
     const handleKeyDown = (keyboardEvent: KeyboardEvent) => {
       if (keyboardEvent.defaultPrevented || isTypingTarget(keyboardEvent.target)) return;
+      const isArrowShortcut = keyboardEvent.key === "ArrowLeft" || keyboardEvent.key === "ArrowRight";
+      if (
+        keyboardEvent.ctrlKey ||
+        keyboardEvent.metaKey ||
+        (keyboardEvent.altKey && !isArrowShortcut)
+      ) return;
       if (keyboardEvent.key === "Escape") {
+        if (casterMode && casterClean) {
+          setCasterClean(false);
+          setCasterCursorIdle(false);
+          return;
+        }
         if (analysisContextMenu) {
           setAnalysisContextMenu(null);
           return;
@@ -615,12 +773,43 @@ export function ReplayV2Player({
         setShowMore(false);
         return;
       }
+      if (casterMode && keyboardEvent.key.toLowerCase() === "p") {
+        keyboardEvent.preventDefault();
+        setCasterClean((value) => !value);
+        setShowMore(false);
+        setShowHelp(false);
+        setDiscardOverlay(null);
+        setBanishedOverlay(null);
+        setHoveredCard(null);
+        return;
+      }
+      if (casterMode && keyboardEvent.key.toLowerCase() === "f") {
+        keyboardEvent.preventDefault();
+        const operation = document.fullscreenElement
+          ? document.exitFullscreen?.()
+          : shellRef.current?.requestFullscreen?.();
+        void operation?.catch(() => flashNotice("Fullscreen is unavailable"));
+        return;
+      }
+      if (casterMode && keyboardEvent.key.toLowerCase() === "b") {
+        keyboardEvent.preventDefault();
+        addCasterMoment(true);
+        return;
+      }
+      if (casterMode && keyboardEvent.key.toLowerCase() === "n") {
+        keyboardEvent.preventDefault();
+        setCasterClean(false);
+        setCasterCursorIdle(false);
+        requestAnimationFrame(() => casterNoteRef.current?.focus());
+        return;
+      }
       if (keyboardEvent.key === "?" || (keyboardEvent.key === "/" && keyboardEvent.shiftKey)) {
         keyboardEvent.preventDefault();
         setShowHelp((value) => !value);
         return;
       }
       if (keyboardEvent.key === " ") {
+        if (isSpaceActivationTarget(keyboardEvent.target)) return;
         keyboardEvent.preventDefault();
         togglePlayback();
         return;
@@ -649,6 +838,9 @@ export function ReplayV2Player({
     analysisAttachmentCardId,
     analysisContextMenu,
     analysisTargetChainEntryId,
+    addCasterMoment,
+    casterClean,
+    casterMode,
     changeSpeed,
     flashNotice,
     stepAction,
@@ -721,8 +913,27 @@ export function ReplayV2Player({
     }
   }, [flashNotice]);
 
+  const enterCasterCleanFeed = useCallback(() => {
+    if (!casterMode) return;
+    clearAnalysis();
+    setCasterClean(true);
+    setCasterCursorIdle(false);
+    setShowMore(false);
+    setShowHelp(false);
+    setDiscardOverlay(null);
+    setBanishedOverlay(null);
+    setHoveredCard(null);
+    flashNotice("Clean recording feed ready");
+  }, [casterMode, clearAnalysis, flashNotice]);
+
+  const clearCasterBookmarks = useCallback(() => {
+    clearCasterProject(replayId);
+    setCasterProject(createCasterProject(replayId));
+    flashNotice("Caster notes cleared");
+  }, [flashNotice, replayId]);
+
   const startAnalysis = useCallback(() => {
-    if (!replay || !canonicalState || eventIndex < 0) return;
+    if (casterMode || !replay || !canonicalState || eventIndex < 0) return;
     const anchorMs = replay.events[eventIndex]?.atMs ?? currentMs;
     setPlaying(false);
     settleAnimations(false);
@@ -744,7 +955,7 @@ export function ReplayV2Player({
         ? `Analysis started · ${session.inferredCardIds.length} later-revealed ${session.inferredCardIds.length === 1 ? "card" : "cards"} identified`
         : "Analysis started · changes are temporary",
     );
-  }, [canonicalState, currentMs, eventIndex, flashNotice, replay, settleAnimations]);
+  }, [canonicalState, casterMode, currentMs, eventIndex, flashNotice, replay, settleAnimations]);
 
   const toggleAnalysis = useCallback(() => {
     if (analysisSession) clearAnalysis(true);
@@ -950,10 +1161,20 @@ export function ReplayV2Player({
     [analysisContextMenu, analysisSelectedCardId, analysisSession],
   );
 
+  const selectedCasterCard = useMemo(
+    () => (
+      casterMode && state
+        ? casterSpotlightCardAtState(state, selectedCard)
+        : null
+    ),
+    [casterMode, selectedCard, state],
+  );
+
   const inspectedCard = useMemo(() => {
+    if (casterMode && casterClean && selectedCasterCard) return selectedCasterCard;
     if (hoveredCard) return hoveredCard;
     if (analysisSelectedCard) return analysisSelectedCard;
-    if (selectedCard) return selectedCard;
+    if (selectedCard && !(casterMode && casterClean)) return selectedCard;
     if (!state || !replay) return null;
     const players = resolveReplayPlayers(replay, state);
     return (
@@ -963,7 +1184,16 @@ export function ReplayV2Player({
       legendCard(players.top) ??
       null
     );
-  }, [analysisSelectedCard, hoveredCard, replay, selectedCard, state]);
+  }, [
+    analysisSelectedCard,
+    casterClean,
+    casterMode,
+    hoveredCard,
+    replay,
+    selectedCard,
+    selectedCasterCard,
+    state,
+  ]);
 
   const analysisInteractions = useMemo<ReplayAnalysisInteractionContextValue>(
     () => ({
@@ -978,8 +1208,14 @@ export function ReplayV2Player({
 
   return (
     <div
-      className={`${styles.shell} ${embed ? styles.embedShell : ""}`}
+      className={`${styles.shell} ${embed ? styles.embedShell : ""} ${
+        casterMode ? styles.casterShell : ""
+      } ${casterClean ? styles.casterClean : ""} ${
+        casterClean && casterCursorIdle ? styles.casterCursorHidden : ""
+      }`}
       ref={shellRef}
+      data-caster-clean={casterClean ? "true" : undefined}
+      data-caster-mode={casterMode ? "true" : undefined}
       data-replay-player="v2"
     >
       <div className={styles.scaleHost} ref={hostRef}>
@@ -1044,6 +1280,7 @@ export function ReplayV2Player({
               />
               <InspectorRail
                 activityTab={activityTab}
+                casterClean={casterMode && casterClean}
                 currentEventLabel={presentationStage ? presentationStageLabel(presentationStage) : eventLabel(currentEvent)}
                 currentMs={currentMs}
                 embed={embed}
@@ -1056,6 +1293,36 @@ export function ReplayV2Player({
                 replay={replay}
                 state={state}
               />
+              {casterMode && !casterClean ? (
+                <CasterStudioPanel
+                  bookmarkNote={casterBookmarkNote}
+                  bookmarkTitle={casterBookmarkTitle}
+                  libraryHref={casterLibraryHref}
+                  currentEventLabel={eventLabel(currentCasterEvent)}
+                  currentMs={currentMs}
+                  noteInputRef={casterNoteRef}
+                  onAddBookmark={() => addCasterMoment(false)}
+                  onBookmarkNote={setCasterBookmarkNote}
+                  onBookmarkTitle={setCasterBookmarkTitle}
+                  onClearBookmarks={clearCasterBookmarks}
+                  onCopyChapters={() => void copyCasterChapters()}
+                  onDeleteBookmark={(bookmarkId) => {
+                    persistCasterProject((current) => deleteCasterBookmark(current, bookmarkId));
+                  }}
+                  onEnterClean={enterCasterCleanFeed}
+                  onFullscreen={() => void toggleFullscreen()}
+                  onJumpBookmark={jumpToCasterBookmark}
+                  onUpdateBookmark={(bookmarkId, patch) => {
+                    persistCasterProject((current) =>
+                      updateCasterBookmark(current, bookmarkId, patch),
+                    );
+                  }}
+                  pinnedCard={selectedCasterCard}
+                  project={casterProject}
+                  replay={replay}
+                  state={state}
+                />
+              ) : null}
               {analysisSession ? (
                 <ReplayAnalysisPanel
                   attachmentCardId={analysisAttachmentCardId}
@@ -1224,49 +1491,65 @@ export function ReplayV2Player({
                   position={analysisContextMenu}
                 />
               ) : null}
-              <TransportControls
-                analysisActive={Boolean(analysisSession)}
-                currentMs={currentMs}
-                durationMs={durationMs}
-                eventIndex={eventIndex}
-                onChangeSpeed={changeSpeed}
-                onFrame={(index) => {
-                  const event = replay.events[index];
-                  if (event) seekTo(event.atMs, { immediate: index < eventIndex, eventIndex: index });
-                }}
-                onGame={(gameIndex) => beginGamePresentation(gameIndex)}
-                onHelp={() => setShowHelp(true)}
-                onSeek={seekTo}
-                onStepAction={stepAction}
-                onStepGame={stepGame}
-                onStepTurn={stepTurn}
-                onToggleMore={() => setShowMore((value) => !value)}
-                onToggleAnalysis={toggleAnalysis}
-                onTogglePlayback={togglePlayback}
-                playing={playing}
-                presentationFrame={
-                  presentation && presentationStages && presentationStage
-                    ? {
-                        index: presentation.stageIndex,
-                        label: presentationStageLabel(presentationStage),
-                        total: presentationStages.length,
-                      }
-                    : null
-                }
-                onPresentationFrame={(stageIndex) => {
-                  if (!presentation || !presentationStages) return;
-                  setPlaying(false);
-                  setPresentation({
-                    ...presentation,
-                    stageIndex: Math.min(presentationStages.length - 1, Math.max(0, stageIndex)),
-                  });
-                }}
-                replay={replay}
-                showMore={showMore}
-                speed={speed}
-                state={state}
-                turns={turns}
-              />
+              {casterMode && casterClean ? (
+                <CasterLowerThird
+                  currentEventLabel={
+                    presentationStage
+                      ? presentationStageLabel(presentationStage)
+                      : eventLabel(currentCasterEvent)
+                  }
+                  currentMs={currentMs}
+                  replay={replay}
+                  state={state}
+                />
+              ) : (
+                <TransportControls
+                  allowAnalysis={!casterMode}
+                  analysisActive={Boolean(analysisSession)}
+                  bookmarks={casterMode ? casterProject.bookmarks : []}
+                  currentMs={currentMs}
+                  durationMs={durationMs}
+                  eventIndex={eventIndex}
+                  onChangeSpeed={changeSpeed}
+                  onFrame={(index) => {
+                    const event = replay.events[index];
+                    if (event) seekTo(event.atMs, { immediate: index < eventIndex, eventIndex: index });
+                  }}
+                  onGame={(gameIndex) => beginGamePresentation(gameIndex)}
+                  onHelp={() => setShowHelp(true)}
+                  onJumpBookmark={jumpToCasterBookmark}
+                  onSeek={seekTo}
+                  onStepAction={stepAction}
+                  onStepGame={stepGame}
+                  onStepTurn={stepTurn}
+                  onToggleMore={() => setShowMore((value) => !value)}
+                  onToggleAnalysis={toggleAnalysis}
+                  onTogglePlayback={togglePlayback}
+                  playing={playing}
+                  presentationFrame={
+                    presentation && presentationStages && presentationStage
+                      ? {
+                          index: presentation.stageIndex,
+                          label: presentationStageLabel(presentationStage),
+                          total: presentationStages.length,
+                        }
+                      : null
+                  }
+                  onPresentationFrame={(stageIndex) => {
+                    if (!presentation || !presentationStages) return;
+                    setPlaying(false);
+                    setPresentation({
+                      ...presentation,
+                      stageIndex: Math.min(presentationStages.length - 1, Math.max(0, stageIndex)),
+                    });
+                  }}
+                  replay={replay}
+                  showMore={showMore}
+                  speed={speed}
+                  state={state}
+                  turns={turns}
+                />
+              )}
               {discardOverlay ? (
                 <DiscardOverlay
                   cards={discardOverlay.cards}
@@ -1291,14 +1574,16 @@ export function ReplayV2Player({
                   playerName={banishedOverlay.playerName}
                 />
               ) : null}
-              {hoveredCard && !showHelp ? (
+              {hoveredCard && !showHelp && !(casterMode && casterClean) ? (
                 <HoverCardPreview
                   card={hoveredCard}
                   key={`${hoveredCard.id}|${cardImageUrl(hoveredCard) ?? "no-image"}`}
                   besideDiscard={Boolean(discardOverlay || banishedOverlay)}
                 />
               ) : null}
-              {showHelp ? <ShortcutHelp onClose={() => setShowHelp(false)} /> : null}
+              {showHelp ? (
+                <ShortcutHelp casterMode={casterMode} onClose={() => setShowHelp(false)} />
+              ) : null}
               {notice ? <div className={styles.notice} role="status">{notice}</div> : null}
             </ReplayAnalysisInteractionContext.Provider>
           )}
@@ -3591,6 +3876,7 @@ function HoverCardPreview({
 
 function InspectorRail({
   activityTab,
+  casterClean,
   currentEventLabel,
   currentMs,
   embed,
@@ -3604,6 +3890,7 @@ function InspectorRail({
   state,
 }: {
   activityTab: "chat" | "log";
+  casterClean: boolean;
   currentEventLabel: string;
   currentMs: number;
   embed: boolean;
@@ -3620,27 +3907,36 @@ function InspectorRail({
   const cardImage = cardImageUrl(inspectedCard ?? undefined);
   const inspectedBattlefield = isBattlefieldCard(inspectedCard ?? undefined);
   const fields = inspectedCard ? visibleCardFields(inspectedCard) : [];
+  const displayFields = casterClean
+    ? fields.filter(([label]) => !/^(?:Id|Name|Source|Owner Player Id|Exhausted|Created At|Card Code)$/i.test(label))
+    : fields;
   const activityLength = activityTab === "chat" ? state.chat.length : state.log.length;
   useEffect(() => {
     activityRef.current?.scrollTo({ top: activityRef.current.scrollHeight, behavior: "smooth" });
   }, [activityLength, activityTab]);
 
   return (
-    <aside className={styles.inspectorRail} aria-label="Replay details">
+    <aside
+      className={`${styles.inspectorRail} ${casterClean ? styles.casterInspectorRail : ""}`}
+      aria-label={casterClean ? "Caster card spotlight" : "Replay details"}
+      data-caster-inspector={casterClean ? "true" : undefined}
+    >
       <div className={styles.railHeader}>
         <div className={styles.railBrand}>
           <span className={styles.brandMark}>R</span>
-          <div><b>RiftLite</b><small>Replay</small></div>
+          <div><b>RiftLite</b><small>{casterClean ? "Caster" : "Replay"}</small></div>
         </div>
-        <div className={styles.railActions}>
-          <IconButton label="Capture replay frame" name="camera" onClick={onCapture} />
-          <IconButton label="Share replay" name="share" onClick={onShare} />
-          <IconButton label="Fullscreen" name="fullscreen" onClick={onFullscreen} />
-          <IconButton label="Keyboard shortcuts" name="help" onClick={onHelp} />
-        </div>
+        {!casterClean ? (
+          <div className={styles.railActions}>
+            <IconButton label="Capture replay frame" name="camera" onClick={onCapture} />
+            <IconButton label="Share replay" name="share" onClick={onShare} />
+            <IconButton label="Fullscreen" name="fullscreen" onClick={onFullscreen} />
+            <IconButton label="Keyboard shortcuts" name="help" onClick={onHelp} />
+          </div>
+        ) : <span className={styles.casterLiveBadge}>CLEAN FEED</span>}
       </div>
       <div className={styles.replayMeta}>
-        <span>{embed ? "Desktop embed" : "Web replay"}</span>
+        <span>{casterClean ? "Commentary view" : embed ? "Desktop embed" : "Web replay"}</span>
         <span>Game {state.room.gameNumber || state.gameOrdinal || 1}</span>
         <span>Turn {state.room.turnNumber ?? "—"}</span>
       </div>
@@ -3663,22 +3959,26 @@ function InspectorRail({
           )}
         </div>
         <div className={styles.inspectorDetails}>
-          <span className={styles.inspectorEyebrow}>Current card</span>
+          <span className={styles.inspectorEyebrow}>{casterClean ? "Card spotlight" : "Current card"}</span>
           <h2>{inspectedCard ? cardName(inspectedCard) : "No card selected"}</h2>
           {inspectedCard?.cardCode ? <code>{inspectedCard.cardCode}</code> : null}
-          {fields.length ? (
+          {displayFields.length ? (
             <dl>
-              {fields.map(([label, value]) => (
+              {displayFields.map(([label, value]) => (
                 <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
               ))}
             </dl>
           ) : (
-            <p>{inspectedCard ? "No additional public card details at this frame." : "Hover or focus a card on the board to inspect it."}</p>
+            <p>{inspectedCard
+              ? casterClean
+                ? "Hover to preview another card. Click a card to keep it in the spotlight."
+                : "No additional public card details at this frame."
+              : "Hover or focus a card on the board to inspect it."}</p>
           )}
         </div>
       </section>
 
-      <section className={styles.activityPanel} data-activity-panel>
+      {!casterClean ? <section className={styles.activityPanel} data-activity-panel>
         <header>
           <div className={styles.activityTabs} role="tablist" aria-label="Replay activity">
             <button
@@ -3719,10 +4019,204 @@ function InspectorRail({
             <div className={styles.emptyActivity}><Icon name={activityTab === "chat" ? "chat" : "list"} /><span>No {activityTab} entries yet</span></div>
           ) : null}
         </div>
-      </section>
+      </section> : null}
       <div className={styles.nowPlaying}>
         <span className={styles.nowPulse} />
         <div><small>{formatClock(currentMs)}</small><b>{currentEventLabel}</b></div>
+      </div>
+    </aside>
+  );
+}
+
+function CasterStudioPanel({
+  bookmarkNote,
+  bookmarkTitle,
+  libraryHref,
+  currentEventLabel,
+  currentMs,
+  noteInputRef,
+  onAddBookmark,
+  onBookmarkNote,
+  onBookmarkTitle,
+  onClearBookmarks,
+  onCopyChapters,
+  onDeleteBookmark,
+  onEnterClean,
+  onFullscreen,
+  onJumpBookmark,
+  onUpdateBookmark,
+  pinnedCard,
+  project,
+  replay,
+  state,
+}: {
+  bookmarkNote: string;
+  bookmarkTitle: string;
+  libraryHref: string;
+  currentEventLabel: string;
+  currentMs: number;
+  noteInputRef: RefObject<HTMLTextAreaElement | null>;
+  onAddBookmark: () => void;
+  onBookmarkNote: (value: string) => void;
+  onBookmarkTitle: (value: string) => void;
+  onClearBookmarks: () => void;
+  onCopyChapters: () => void;
+  onDeleteBookmark: (bookmarkId: string) => void;
+  onEnterClean: () => void;
+  onFullscreen: () => void;
+  onJumpBookmark: (bookmark: CasterBookmark) => void;
+  onUpdateBookmark: (
+    bookmarkId: string,
+    patch: Partial<Pick<CasterBookmark, "note" | "title">>,
+  ) => void;
+  pinnedCard: ReplayCardState | null;
+  project: CasterProjectV1;
+  replay: CanonicalReplayV2;
+  state: ReplayState;
+}) {
+  const game = gameForState(replay, state);
+  return (
+    <aside className={styles.casterPanel} data-caster-operator-panel>
+      <header className={styles.casterPanelHeader}>
+        <div className={styles.casterPanelBrand}>
+          <span>R</span>
+          <div>
+            <small>PRIVATE WORKSPACE</small>
+            <h2>Caster Studio</h2>
+          </div>
+        </div>
+        <Link href={libraryHref}>Replay library</Link>
+      </header>
+
+      <div className={styles.casterPanelBody}>
+        <section className={styles.casterReadyCard}>
+          <div>
+            <span><i /> RECORDING OUTPUT</span>
+            <h3>Clean 1920 × 1080 feed</h3>
+            <p>Operator controls disappear. The board, card spotlight, and broadcast lower-third stay visible.</p>
+          </div>
+          <button data-caster-action="clean" onClick={onEnterClean} type="button">
+            <Icon name="play" /> Enter clean feed <kbd>P</kbd>
+          </button>
+          <button className={styles.casterSecondaryButton} onClick={onFullscreen} type="button">
+            <Icon name="fullscreen" /> Fullscreen <kbd>F</kbd>
+          </button>
+        </section>
+
+        <section className={styles.casterMomentCard}>
+          <header>
+            <div><span>CURRENT MOMENT</span><b>{formatClock(currentMs)}</b></div>
+            <div><span>GAME</span><b>{game?.gameNumber ?? state.room.gameNumber ?? state.gameOrdinal ?? 1}</b></div>
+            <div><span>TURN</span><b>{state.room.turnNumber ?? "—"}</b></div>
+          </header>
+          <p>{currentEventLabel || "Replay ready"}</p>
+          <div className={styles.casterSafetyRow}>
+            <span><Icon name="lock" /> Spoiler lock on</span>
+            <span><Icon name="card" /> {pinnedCard ? `Pinned: ${cardName(pinnedCard)}` : "Click a card to pin it"}</span>
+          </div>
+        </section>
+
+        <section className={styles.casterNotesComposer}>
+          <header>
+            <div><span>CAST NOTES</span><h3>Bookmark this moment</h3></div>
+            <kbd>B</kbd>
+          </header>
+          <input
+            aria-label="Bookmark title"
+            maxLength={160}
+            onChange={(event) => onBookmarkTitle(event.currentTarget.value)}
+            placeholder={currentEventLabel || "Moment title"}
+            value={bookmarkTitle}
+          />
+          <textarea
+            aria-label="Caster note"
+            maxLength={4_000}
+            onChange={(event) => onBookmarkNote(event.currentTarget.value)}
+            placeholder="Talking point, correction, deck insight…"
+            ref={noteInputRef}
+            rows={3}
+            value={bookmarkNote}
+          />
+          <button onClick={onAddBookmark} type="button">
+            <Icon name="spark" /> Add timestamped note
+          </button>
+        </section>
+
+        <section className={styles.casterBookmarks}>
+          <header>
+            <div><span>RUN OF SHOW</span><h3>{project.bookmarks.length} saved {project.bookmarks.length === 1 ? "moment" : "moments"}</h3></div>
+            <button disabled={!project.bookmarks.length} onClick={onCopyChapters} type="button">
+              Copy YouTube chapters
+            </button>
+          </header>
+          <div className={styles.casterBookmarkList}>
+            {project.bookmarks.map((bookmark, index) => (
+              <article className={styles.casterBookmark} key={bookmark.id}>
+                <button
+                  aria-label={`Jump to ${bookmark.title || `bookmark ${index + 1}`}`}
+                  className={styles.casterBookmarkTime}
+                  onClick={() => onJumpBookmark(bookmark)}
+                  type="button"
+                >
+                  <b>{formatClock(bookmark.atMs)}</b>
+                  <span>G{bookmark.gameNumber ?? "—"} · T{bookmark.turn ?? "—"}</span>
+                </button>
+                <div>
+                  <input
+                    aria-label={`Bookmark ${index + 1} title`}
+                    maxLength={160}
+                    onChange={(event) => onUpdateBookmark(bookmark.id, { title: event.currentTarget.value })}
+                    placeholder="Moment title"
+                    value={bookmark.title}
+                  />
+                  <textarea
+                    aria-label={`Bookmark ${index + 1} note`}
+                    maxLength={4_000}
+                    onChange={(event) => onUpdateBookmark(bookmark.id, { note: event.currentTarget.value })}
+                    placeholder="Add a talking point…"
+                    rows={2}
+                    value={bookmark.note}
+                  />
+                </div>
+                <button
+                  aria-label={`Delete bookmark ${index + 1}`}
+                  className={styles.casterBookmarkDelete}
+                  onClick={() => onDeleteBookmark(bookmark.id)}
+                  type="button"
+                >
+                  <Icon name="trash" />
+                </button>
+              </article>
+            ))}
+            {!project.bookmarks.length ? (
+              <div className={styles.casterBookmarksEmpty}>
+                <Icon name="spark" />
+                <span>Press B while watching to build your run of show.</span>
+              </div>
+            ) : null}
+          </div>
+          <footer>
+            <span>Notes stay in this browser only.</span>
+            <button
+              disabled={!project.bookmarks.length}
+              onClick={() => {
+                if (window.confirm("Delete every local caster note for this replay?")) {
+                  onClearBookmarks();
+                }
+              }}
+              type="button"
+            >
+              Clear notes
+            </button>
+          </footer>
+        </section>
+
+        <section className={styles.casterShortcutStrip}>
+          <span><kbd>Space</kbd> Play / pause</span>
+          <span><kbd>← →</kbd> Cast actions</span>
+          <span><kbd>Alt + ← →</kbd> Turns</span>
+          <span><kbd>N</kbd> New note</span>
+        </section>
       </div>
     </aside>
   );
@@ -4215,8 +4709,68 @@ function ReplayAnalysisContextMenu({
   );
 }
 
+function CasterLowerThird({
+  currentEventLabel,
+  currentMs,
+  replay,
+  state,
+}: {
+  currentEventLabel: string;
+  currentMs: number;
+  replay: CanonicalReplayV2;
+  state: ReplayState;
+}) {
+  const players = resolveReplayPlayers(replay, state);
+  const game = gameForState(replay, state);
+  const score = seriesScoreBeforeGame(
+    replay,
+    game?.ordinal ?? state.gameOrdinal ?? 1,
+    players,
+  );
+  const activePlayerId = state.room.activeTurnPlayerId;
+  const bottomLegend = legendCard(players.bottom);
+  const topLegend = legendCard(players.top);
+  return (
+    <footer className={styles.casterLowerThird} data-caster-lower-third>
+      <div className={styles.casterLowerBrand}>
+        <span>R</span>
+        <div><small>RIFTLITE</small><b>CASTER FEED</b></div>
+      </div>
+      <div
+        className={`${styles.casterLowerPlayer} ${
+          activePlayerId === players.bottom.id ? styles.casterLowerPlayerActive : ""
+        }`}
+      >
+        <span>CAPTURE PLAYER</span>
+        <b>{players.bottom.name}</b>
+        <small>{bottomLegend ? cardName(bottomLegend) : "Unknown legend"}</small>
+      </div>
+      <div className={styles.casterLowerScore}>
+        <span>GAME {game?.gameNumber ?? state.room.gameNumber ?? state.gameOrdinal ?? 1}</span>
+        <b>{score.available ? `${score.bottom}  —  ${score.top}` : "—  —  —"}</b>
+        <small>TURN {state.room.turnNumber ?? "—"}</small>
+      </div>
+      <div
+        className={`${styles.casterLowerPlayer} ${styles.casterLowerPlayerOpponent} ${
+          activePlayerId === players.top.id ? styles.casterLowerPlayerActive : ""
+        }`}
+      >
+        <span>OPPONENT</span>
+        <b>{players.top.name}</b>
+        <small>{topLegend ? cardName(topLegend) : "Unknown legend"}</small>
+      </div>
+      <div className={styles.casterLowerAction}>
+        <span><i /> LIVE ACTION · {formatClock(currentMs)}</span>
+        <b>{currentEventLabel || "Replay ready"}</b>
+      </div>
+    </footer>
+  );
+}
+
 function TransportControls({
+  allowAnalysis,
   analysisActive,
+  bookmarks,
   currentMs,
   durationMs,
   eventIndex,
@@ -4224,6 +4778,7 @@ function TransportControls({
   onFrame,
   onGame,
   onHelp,
+  onJumpBookmark,
   onPresentationFrame,
   onSeek,
   onStepAction,
@@ -4240,7 +4795,9 @@ function TransportControls({
   state,
   turns,
 }: {
+  allowAnalysis: boolean;
   analysisActive: boolean;
+  bookmarks: CasterBookmark[];
   currentMs: number;
   durationMs: number;
   eventIndex: number;
@@ -4248,6 +4805,7 @@ function TransportControls({
   onFrame: (index: number) => void;
   onGame: (gameIndex: number) => void;
   onHelp: () => void;
+  onJumpBookmark: (bookmark: CasterBookmark) => void;
   onPresentationFrame: (stageIndex: number) => void;
   onSeek: (atMs: number, options?: { immediate?: boolean; eventIndex?: number }) => void;
   onStepAction: (direction: -1 | 1) => void;
@@ -4337,6 +4895,20 @@ function TransportControls({
           </section>
         </div>
       ) : null}
+      {bookmarks.length ? (
+        <div aria-label="Caster bookmark markers" className={styles.casterTimelineMarkers}>
+          {bookmarks.map((bookmark, index) => (
+            <button
+              aria-label={`Jump to caster bookmark ${index + 1}`}
+              key={bookmark.id}
+              onClick={() => onJumpBookmark(bookmark)}
+              style={{ left: `${Math.min(100, Math.max(0, (bookmark.atMs / durationMs) * 100))}%` }}
+              title={`${formatClock(bookmark.atMs)} · ${bookmark.title || bookmark.note || "Replay moment"}`}
+              type="button"
+            />
+          ))}
+        </div>
+      ) : null}
       <input
         aria-label="Replay progress"
         className={styles.progressRange}
@@ -4384,7 +4956,7 @@ function TransportControls({
         >
           <Icon name="sliders" /> {showMore ? "Less" : "More"}
         </button>
-        <button
+        {allowAnalysis ? <button
           aria-pressed={analysisActive}
           className={`${styles.analysisToggleButton} ${
             analysisActive ? styles.analysisToggleButtonActive : ""
@@ -4394,7 +4966,7 @@ function TransportControls({
           type="button"
         >
           <Icon name="spark" /> {analysisActive ? "Return to replay" : "Take control"}
-        </button>
+        </button> : null}
       </div>
     </footer>
   );
@@ -4484,7 +5056,13 @@ function BanishedOverlay({
   );
 }
 
-function ShortcutHelp({ onClose }: { onClose: () => void }) {
+function ShortcutHelp({
+  casterMode,
+  onClose,
+}: {
+  casterMode: boolean;
+  onClose: () => void;
+}) {
   const shortcuts = [
     ["Space", "Play or pause"],
     ["← / →", "Previous or next action"],
@@ -4492,6 +5070,12 @@ function ShortcutHelp({ onClose }: { onClose: () => void }) {
     ["Alt + ← / →", "Previous or next turn"],
     ["1 / 2 / 4 / 6 / 0", "Set playback speed (0 selects 10×)"],
     ["M", "Show or hide More controls"],
+    ...(casterMode ? [
+      ["P", "Toggle clean recording feed"],
+      ["F", "Enter or exit fullscreen"],
+      ["B", "Bookmark the current moment"],
+      ["N", "Focus the caster note field"],
+    ] : []),
     ["?", "Show this shortcut guide"],
     ["Esc", "Close the active panel"],
   ];
@@ -5148,6 +5732,11 @@ function isJsonObject(value: JsonValue | undefined): value is JsonObject {
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || /^(?:INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+}
+
+function isSpaceActivationTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest("button, [role='button']"));
 }
 
 function escapeCssUrl(value: string): string {

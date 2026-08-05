@@ -44,6 +44,59 @@ export async function GET(request: Request) {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    const developmentFallback = await readPublicProductionReplayListInDevelopment(
+      request,
+      error,
+    );
+    if (developmentFallback) return developmentFallback;
     return replayApiError(error);
+  }
+}
+
+/**
+ * Keep the public replay library usable in a local UI checkout that does not
+ * carry production Firebase credentials. Identity is never forwarded and the
+ * fixed upstream endpoint can only return already-public replay summaries.
+ */
+async function readPublicProductionReplayListInDevelopment(
+  request: Request,
+  error: unknown,
+): Promise<NextResponse | null> {
+  if (
+    process.env.NODE_ENV !== "development" ||
+    !(error instanceof ReplayV2Error) ||
+    error.code !== "firebase_unavailable"
+  ) {
+    return null;
+  }
+  const requestUrl = new URL(request.url);
+  if (!["127.0.0.1", "localhost", "::1"].includes(requestUrl.hostname.toLowerCase())) {
+    return null;
+  }
+  if (requestUrl.searchParams.get("mine") === "1" || requestUrl.searchParams.get("scope") === "mine") {
+    return null;
+  }
+
+  const upstream = new URL("https://www.riftlite.com/api/v2/replays");
+  upstream.searchParams.set("scope", "public");
+  for (const key of ["limit", "cursor"] as const) {
+    const value = requestUrl.searchParams.get(key);
+    if (value) upstream.searchParams.set(key, value);
+  }
+  try {
+    const response = await fetch(upstream, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as unknown;
+    return NextResponse.json(payload, {
+      headers: {
+        "Cache-Control": "no-store",
+        "X-RiftLite-Local-Artifact-Source": "public-production-api",
+      },
+    });
+  } catch {
+    return null;
   }
 }

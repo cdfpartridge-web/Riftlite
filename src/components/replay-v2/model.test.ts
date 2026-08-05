@@ -21,9 +21,12 @@ import {
   isBattlefieldCard,
   isDuplicateCard,
   isReplayActionStep,
+  isReplayCasterStep,
   isTechnicalReplayActionType,
   legendCard,
   replayActionStepIndex,
+  replayCasterDisplayEvent,
+  replayCasterStepIndex,
   replayDisplayEvent,
   safeCardImageUrl,
 } from "./model";
@@ -93,6 +96,73 @@ describe("replay action navigation", () => {
     expect(replayDisplayEvent({ events }, 1)?.index).toBe(0);
     expect(eventLabel(replayDisplayEvent({ events }, 3))).toBe("BMU paid 2 energy.");
     expect(replayDisplayEvent({ events }, -1)).toBeUndefined();
+  });
+
+  it("gives caster navigation only decisions and visible game transitions", () => {
+    const phase: ReplayEvent = {
+      id: "phase-0",
+      index: 0,
+      at: 1,
+      atMs: 0,
+      sourceMessageId: "message-phase",
+      gameId: "game-1",
+      kind: "phase",
+      phase: "in_game",
+      rawPhase: "in_game",
+      gameNumber: 1,
+    };
+    const snapshot: ReplayEvent = {
+      id: "snapshot-1",
+      index: 1,
+      at: 2,
+      atMs: 1_000,
+      sourceMessageId: "message-snapshot",
+      gameId: "game-1",
+      kind: "snapshot",
+      snapshot: {
+        room: { phase: "in_game", rawPhase: "in_game", gameNumber: 1, fields: {} },
+        players: {},
+        chain: [],
+        log: [],
+      },
+    };
+    const chat: ReplayEvent = {
+      id: "chat-2",
+      index: 2,
+      at: 3,
+      atMs: 2_000,
+      sourceMessageId: "message-chat",
+      gameId: "game-1",
+      kind: "chat",
+      entries: [{ id: "chat-entry", at: 3, author: "Player", text: "hello", fields: {} }],
+    };
+    const boundary: ReplayEvent = {
+      id: "boundary-6",
+      index: 6,
+      at: 7,
+      atMs: 6_000,
+      sourceMessageId: "message-boundary",
+      gameId: "game-1",
+      kind: "game_boundary",
+      boundary: "end",
+      gameNumber: 1,
+    };
+    const events = [
+      phase,
+      snapshot,
+      chat,
+      replayAction(3, "payment_batch", "Paid 2 energy."),
+      replayAction(4, "play_card"),
+      replayUnknown(5, "authoritative_patch_commit"),
+      boundary,
+    ];
+
+    expect(isReplayCasterStep(snapshot)).toBe(false);
+    expect(isReplayCasterStep(chat)).toBe(false);
+    expect(replayCasterStepIndex({ events }, 0, 1)).toBe(4);
+    expect(replayCasterStepIndex({ events }, 4, 1)).toBe(6);
+    expect(replayCasterStepIndex({ events }, 6, -1)).toBe(4);
+    expect(replayCasterDisplayEvent({ events }, 5)?.index).toBe(4);
   });
 });
 

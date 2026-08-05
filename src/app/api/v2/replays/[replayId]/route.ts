@@ -87,7 +87,7 @@ async function readPublicProductionReplayInDevelopment(
   if (
     process.env.NODE_ENV !== "development" ||
     !(error instanceof ReplayV2Error) ||
-    error.code !== "artifact_read_failed" ||
+    !["artifact_read_failed", "firebase_unavailable"].includes(error.code) ||
     !isReplayId(replayId)
   ) {
     return null;
