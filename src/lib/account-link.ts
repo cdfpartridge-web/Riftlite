@@ -69,6 +69,31 @@ export function desktopLinkPinnedExpectedUid(
 }
 
 /**
+ * Identifies the one legacy shape that is an account upgrade rather than an
+ * account switch. Older desktop builds could copy their anonymous Firebase UID
+ * into `accountUid`, so they later sent that same UID as a reconnect pin. Only
+ * the verified anonymous token itself may release that self-pin; durable
+ * identities and server-canonicalized aliases remain pinned above this layer.
+ */
+export function desktopLinkAnonymousAdoptionSourceUid(
+  authenticatedUid: unknown,
+  canonicalAuthenticatedUid: unknown,
+  durableUid: unknown,
+  requestedUid: unknown,
+  signInProvider: unknown,
+): string {
+  const authenticated = String(authenticatedUid ?? "").trim();
+  const canonical = String(canonicalAuthenticatedUid ?? "").trim();
+  const durable = String(durableUid ?? "").trim();
+  const requested = String(requestedUid ?? "").trim();
+  const provider = String(signInProvider ?? "").trim().toLowerCase();
+  if (provider !== "anonymous" || durable) return "";
+  return authenticated && authenticated === canonical && requested === authenticated
+    ? authenticated
+    : "";
+}
+
+/**
  * Resolve whether an already-verified request represents a recoverable
  * RiftLite account. Provider claims are the normal proof. A raw Firebase UID
  * that the server canonicalized to a different UID is also valid because that
