@@ -66,12 +66,19 @@ export async function GET(req: NextRequest) {
         linkedUid,
       }, { merge: true });
     }
+    const storedAnonymousAdoptionSourceUid = String(data.anonymousAdoptionSourceUid ?? "").trim();
+    const anonymousAdoptionSourceUid = storedAnonymousAdoptionSourceUid &&
+      storedAnonymousAdoptionSourceUid === String(data.desktopUid ?? "").trim() &&
+      storedAnonymousAdoptionSourceUid !== linkedUid
+      ? storedAnonymousAdoptionSourceUid
+      : "";
     return linkStatusJson({
       status: "complete",
       uid: linkedUid,
       email: String(data.linkedEmail ?? ""),
       displayName: String(data.linkedName ?? ""),
       customToken,
+      ...(anonymousAdoptionSourceUid ? { anonymousAdoptionSourceUid } : {}),
     });
   }
 

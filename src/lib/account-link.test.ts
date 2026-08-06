@@ -4,6 +4,7 @@ import {
   accountIdHint,
   accountIdentityLabel,
   conflictingLinkedIdentityCanonicalUid,
+  desktopLinkAnonymousAdoptionSourceUid,
   desktopLinkAllowsIdentity,
   desktopLinkCanReissueToken,
   desktopLinkPinnedExpectedUid,
@@ -82,6 +83,44 @@ describe("desktop account linking", () => {
       "",
       "remembered-account",
     )).toBe("remembered-account");
+  });
+
+  it("releases only an unbound anonymous desktop self-pin for first account adoption", () => {
+    expect(desktopLinkAnonymousAdoptionSourceUid(
+      "anonymous-desktop",
+      "anonymous-desktop",
+      "",
+      "anonymous-desktop",
+      "anonymous",
+    )).toBe("anonymous-desktop");
+    expect(desktopLinkAnonymousAdoptionSourceUid(
+      "anonymous-desktop",
+      "anonymous-desktop",
+      "",
+      "remembered-account",
+      "anonymous",
+    )).toBe("");
+    expect(desktopLinkAnonymousAdoptionSourceUid(
+      "anonymous-desktop",
+      "account-canonical",
+      "",
+      "anonymous-desktop",
+      "anonymous",
+    )).toBe("");
+    expect(desktopLinkAnonymousAdoptionSourceUid(
+      "real-account",
+      "real-account",
+      "real-account",
+      "real-account",
+      "google.com",
+    )).toBe("");
+    expect(desktopLinkAnonymousAdoptionSourceUid(
+      "bare-custom-account",
+      "bare-custom-account",
+      "",
+      "bare-custom-account",
+      "custom",
+    )).toBe("");
   });
 
   it("accepts durable providers and proven canonical aliases but not anonymous identities", () => {

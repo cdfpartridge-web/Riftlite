@@ -1,6 +1,9 @@
 import { type NextRequest } from "next/server";
 
-import { desktopLinkPinnedExpectedUid } from "@/lib/account-link";
+import {
+  desktopLinkAnonymousAdoptionSourceUid,
+  desktopLinkPinnedExpectedUid,
+} from "@/lib/account-link";
 import { requireUser, newLinkSession, socialJson } from "@/lib/social/server";
 import { canonicalIdentityUid } from "@/lib/identity-server";
 import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
@@ -20,12 +23,21 @@ export async function POST(req: NextRequest) {
     ? await canonicalIdentityUid(requestedExpectedUid, auth.db)
     : "";
   const authenticatedExpectedUid = linkedReplayUid(auth.decoded);
-  const expectedUid = desktopLinkPinnedExpectedUid(
+  const anonymousAdoptionSourceUid = desktopLinkAnonymousAdoptionSourceUid(
     auth.authenticatedUid,
     auth.decoded.uid,
     authenticatedExpectedUid,
     canonicalRequestedUid,
+    auth.decoded.firebase?.sign_in_provider,
   );
+  const expectedUid = anonymousAdoptionSourceUid
+    ? ""
+    : desktopLinkPinnedExpectedUid(
+      auth.authenticatedUid,
+      auth.decoded.uid,
+      authenticatedExpectedUid,
+      canonicalRequestedUid,
+    );
 
   const session = {
     // Keep ownership bound to the exact Firebase identity that opened this
@@ -35,6 +47,10 @@ export async function POST(req: NextRequest) {
     // A remembered desktop UID only narrows which signed-in website account may
     // complete this session. It never grants access to that UID.
     expectedUid,
+    // This is server-derived proof that an old desktop copied its own
+    // unassociated anonymous UID into the account field. The completed status
+    // lets that exact desktop preserve and rebind its local setup safely.
+    anonymousAdoptionSourceUid,
   };
   await auth.db.collection("desktopLinkSessions").doc(session.sessionId).set(session);
   const origin = req.nextUrl.origin;

@@ -128,6 +128,55 @@ describe("desktop account-link routes", () => {
     }));
   });
 
+  it("treats a legacy anonymous desktop self-pin as first account adoption", async () => {
+    const { db, ref } = fakeLinkDatabase();
+    mocks.requireUser.mockResolvedValue({
+      authenticatedUid: "anonymous-desktop",
+      decoded: {
+        uid: "anonymous-desktop",
+        firebase: { identities: {}, sign_in_provider: "anonymous" },
+      },
+      db,
+    });
+    mocks.linkedReplayUid.mockReturnValue("");
+
+    const response = await startLink({
+      json: async () => ({ expectedUid: "anonymous-desktop" }),
+      nextUrl: new URL("https://riftlite.example/api/auth/link/start"),
+    } as never);
+
+    expect(response?.status).toBe(200);
+    expect(ref.set).toHaveBeenCalledWith(expect.objectContaining({
+      desktopUid: "anonymous-desktop",
+      expectedUid: "",
+      anonymousAdoptionSourceUid: "anonymous-desktop",
+    }));
+  });
+
+  it("does not release a remembered account pin from a bare custom credential", async () => {
+    const { db, ref } = fakeLinkDatabase();
+    mocks.requireUser.mockResolvedValue({
+      authenticatedUid: "remembered-account",
+      decoded: {
+        uid: "remembered-account",
+        firebase: { identities: {}, sign_in_provider: "custom" },
+      },
+      db,
+    });
+    mocks.linkedReplayUid.mockReturnValue("");
+
+    const response = await startLink({
+      json: async () => ({ expectedUid: "remembered-account" }),
+      nextUrl: new URL("https://riftlite.example/api/auth/link/start"),
+    } as never);
+
+    expect(response?.status).toBe(200);
+    expect(ref.set).toHaveBeenCalledWith(expect.objectContaining({
+      expectedUid: "remembered-account",
+      anonymousAdoptionSourceUid: "",
+    }));
+  });
+
   it("lets the raw session owner poll after requireUser canonicalizes its UID", async () => {
     const { db, ref } = fakeLinkDatabase({
       desktopUid: "desktop-raw",
@@ -136,6 +185,7 @@ describe("desktop account-link routes", () => {
       linkedUid: "account-canonical",
       linkedEmail: "player@example.com",
       linkedName: "Rift Player",
+      anonymousAdoptionSourceUid: "desktop-raw",
       customToken: "single-use-token",
       expiresAt: Date.now() + 60_000,
     });
@@ -156,11 +206,36 @@ describe("desktop account-link routes", () => {
       status: "complete",
       uid: "account-canonical",
       customToken: "single-use-token",
+      anonymousAdoptionSourceUid: "desktop-raw",
     });
     expect(ref.set).toHaveBeenCalledWith(expect.objectContaining({
       customToken: "",
       linkedUid: "account-canonical",
     }), { merge: true });
+  });
+
+  it("does not expose an adoption source that is not the session owner", async () => {
+    const { db } = fakeLinkDatabase({
+      desktopUid: "desktop-raw",
+      desktopUidBindingVersion: 2,
+      status: "complete",
+      linkedUid: "account-canonical",
+      anonymousAdoptionSourceUid: "another-device",
+      customToken: "single-use-token",
+      expiresAt: Date.now() + 60_000,
+    });
+    mocks.requireUser.mockResolvedValue({
+      authenticatedUid: "desktop-raw",
+      decoded: { uid: "desktop-raw" },
+      db,
+    });
+
+    const response = await linkStatus({
+      nextUrl: new URL("https://riftlite.example/api/auth/link/status?sessionId=session-1"),
+    } as never);
+
+    if (!response) throw new Error("Expected the status route to return a response");
+    await expect(response.json()).resolves.not.toHaveProperty("anonymousAdoptionSourceUid");
   });
 
   it("does not let another alias poll a versioned raw-owner session", async () => {
