@@ -2,6 +2,7 @@ import type { Firestore } from "firebase-admin/firestore";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG,
   type CreatorVideoCarouselConfig,
   normalizeCreatorVideoCarouselConfig,
 } from "@/lib/youtube/creator-video-config";
@@ -120,6 +121,31 @@ describe("YouTube creator video feeds", () => {
       "riftlab",
     ]);
     expect(videos).toHaveLength(7);
+  });
+
+  it("keeps every weighted slot in the full default creator roster", () => {
+    const config = DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG;
+    const candidates = config.creators.flatMap((creator, creatorIndex) =>
+      creator.youtubeUrl
+        ? Array.from({ length: creator.videoSlots }, (_, slotIndex) => video(
+            creator.id,
+            `v${creatorIndex}-${slotIndex}`,
+            new Date(Date.UTC(2026, 7, 4, 8, creatorIndex, slotIndex)).toISOString(),
+          ))
+        : []);
+
+    const videos = selectCreatorVideos(config, candidates);
+    const counts = videos.reduce((byCreator, item) => {
+      byCreator.set(item.creatorId, (byCreator.get(item.creatorId) ?? 0) + 1);
+      return byCreator;
+    }, new Map<string, number>());
+
+    expect(videos).toHaveLength(16);
+    expect(counts.get("riftlab")).toBe(4);
+    expect(counts.get("frodan")).toBe(2);
+    expect(config.creators
+      .filter((creator) => creator.youtubeUrl && !["riftlab", "frodan"].includes(creator.id))
+      .every((creator) => counts.get(creator.id) === 1)).toBe(true);
   });
 
   it("puts available pins first and always removes exclusions", () => {
