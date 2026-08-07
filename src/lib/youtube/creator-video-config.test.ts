@@ -14,14 +14,25 @@ describe("creator video carousel config", () => {
     const config = normalizeCreatorVideoCarouselConfig(undefined);
 
     expect(config).toEqual(DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG);
-    expect(config.creators).toHaveLength(14);
+    expect(config.creators).toHaveLength(15);
+    expect(config.creators.slice(0, 2).map((creator) => creator.id))
+      .toEqual(["riftlab", "frodan"]);
     const videoCreators = config.creators.filter((creator) => creator.youtubeUrl);
-    expect(videoCreators).toHaveLength(11);
+    expect(videoCreators).toHaveLength(12);
+    expect(config.maxItems).toBe(16);
+    expect(videoCreators.reduce((total, creator) => total + creator.videoSlots, 0)).toBe(16);
     expect(config.creators.find((creator) => creator.id === "riftlab")?.videoSlots).toBe(4);
     expect(config.creators.find((creator) => creator.id === "riftlab")?.sourceMode).toBe("all");
+    expect(config.creators.find((creator) => creator.id === "frodan")).toMatchObject({
+      name: "Frodan",
+      youtubeUrl: "https://www.youtube.com/@FrodanRB",
+      channelId: "UCmLDo-TRR0EesNbBEZNSkxw",
+      sourceMode: "all",
+      videoSlots: 2,
+    });
     expect(config.creators.find((creator) => creator.id === "winthepanda")?.sourceMode)
       .toBe("riftbound");
-    expect(videoCreators.filter((creator) => creator.id !== "riftlab"))
+    expect(videoCreators.filter((creator) => !["riftlab", "frodan"].includes(creator.id)))
       .toSatisfy((creators: typeof videoCreators) => creators.every((creator) => creator.videoSlots === 1));
     expect(config.creators.find((creator) => creator.id === "ritualtcg")?.youtubeUrl).toBe("");
     expect(config.creators.find((creator) => creator.id === "tronisbad")).toMatchObject({

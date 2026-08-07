@@ -40,9 +40,14 @@ const CREATOR_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const YOUTUBE_HANDLE_PATTERN = /^@[A-Za-z0-9._-]{3,100}$/;
 const ALL_UPLOAD_CREATOR_IDS = new Set([
   "riftlab",
+  "frodan",
   "runesandrift",
   "agitoswiftly",
   "maskedswan",
+]);
+const DEFAULT_CREATOR_VIDEO_SLOTS = new Map([
+  ["riftlab", 4],
+  ["frodan", 2],
 ]);
 const LEGACY_CREATOR_CHANNEL_CORRECTIONS = new Map([
   ["riftlab:UCDQDmAPxp49TXOK9ZjLbCuA", "UCDFo4wpERqN20cMxs3WzPsQ"],
@@ -50,7 +55,7 @@ const LEGACY_CREATOR_CHANNEL_CORRECTIONS = new Map([
 ]);
 
 const DEFAULT_ROTATION_SECONDS = 10;
-const DEFAULT_MAX_ITEMS = 12;
+const DEFAULT_MAX_ITEMS = 16;
 const MIN_ROTATION_SECONDS = 5;
 const MAX_ROTATION_SECONDS = 120;
 const MIN_MAX_ITEMS = 1;
@@ -63,6 +68,7 @@ export const CREATOR_VIDEO_FEED_CACHE_TAG = "youtube-creator-videos";
 
 export const DEFAULT_COMMUNITY_SPOTLIGHT_VIDEO_PROFILES: CommunitySpotlightVideoProfile[] = [
   spotlight("riftlab", "Riftlab", "https://www.youtube.com/@RiftlabTCG", "UCDFo4wpERqN20cMxs3WzPsQ"),
+  spotlight("frodan", "Frodan", "https://www.youtube.com/@FrodanRB", "UCmLDo-TRR0EesNbBEZNSkxw"),
   spotlight("runesandrift", "Runes & Rift", "https://www.youtube.com/@RunesAndRift", "UCw6Qfsm4P--Bq2BPKf031SQ"),
   spotlight("challengertcg", "Challenger TCG", "https://www.youtube.com/@ChallengerTCG", "UCC5qY4_dp975yikMmtsdNCw"),
   spotlight("noveggies", "NoVeggies"),
@@ -260,7 +266,7 @@ function creatorConfigsFromSpotlights(
       enabled: override?.enabled ?? profile.enabled,
       videoSlots: boundedInteger(
         override?.videoSlots,
-        profile.id === "riftlab" ? 4 : 1,
+        DEFAULT_CREATOR_VIDEO_SLOTS.get(profile.id) ?? 1,
         MIN_VIDEO_SLOTS,
         MAX_VIDEO_SLOTS,
       ),
