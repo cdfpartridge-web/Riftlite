@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildMetaStudioReport,
+  META_STUDIO_AGGREGATION_METHOD,
   parseMetaStudioFilters,
   type MetaStudioFilters,
 } from "@/lib/community/meta-studio";
+import { buildMatrix } from "@/lib/community/aggregate";
 import type { CommunityMatch } from "@/lib/types";
 
 const NOW = Date.UTC(2026, 6, 30, 12);
@@ -52,6 +54,38 @@ function match(
 }
 
 describe("Meta Studio report", () => {
+  it("adds an inverted opponent perspective without doubling source coverage", () => {
+    const report = buildMetaStudioReport([
+      match("one-capture", "Akali", "Annie", "Win", { wentFirst: "1st" }),
+    ], FILTERS, { now: NOW });
+    const akali = report.leaders.find((leader) => leader.legend === "Akali");
+    const annie = report.leaders.find((leader) => leader.legend === "Annie");
+
+    expect(report.coverage).toMatchObject({
+      detailedRecords: 1,
+      rankedRecords: 1,
+      matrixReadyRecords: 1,
+      legendAppearances: 2,
+      uniquePlayers: 1,
+    });
+    expect(akali).toMatchObject({
+      series: 1,
+      wins: 1,
+      losses: 0,
+      playRate: 50,
+      first: { series: 1, wins: 1 },
+      second: { series: 0 },
+    });
+    expect(annie).toMatchObject({
+      series: 1,
+      wins: 0,
+      losses: 1,
+      playRate: 50,
+      first: { series: 0 },
+      second: { series: 1, losses: 1 },
+    });
+  });
+
   it("builds deterministic rankings, matchup classes, seat splits, and rank movement", () => {
     const matches: CommunityMatch[] = [];
     for (let index = 0; index < 7; index += 1) {
@@ -86,20 +120,91 @@ describe("Meta Studio report", () => {
       rank: 1,
       previousRank: 2,
       rankDelta: 1,
-      series: 10,
-      wins: 7,
-      losses: 3,
-      winRate: 70,
+      series: 18,
+      wins: 11,
+      losses: 7,
+      winRate: 61.1,
     });
     expect(akali?.first).toMatchObject({ series: 4, wins: 4, winRate: 100 });
-    expect(akali?.second).toMatchObject({ series: 6, wins: 3, losses: 3, winRate: 50 });
+    expect(akali?.second).toMatchObject({ series: 14, wins: 7, losses: 7, winRate: 50 });
     expect(akali?.matchups[0]).toMatchObject({
       opponentLegend: "Annie",
       classification: "favorable",
-      confidence: "low",
+      confidence: "medium",
+      directCaptures: { series: 10, wins: 7, losses: 3 },
+      reverseCaptures: { series: 8, wins: 4, losses: 4 },
     });
     expect(akali?.adjustedWinRate).toBeGreaterThan(50);
     expect(akali?.adjustedWinRate).toBeLessThan(akali?.winRate ?? 0);
+  });
+
+  it("matches the public matrix symmetric pooling contract", () => {
+    const matches = [
+      ...Array.from({ length: 10 }, (_, index) =>
+        match(`akali-win-${index}`, "Akali", "Annie", "Win"),
+      ),
+      match("akali-loss", "Akali", "Annie", "Loss"),
+      ...Array.from({ length: 12 }, (_, index) =>
+        match(`annie-win-${index}`, "Annie", "Akali", "Win"),
+      ),
+      ...Array.from({ length: 10 }, (_, index) =>
+        match(`annie-loss-${index}`, "Annie", "Akali", "Loss"),
+      ),
+    ];
+
+    const report = buildMetaStudioReport(matches, FILTERS, { now: NOW });
+    const matrix = buildMatrix(matches);
+    const akali = report.leaders.find((leader) => leader.legend === "Akali");
+    const annie = report.leaders.find((leader) => leader.legend === "Annie");
+    const matrixAkali = matrix.cells.find(
+      (cell) => cell.myLegend === "Akali" && cell.oppLegend === "Annie",
+    );
+
+    expect(report).toMatchObject({
+      schemaVersion: 2,
+      aggregationMethod: META_STUDIO_AGGREGATION_METHOD,
+      coverage: {
+        detailedRecords: 33,
+        rankedRecords: 33,
+        matrixReadyRecords: 33,
+        legendAppearances: 66,
+        uniquePlayers: 33,
+      },
+    });
+    expect(akali).toMatchObject({
+      series: 33,
+      wins: 20,
+      losses: 13,
+      winRate: 60.6,
+      playRate: 50,
+      first: { series: 11, wins: 10, losses: 1 },
+      second: { series: 22, wins: 10, losses: 12 },
+    });
+    expect(annie).toMatchObject({
+      series: 33,
+      wins: 13,
+      losses: 20,
+      winRate: 39.4,
+      playRate: 50,
+    });
+    expect(akali?.matchups[0]).toMatchObject({
+      opponentLegend: "Annie",
+      series: 33,
+      wins: 20,
+      losses: 13,
+      winRate: 60.6,
+      directCaptures: { series: 11, wins: 10, losses: 1 },
+      reverseCaptures: { series: 22, wins: 12, losses: 10 },
+    });
+    expect(akali?.matchups[0]).toMatchObject({
+      wins: matrixAkali?.wins,
+      losses: matrixAkali?.losses,
+      draws: matrixAkali?.draws,
+      decisiveSeries: matrixAkali?.decisiveGames,
+      series: matrixAkali?.totalGames,
+      winRate: matrixAkali?.winRate,
+    });
+    expect((akali?.winRate ?? 0) + (annie?.winRate ?? 0)).toBe(100);
   });
 
   it("does not turn unknown outcomes into losses and keeps percentages in the 0..100 unit", () => {
@@ -111,6 +216,7 @@ describe("Meta Studio report", () => {
 
     expect(report.coverage.detailedRecords).toBe(3);
     expect(report.coverage.rankedRecords).toBe(1);
+    expect(report.coverage.legendAppearances).toBe(2);
     expect(report.leaders[0]).toMatchObject({
       series: 1,
       wins: 1,
@@ -183,6 +289,51 @@ describe("Meta Studio report", () => {
 
     expect(report.coverage.detailedRecords).toBe(1);
     expect(report.leaders[0]).toMatchObject({ wins: 1, losses: 0 });
+  });
+
+  it("removes source rows represented by a combined series before filtering", () => {
+    const source = match("source-document", "Akali", "Annie", "Win", {
+      fmt: "Bo1",
+      localMatchId: "source-game",
+    });
+    const combined = match("combined-series", "Akali", "Annie", "Loss", {
+      fmt: "Bo3",
+      combinedFromMatchIds: ["source-game"],
+    });
+
+    const allFormats = buildMetaStudioReport([source, combined], FILTERS, { now: NOW });
+    const bo1 = buildMetaStudioReport(
+      [source, combined],
+      { ...FILTERS, format: "bo1" },
+      { now: NOW },
+    );
+
+    expect(allFormats.coverage.detailedRecords).toBe(1);
+    expect(allFormats.leaders.find((leader) => leader.legend === "Akali"))
+      .toMatchObject({ series: 1, wins: 0, losses: 1 });
+    expect(bo1.coverage.detailedRecords).toBe(0);
+    expect(bo1.leaders).toEqual([]);
+  });
+
+  it("does not double mirrors or expose them as matchup reads", () => {
+    const report = buildMetaStudioReport([
+      match("mirror", "Akali", "Akali", "Win"),
+    ], FILTERS, { now: NOW });
+
+    expect(report.coverage).toMatchObject({
+      detailedRecords: 1,
+      matrixReadyRecords: 1,
+      legendAppearances: 1,
+    });
+    expect(report.leaders).toHaveLength(1);
+    expect(report.leaders[0]).toMatchObject({
+      legend: "Akali",
+      series: 1,
+      wins: 1,
+      losses: 0,
+      playRate: 100,
+      matchups: [],
+    });
   });
 
   it("marks samples below the selected threshold as insufficient", () => {

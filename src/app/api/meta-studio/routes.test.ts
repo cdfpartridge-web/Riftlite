@@ -146,13 +146,35 @@ describe("Meta Studio report route", () => {
       { headers: { Cookie: "riftlite_meta_studio=signed" } },
     ));
     const text = await response.text();
-    const payload = JSON.parse(text) as { report: { leaders: unknown[] } };
+    const payload = JSON.parse(text) as {
+      report: {
+        schemaVersion: number;
+        aggregationMethod: string;
+        coverage: {
+          detailedRecords: number;
+          rankedRecords: number;
+          legendAppearances: number;
+          uniquePlayers: number;
+        };
+        leaders: unknown[];
+      };
+    };
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("private");
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(response.headers.get("vary")).toContain("Cookie");
-    expect(payload.report.leaders).toHaveLength(1);
+    expect(payload.report).toMatchObject({
+      schemaVersion: 2,
+      aggregationMethod: "symmetric-v1",
+      coverage: {
+        detailedRecords: 1,
+        rankedRecords: 1,
+        legendAppearances: 2,
+        uniquePlayers: 1,
+      },
+    });
+    expect(payload.report.leaders).toHaveLength(2);
     expect(text).not.toContain("Private display name");
     expect(text).not.toContain("Private opponent");
     expect(text).not.toContain("private note");

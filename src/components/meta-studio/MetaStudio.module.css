@@ -895,6 +895,30 @@
   font-size: 9px;
 }
 
+.captureDirections {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  color: #61788e;
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.captureDirections span {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.captureDirections b {
+  overflow: hidden;
+  color: #94aabd;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .matchupDetailSplits {
   display: grid;
   gap: 7px;

@@ -6,6 +6,7 @@ export const META_STUDIO_FORMATS = ["all", "bo1", "bo3"] as const;
 export const META_STUDIO_PLATFORMS = ["all", "atlas", "tcga"] as const;
 export const META_STUDIO_SEASONS = ["", "pre-vendetta", "vendetta-preview", "vendetta-launch"] as const;
 export const META_STUDIO_MIN_SAMPLES = [5, 10, 20] as const;
+export const META_STUDIO_AGGREGATION_METHOD = "symmetric-v1" as const;
 
 export type MetaStudioRange = (typeof META_STUDIO_RANGES)[number];
 export type MetaStudioFormat = (typeof META_STUDIO_FORMATS)[number];
@@ -34,6 +35,8 @@ export type MetaStudioMatchup = MetaStudioSplit & {
   opponentLegend: string;
   first: MetaStudioSplit;
   second: MetaStudioSplit;
+  directCaptures: MetaStudioSplit;
+  reverseCaptures: MetaStudioSplit;
   classification: "favorable" | "even" | "unfavorable" | "insufficient";
   confidence: "high" | "medium" | "low" | "insufficient";
 };
@@ -57,7 +60,8 @@ export type MetaStudioLeader = MetaStudioSplit & {
 };
 
 export type MetaStudioReport = {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  aggregationMethod: typeof META_STUDIO_AGGREGATION_METHOD;
   generatedAt: number;
   filters: MetaStudioFilters;
   window: {
@@ -75,6 +79,7 @@ export type MetaStudioReport = {
     decisiveRecords: number;
     rankedRecords: number;
     matrixReadyRecords: number;
+    legendAppearances: number;
     seatKnownRecords: number;
     deckSnapshotRecords: number;
     platformKnownRecords: number;
@@ -101,6 +106,8 @@ type MutableSplit = {
 type MutableMatchup = MutableSplit & {
   first: MutableSplit;
   second: MutableSplit;
+  directCaptures: MutableSplit;
+  reverseCaptures: MutableSplit;
 };
 
 type MutableLeader = MutableSplit & {
@@ -225,6 +232,18 @@ function canonicalSeat(value: unknown): "1st" | "2nd" | "" {
   return "";
 }
 
+function oppositeResult(result: CanonicalResult): CanonicalResult {
+  if (result === "Win") return "Loss";
+  if (result === "Loss") return "Win";
+  return "Draw";
+}
+
+function oppositeSeat(seat: "1st" | "2nd" | ""): "1st" | "2nd" | "" {
+  if (seat === "1st") return "2nd";
+  if (seat === "2nd") return "1st";
+  return "";
+}
+
 function seriesSeat(match: CommunityMatch): "1st" | "2nd" | "" {
   return canonicalSeat(match.games?.[0]?.wentFirst) || canonicalSeat(match.wentFirst);
 }
@@ -254,7 +273,15 @@ function uniqueMatches(matches: CommunityMatch[]): CommunityMatch[] {
       byId.set(match.id, match);
     }
   }
-  return Array.from(byId.values());
+  const active = Array.from(byId.values()).filter(
+    (match) => !match.superseded && !match.mergedIntoMatchId,
+  );
+  const combinedSourceIds = new Set(
+    active.flatMap((match) => match.combinedFromMatchIds ?? []),
+  );
+  return active.filter(
+    (match) => !match.localMatchId || !combinedSourceIds.has(match.localMatchId),
+  );
 }
 
 function emptyMutableSplit(): MutableSplit {
@@ -266,6 +293,8 @@ function emptyMutableMatchup(): MutableMatchup {
     ...emptyMutableSplit(),
     first: emptyMutableSplit(),
     second: emptyMutableSplit(),
+    directCaptures: emptyMutableSplit(),
+    reverseCaptures: emptyMutableSplit(),
   };
 }
 
@@ -354,43 +383,88 @@ function safeCardArt(match: CommunityMatch): { url: string; cardId: string } {
   };
 }
 
+function addLeaderPerspective(
+  buckets: Map<string, MutableLeader>,
+  perspective: {
+    legend: string;
+    opponentLegend: string;
+    result: CanonicalResult;
+    nativeResult: CanonicalResult;
+    seat: "1st" | "2nd" | "";
+    direction: "direct" | "reverse";
+    artMatch?: CommunityMatch;
+  },
+) {
+  const leader = buckets.get(perspective.legend) ?? emptyMutableLeader();
+  addResult(leader, perspective.result);
+  if (perspective.seat === "1st") addResult(leader.first, perspective.result);
+  if (perspective.seat === "2nd") addResult(leader.second, perspective.result);
+
+  if (perspective.artMatch && !leader.cardArtUrl) {
+    const art = safeCardArt(perspective.artMatch);
+    leader.cardArtUrl = art.url;
+    leader.cardId = art.cardId;
+  }
+
+  const matchup = leader.matchups.get(perspective.opponentLegend) ?? emptyMutableMatchup();
+  addResult(matchup, perspective.result);
+  if (perspective.seat === "1st") addResult(matchup.first, perspective.result);
+  if (perspective.seat === "2nd") addResult(matchup.second, perspective.result);
+  addResult(
+    perspective.direction === "direct"
+      ? matchup.directCaptures
+      : matchup.reverseCaptures,
+    perspective.nativeResult,
+  );
+  leader.matchups.set(perspective.opponentLegend, matchup);
+  buckets.set(perspective.legend, leader);
+}
+
 function buildLeaderBuckets(matches: CommunityMatch[]) {
   const buckets = new Map<string, MutableLeader>();
   let rankedRecords = 0;
   let decisiveRecords = 0;
   let matrixReadyRecords = 0;
+  let legendAppearances = 0;
   let seatKnownRecords = 0;
 
   for (const match of matches) {
     const result = canonicalResult(match.result);
-    if (!result || !LEGEND_SET.has(match.myChampion)) continue;
+    if (
+      !result ||
+      !LEGEND_SET.has(match.myChampion) ||
+      !LEGEND_SET.has(match.oppChampion)
+    ) continue;
 
     rankedRecords += 1;
     if (result !== "Draw") decisiveRecords += 1;
     const seat = seriesSeat(match);
     if (seat) seatKnownRecords += 1;
+    matrixReadyRecords += 1;
+    addLeaderPerspective(buckets, {
+      legend: match.myChampion,
+      opponentLegend: match.oppChampion,
+      result,
+      nativeResult: result,
+      seat,
+      direction: "direct",
+      artMatch: match,
+    });
+    legendAppearances += 1;
 
-    const leader = buckets.get(match.myChampion) ?? emptyMutableLeader();
-    addResult(leader, result);
-    if (seat === "1st") addResult(leader.first, result);
-    if (seat === "2nd") addResult(leader.second, result);
-
-    if (!leader.cardArtUrl) {
-      const art = safeCardArt(match);
-      leader.cardArtUrl = art.url;
-      leader.cardId = art.cardId;
+    // Mirror captures have only one distinguishable capture direction. As in
+    // the public matrix, adding the inverse again would double the sample.
+    if (match.myChampion !== match.oppChampion) {
+      addLeaderPerspective(buckets, {
+        legend: match.oppChampion,
+        opponentLegend: match.myChampion,
+        result: oppositeResult(result),
+        nativeResult: result,
+        seat: oppositeSeat(seat),
+        direction: "reverse",
+      });
+      legendAppearances += 1;
     }
-
-    if (LEGEND_SET.has(match.oppChampion)) {
-      matrixReadyRecords += 1;
-      const matchup = leader.matchups.get(match.oppChampion) ?? emptyMutableMatchup();
-      addResult(matchup, result);
-      if (seat === "1st") addResult(matchup.first, result);
-      if (seat === "2nd") addResult(matchup.second, result);
-      leader.matchups.set(match.oppChampion, matchup);
-    }
-
-    buckets.set(match.myChampion, leader);
   }
 
   return {
@@ -398,6 +472,7 @@ function buildLeaderBuckets(matches: CommunityMatch[]) {
     rankedRecords,
     decisiveRecords,
     matrixReadyRecords,
+    legendAppearances,
     seatKnownRecords,
   };
 }
@@ -439,18 +514,19 @@ export function buildMetaStudioReport(
 
   const current = buildLeaderBuckets(currentMatches);
   const previous = buildLeaderBuckets(comparisonMatches);
-  const comparisonAvailable = comparisonRequested && previous.rankedRecords > 0;
+  const comparisonAvailable = comparisonRequested && previous.legendAppearances > 0;
   const ranked = rankBuckets(current.buckets);
   const previousRanks = new Map(
     (comparisonAvailable ? rankBuckets(previous.buckets) : [])
       .map(([legend], index) => [legend, index + 1]),
   );
-  const totalRanked = Math.max(current.rankedRecords, 1);
+  const totalRanked = Math.max(current.legendAppearances, 1);
 
   const leaders: MetaStudioLeader[] = ranked.map(([legend, bucket], index) => {
     const rank = index + 1;
     const previousRank = previousRanks.get(legend) ?? null;
     const matchups = Array.from(bucket.matchups.entries())
+      .filter(([opponentLegend]) => opponentLegend !== legend)
       .map(([opponentLegend, matchup]) => {
         const overall = immutableSplit(matchup);
         return {
@@ -458,6 +534,8 @@ export function buildMetaStudioReport(
           ...overall,
           first: immutableSplit(matchup.first),
           second: immutableSplit(matchup.second),
+          directCaptures: immutableSplit(matchup.directCaptures),
+          reverseCaptures: immutableSplit(matchup.reverseCaptures),
           classification: matchupClassification(overall, filters.minSample),
           confidence: matchupConfidence(overall, filters.minSample),
         } satisfies MetaStudioMatchup;
@@ -497,7 +575,8 @@ export function buildMetaStudioReport(
   );
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    aggregationMethod: META_STUDIO_AGGREGATION_METHOD,
     generatedAt: now,
     filters,
     window: {
@@ -515,6 +594,7 @@ export function buildMetaStudioReport(
       decisiveRecords: current.decisiveRecords,
       rankedRecords: current.rankedRecords,
       matrixReadyRecords: current.matrixReadyRecords,
+      legendAppearances: current.legendAppearances,
       seatKnownRecords: current.seatKnownRecords,
       deckSnapshotRecords: currentMatches.filter((match) => Boolean(match.deckSnapshot)).length,
       platformKnownRecords: currentMatches.filter((match) => Boolean(canonicalPlatform(match.platform))).length,

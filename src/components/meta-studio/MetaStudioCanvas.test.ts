@@ -28,6 +28,8 @@ function matchup(opponentLegend: string, winRate: number): MetaStudioMatchup {
     opponentLegend,
     first: split(winRate),
     second: split(winRate),
+    directCaptures: split(winRate),
+    reverseCaptures: split(100 - winRate),
     classification: winRate >= 55 ? "favorable" : winRate <= 45 ? "unfavorable" : "even",
     confidence: "medium",
   };
@@ -79,7 +81,13 @@ describe("Meta Studio matchup matrix", () => {
     expect(view.getByText("40.0% overall")).toBeInTheDocument();
     expect(view.getByLabelText("Ahri mirror matchup hidden")).toHaveTextContent("");
     expect(view.getByLabelText("Jinx mirror matchup hidden")).toHaveTextContent("");
-    expect(view.queryByRole("button", { name: /Ahri into Ahri/i })).toBeNull();
-    expect(view.getByRole("button", { name: /Ahri into Jinx/i })).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: /Pooled for Ahri vs Ahri/i })).toBeNull();
+    expect(view.getByRole("button", { name: /Pooled for Ahri vs Jinx/i })).toBeInTheDocument();
+    expect(view.getByText("TOP-12 POOLED FIELD")).toBeInTheDocument();
+    expect(view.getByText("Symmetric matchup matrix")).toBeInTheDocument();
+    expect(view.getByText("Ahri pilots")).toBeInTheDocument();
+    expect(view.getByText("Jinx pilots")).toBeInTheDocument();
+    expect(view.getByText("6W / 4L · n=10")).toBeInTheDocument();
+    expect(view.getByText("4W / 6L · n=10")).toBeInTheDocument();
   });
 });

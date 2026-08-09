@@ -32,6 +32,7 @@ import type {
   MetaStudioLeader,
   MetaStudioMatchup,
   MetaStudioReport,
+  MetaStudioSplit,
 } from "@/lib/community/meta-studio";
 import { getLegendCardImageUrl, getLegendInitials } from "@/lib/legends";
 
@@ -114,6 +115,13 @@ function matchupTone(matchup: MetaStudioMatchup | undefined) {
 
 function matchupWinRate(matchup: MetaStudioMatchup | undefined) {
   return matchup?.decisiveSeries ? percent(matchup.winRate) : "—";
+}
+
+function captureRecord(split: MetaStudioSplit | undefined) {
+  if (!split) return "No native captures";
+  return `${integer(split.wins)}W / ${integer(split.losses)}L${
+    split.draws ? ` / ${integer(split.draws)}D` : ""
+  } · n=${integer(split.series)}`;
 }
 
 function useCanvasScale() {
@@ -215,7 +223,7 @@ function SplitTile({
     <div className={styles.splitTile}>
       <span>{label}</span>
       <strong>{split.decisiveSeries ? percent(split.winRate) : "—"}</strong>
-      <small>{integer(split.series)} series</small>
+      <small>{integer(split.series)} appearances</small>
     </div>
   );
 }
@@ -255,7 +263,7 @@ function MatchupRow({
       </span>
       <span className={styles.matchupScore}>
         <strong>{matchupWinRate(matchup)}</strong>
-        <small>n={integer(matchup.decisiveSeries)} decisive</small>
+        <small>n={integer(matchup.decisiveSeries)} pooled decisive</small>
       </span>
     </button>
   );
@@ -302,17 +310,27 @@ function MatchupDetail({
           {integer(matchup.wins)}W · {integer(matchup.losses)}L
           {matchup.draws ? ` · ${integer(matchup.draws)}D` : ""}
         </p>
+        <div className={styles.captureDirections}>
+          <span>
+            <b>{legendShortName(leader.legend)} pilots</b>
+            {captureRecord(matchup.directCaptures)}
+          </span>
+          <span>
+            <b>{legendShortName(matchup.opponentLegend)} pilots</b>
+            {captureRecord(matchup.reverseCaptures)}
+          </span>
+        </div>
       </div>
       <div className={styles.matchupDetailSplits}>
         <div>
           <span>Going first</span>
           <strong>{matchup.first.decisiveSeries ? percent(matchup.first.winRate) : "—"}</strong>
-          <small>n={matchup.first.series}</small>
+          <small>n={matchup.first.decisiveSeries} decisive</small>
         </div>
         <div>
           <span>Going second</span>
           <strong>{matchup.second.decisiveSeries ? percent(matchup.second.winRate) : "—"}</strong>
-          <small>n={matchup.second.series}</small>
+          <small>n={matchup.second.decisiveSeries} decisive</small>
         </div>
       </div>
     </div>
@@ -391,7 +409,7 @@ function OverviewScene({
               <strong>{percent(displayedLeader.playRate)}</strong>
             </div>
             <div>
-              <span>Series</span>
+              <span>Appearances</span>
               <strong>{integer(displayedLeader.series)}</strong>
             </div>
           </div>
@@ -417,7 +435,7 @@ function OverviewScene({
             <span>Legend</span>
             <span>Adj. WR</span>
             <span>Play</span>
-            <span>Series</span>
+            <span>Appear.</span>
             <span>Move</span>
           </div>
           <div className={styles.rankingRows}>
@@ -529,7 +547,7 @@ function OverviewScene({
             <strong>{legendShortName(displayedLeader.legend)} matchup row</strong>
           </div>
           <p>
-            Overall series win rate · first/second split appears in the selected matchup
+            Pooled win rate from both capture directions · first/second split appears in the selected matchup
           </p>
         </div>
         <div className={styles.stripItems}>
@@ -603,8 +621,8 @@ export function MatrixScene({
       <section className={`${styles.panel} ${styles.matrixPanel}`}>
         <div className={styles.panelHeading}>
           <div>
-            <span>TOP-12 FIELD</span>
-            <h2>Interactive matchup matrix</h2>
+            <span>TOP-12 POOLED FIELD</span>
+            <h2>Symmetric matchup matrix</h2>
           </div>
           <div className={styles.hoverHint}>
             <MousePointer2 aria-hidden="true" size={18} />
@@ -615,7 +633,7 @@ export function MatrixScene({
           className={styles.matrixGrid}
           style={{ gridTemplateColumns: `180px repeat(${leaders.length}, minmax(0, 1fr))` }}
         >
-          <div className={styles.matrixCorner}>YOUR LEGEND</div>
+          <div className={styles.matrixCorner}>POOLED FOR</div>
           {leaders.map((leader) => (
             <div className={styles.matrixColumnHead} key={`head-${leader.legend}`}>
               <span>
@@ -656,7 +674,7 @@ export function MatrixScene({
                 effectiveSelection.opponent === opponent.legend;
               row.push(
                 <button
-                  aria-label={`${leader.legend} into ${opponent.legend}: ${
+                  aria-label={`Pooled for ${leader.legend} vs ${opponent.legend}: ${
                     matchup?.series
                       ? `${matchupWinRate(matchup)}, ${matchup.decisiveSeries} decisive series, ${classificationLabel(matchup)}`
                       : "no data"
@@ -704,6 +722,7 @@ export function MatrixScene({
               <div><span className={styles.badDot} /> 45% or less unfavoured</div>
               <div><span className={styles.mutedDot} /> Below decisive sample</div>
               <div><span className={styles.mutedDot} /> Mirrors hidden</div>
+              <div><span className={styles.mutedDot} /> Both pilot cohorts pooled</div>
             </div>
           </>
         ) : null}
@@ -858,7 +877,7 @@ export function MetaStudioCanvas({
     ? integer(report.coverage.sourcePeriodRecords)
     : `at least ${integer(report.coverage.sourcePeriodRecords)}`;
   const sourceLabel = report.coverage.detailedRecords === report.coverage.loadedPeriodRecords
-    ? `${integer(report.coverage.detailedRecords)} filtered series`
+    ? `${integer(report.coverage.detailedRecords)} filtered captures`
     : `${integer(report.coverage.detailedRecords)} filtered of ${integer(report.coverage.loadedPeriodRecords)} loaded`;
 
   return (
@@ -893,7 +912,7 @@ export function MetaStudioCanvas({
             <div>
               <span>{dateLabel(report.window.start)} — {dateLabel(report.window.end)}</span>
               <small>
-                {sourceLabel} · {sourceTotal} source rows · {integer(report.coverage.uniquePlayers)} contributors
+                {sourceLabel} · {integer(report.coverage.legendAppearances)} legend appearances · {sourceTotal} source rows · {integer(report.coverage.uniquePlayers)} contributors
               </small>
             </div>
           </div>
@@ -1111,10 +1130,10 @@ export function MetaStudioCanvas({
         <footer className={styles.footerBar}>
           <div>
             <span className={styles.livePip} />
-            Community submissions · one player perspective per series
+            Symmetric field · both legend perspectives per non-mirror capture
           </div>
           <div>
-            Adjusted WR uses a transparent 20-series, 50% prior · matchup colours require n≥{filters.minSample} decisive
+            Capture-weighted, not player-weighted · adjusted WR uses a 20-appearance, 50% prior · colours require n≥{filters.minSample}
           </div>
           <div>
             Source refreshed {timeLabel(report.coverage.sourceAsOf)}
