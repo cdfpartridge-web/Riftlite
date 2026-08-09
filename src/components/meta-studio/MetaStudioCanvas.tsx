@@ -11,6 +11,7 @@ import {
   Maximize2,
   MonitorPlay,
   MousePointer2,
+  RadioTower,
   RefreshCw,
   ShieldCheck,
   Table2,
@@ -44,6 +45,7 @@ type MetaStudioCanvasProps = {
   error: string;
   preview: boolean;
   onFiltersChange: (filters: MetaStudioFilters) => void;
+  onOpenLiveTakeover: () => void;
   onOpenCreatorVideos: () => void;
   onLock: () => void;
   onRefresh: () => void;
@@ -717,6 +719,7 @@ export function MetaStudioCanvas({
   error,
   preview,
   onFiltersChange,
+  onOpenLiveTakeover,
   onOpenCreatorVideos,
   onLock,
   onRefresh,
@@ -994,6 +997,17 @@ export function MetaStudioCanvas({
             >
               <Clapperboard aria-hidden="true" size={19} />
             </Link>
+            <button
+              aria-label="Manage live stream takeover"
+              className={`${styles.iconButton} ${styles.liveManagerButton} ${clean ? styles.chromeHidden : ""}`}
+              disabled={loading || preview}
+              onClick={onOpenLiveTakeover}
+              title={preview ? "Disabled in local fixture preview" : "Manage the desktop Home live stream takeover"}
+              type="button"
+            >
+              <RadioTower aria-hidden="true" size={19} />
+              <span>Live takeover</span>
+            </button>
             <button
               aria-label="Manage creator video carousel"
               className={`${styles.iconButton} ${styles.creatorManagerButton} ${clean ? styles.chromeHidden : ""}`}

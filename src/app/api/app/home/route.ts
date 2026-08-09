@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import { resolvePublicLiveTakeover } from "@/lib/live-takeover-status";
 import { normalizeCreatorVideoCarouselConfig } from "@/lib/youtube/creator-video-config";
 import {
   type CreatorVideoCarouselResult,
@@ -43,10 +44,10 @@ export async function GET() {
     homeConfig.data?.creatorVideoCarousel,
     homeConfig.data?.communitySpotlights,
   );
-  const creatorVideoResult = await readCreatorVideoCarousel(
-    creatorVideoCarousel,
-    homeConfig.db,
-  );
+  const [creatorVideoResult, liveTakeover] = await Promise.all([
+    readCreatorVideoCarousel(creatorVideoCarousel, homeConfig.db),
+    resolvePublicLiveTakeover(homeConfig.data),
+  ]);
   return NextResponse.json({
     // Keep the singular field for older desktop builds while current builds
     // use the ordered array to populate both homepage video slots.
@@ -59,6 +60,7 @@ export async function GET() {
       maxItems: creatorVideoCarousel.maxItems,
     },
     creatorVideosUpdatedAt: creatorVideoResult.updatedAt,
+    liveTakeover,
   }, { headers: JSON_HEADERS });
 }
 

@@ -30,8 +30,9 @@ vi.mock("@/lib/identity-server", () => ({
   canonicalIdentityUid: mocks.canonicalIdentityUid,
 }));
 
-import { GET, readCompressedPayload } from "@/app/api/riftreplay/[replayId]/route";
-import { POST, storeCompressedPayload } from "@/app/api/riftreplay/upload/route";
+import { GET } from "@/app/api/riftreplay/[replayId]/route";
+import { POST } from "@/app/api/riftreplay/upload/route";
+import { readCompressedPayload, storeCompressedPayload } from "@/lib/riftreplay-storage";
 
 describe("legacy replay storage hardening", () => {
   beforeEach(() => {

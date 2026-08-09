@@ -1,20 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 
-import { put } from "@vercel/blob";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import { replayApiError, requireReplayUser } from "@/lib/replay-v2-server";
+import { storeCompressedPayload } from "@/lib/riftreplay-storage";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MAX_COMPRESSED_BYTES = 4 * 1024 * 1024;
 const MAX_RAW_BYTES = 14 * 1024 * 1024;
-const CHUNK_CHAR_SIZE = 650_000;
 
 const VisibilitySchema = z.enum(["private", "unlisted", "public"]).default("unlisted");
 
@@ -125,41 +124,6 @@ export async function POST(request: Request) {
       },
     },
   );
-}
-
-export async function storeCompressedPayload(replayId: string, compressed: Buffer, payloadGzipBase64: string) {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    try {
-      const blob = await put(`replays/${replayId}.json.gz`, compressed, {
-        access: "private",
-        addRandomSuffix: false,
-        allowOverwrite: false,
-        contentType: "application/gzip",
-      });
-      return {
-        provider: "vercel-blob-private",
-        blobUrl: "",
-        blobPath: "pathname" in blob ? String(blob.pathname) : `replays/${replayId}.json.gz`,
-        chunks: [] as string[],
-      };
-    } catch {
-      // Firestore chunks remain the safe fallback when Blob is not available on an environment.
-    }
-  }
-  return {
-    provider: "firestore-chunks",
-    blobUrl: "",
-    blobPath: "",
-    chunks: splitIntoChunks(payloadGzipBase64, CHUNK_CHAR_SIZE),
-  };
-}
-
-function splitIntoChunks(value: string, size: number) {
-  const chunks: string[] = [];
-  for (let index = 0; index < value.length; index += size) {
-    chunks.push(value.slice(index, index + size));
-  }
-  return chunks;
 }
 
 function titleFromPayload(root: Record<string, unknown>) {

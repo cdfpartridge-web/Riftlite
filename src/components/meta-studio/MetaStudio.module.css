@@ -246,14 +246,22 @@
   background: rgba(8, 18, 34, 0.82);
 }
 
-.creatorManagerButton {
+.creatorManagerButton,
+.liveManagerButton {
   width: auto;
   gap: 7px;
   padding: 0 12px;
   color: #92ddff;
 }
 
-.creatorManagerButton span {
+.liveManagerButton {
+  border-color: rgba(255, 91, 112, 0.22);
+  color: #ffadba;
+  background: rgba(103, 26, 43, 0.2);
+}
+
+.creatorManagerButton span,
+.liveManagerButton span {
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -1525,6 +1533,10 @@
   box-shadow: 0 36px 110px rgba(0, 0, 0, 0.72);
 }
 
+.liveTakeoverPanel {
+  width: min(880px, 100%);
+}
+
 .creatorConfigHeader {
   display: flex;
   align-items: flex-start;
@@ -1654,6 +1666,74 @@
   background: rgba(48, 167, 111, 0.16);
 }
 
+.creatorConfigActions .liveTakeoverStopButton {
+  border-color: rgba(255, 103, 122, 0.3);
+  color: #ffdce1;
+  background: rgba(191, 53, 76, 0.2);
+}
+
+.liveTakeoverSummary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.liveTakeoverSummary > div {
+  display: grid;
+  gap: 3px;
+}
+
+.liveTakeoverSummary strong {
+  color: #dcecf7;
+  font-size: 12px;
+}
+
+.liveTakeoverSummary small {
+  overflow: hidden;
+  max-width: 430px;
+  color: #6f879d;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.liveTakeoverPulse {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border: 3px solid rgba(123, 145, 163, 0.24);
+  border-radius: 50%;
+  background: #6f8191;
+  box-shadow: 0 0 0 4px rgba(111, 129, 145, 0.08);
+}
+
+.liveTakeoverSummary[data-state="active"] .liveTakeoverPulse {
+  border-color: rgba(255, 122, 137, 0.23);
+  background: #ff526b;
+  box-shadow: 0 0 18px rgba(255, 66, 93, 0.68);
+  animation: studio-live-pulse 1.7s ease-in-out infinite;
+}
+
+.liveTakeoverSummary[data-state="active"] strong {
+  color: #ffbdc7;
+}
+
+.liveTakeoverSummary[data-state="armed"] .liveTakeoverPulse {
+  border-color: rgba(255, 198, 93, 0.2);
+  background: #e7ae47;
+}
+
+.liveTakeoverSummary[data-state="unavailable"] .liveTakeoverPulse {
+  border-color: rgba(255, 157, 82, 0.2);
+  background: #d67e43;
+}
+
+@keyframes studio-live-pulse {
+  0%, 100% { transform: scale(0.86); opacity: 0.72; }
+  50% { transform: scale(1); opacity: 1; }
+}
+
 .creatorConfigLoading,
 .creatorEmptyState {
   display: flex;
@@ -1676,6 +1756,96 @@
 
 .creatorConfigBody:disabled {
   opacity: 0.72;
+}
+
+.liveTakeoverBody {
+  display: grid;
+  gap: 18px;
+}
+
+.liveTakeoverFields {
+  display: grid;
+  grid-template-columns: 180px minmax(220px, 0.8fr) minmax(280px, 1.4fr);
+  gap: 12px;
+}
+
+.liveTakeoverTitleField {
+  min-width: 0;
+}
+
+.liveTakeoverSafety {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(97, 197, 247, 0.14);
+  border-radius: 13px;
+  padding: 14px;
+  color: #70cef8;
+  background: rgba(6, 18, 34, 0.64);
+}
+
+.liveTakeoverSafety > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.liveTakeoverSafety strong {
+  color: #ddecf5;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.liveTakeoverSafety span {
+  overflow: hidden;
+  color: #71889d;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.liveTakeoverSafety a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #82d6fc;
+  font-size: 10px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.liveTakeoverSaveRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.liveTakeoverSaveRow p {
+  margin: 0;
+  color: #657d92;
+  font-size: 10px;
+}
+
+.liveTakeoverSaveRow button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(96, 215, 161, 0.27);
+  border-radius: 10px;
+  padding: 0 15px;
+  color: #d7ffeb;
+  background: rgba(48, 167, 111, 0.16);
+  font: 700 11px var(--font-rift-body), sans-serif;
+  cursor: pointer;
+}
+
+.liveTakeoverSaveRow button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .creatorGlobalSettings {
@@ -2115,10 +2285,24 @@
   }
 
   .creatorGlobalSettings,
+  .liveTakeoverFields,
   .creatorVideoIdGrid,
   .creatorFields,
   .creatorPreviewItems {
     grid-template-columns: 1fr;
+  }
+
+  .liveTakeoverSafety {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .liveTakeoverSafety a {
+    grid-column: 2;
+  }
+
+  .liveTakeoverSaveRow {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .creatorPreviewItem {

@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { createPageMetadata } from "@/lib/seo";
 
-const LAST_UPDATED = "22 May 2026";
+const LAST_UPDATED = "9 August 2026";
 
 const privacySections = [
   {
@@ -46,6 +46,8 @@ const privacySections = [
     title: "Who we share information with",
     body: [
       "We do not sell personal data. RiftLite uses service providers to run the app and website, such as Firebase/Google for authentication and database services, Vercel for hosting and deployment, GitHub for release downloads, and Discord when you choose to use Discord voice or community links.",
+      "When the live takeover is enabled and the configured Twitch channel is live, opening Home in RiftLite Desktop automatically loads an embedded Twitch player. The stream starts muted. Loading the player connects your device directly to Twitch, which receives normal connection and device information such as your IP address, browser or app user agent, and request details, and may use cookies or similar storage under Twitch's own policies.",
+      "You can stop the embedded player by leaving Home or closing RiftLite. RiftLite's operator can also disable the live takeover through the private Meta Studio, after which Home returns to its usual creator-video carousel.",
       "External links to Discord, YouTube, Twitch, X, Instagram, Metafy, Piltover Archive, Riot, or other community resources are controlled by those services. Their own privacy policies apply when you visit or use them.",
       "We may disclose information if required by law, to protect RiftLite or its users, to investigate abuse, or to respond to valid security, moderation, or support issues.",
     ],

@@ -271,6 +271,7 @@ export function ReplayV2Player({
   const [speed, setSpeed] = useState<PlaybackSpeed>(1);
   const [showMore, setShowMore] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [discardOverlay, setDiscardOverlay] = useState<DiscardOverlayState>(null);
   const [banishedOverlay, setBanishedOverlay] = useState<BanishedOverlayState>(null);
   const [hoveredCard, setHoveredCard] = useState<ReplayCardState | null>(null);
@@ -303,6 +304,15 @@ export function ReplayV2Player({
   const analysisDraggingCardIdRef = useRef<string | null>(null);
   const replay = loadState.status === "ready" ? loadState.replay : null;
   const { hostRef, scale } = usePlayerScale();
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      setFullscreen(document.fullscreenElement === shellRef.current);
+    };
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    syncFullscreenState();
+    return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -737,6 +747,15 @@ export function ReplayV2Player({
     }
   }, [casterProject, flashNotice]);
 
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await shellRef.current?.requestFullscreen();
+    } catch {
+      flashNotice("Fullscreen is unavailable");
+    }
+  }, [flashNotice]);
+
   useEffect(() => {
     const handleKeyDown = (keyboardEvent: KeyboardEvent) => {
       if (keyboardEvent.defaultPrevented || isTypingTarget(keyboardEvent.target)) return;
@@ -747,6 +766,11 @@ export function ReplayV2Player({
         (keyboardEvent.altKey && !isArrowShortcut)
       ) return;
       if (keyboardEvent.key === "Escape") {
+        if (fullscreen && document.fullscreenElement) {
+          keyboardEvent.preventDefault();
+          void document.exitFullscreen().catch(() => flashNotice("Fullscreen is unavailable"));
+          return;
+        }
         if (casterMode && casterClean) {
           setCasterClean(false);
           setCasterCursorIdle(false);
@@ -783,12 +807,9 @@ export function ReplayV2Player({
         setHoveredCard(null);
         return;
       }
-      if (casterMode && keyboardEvent.key.toLowerCase() === "f") {
+      if (keyboardEvent.key.toLowerCase() === "f") {
         keyboardEvent.preventDefault();
-        const operation = document.fullscreenElement
-          ? document.exitFullscreen?.()
-          : shellRef.current?.requestFullscreen?.();
-        void operation?.catch(() => flashNotice("Fullscreen is unavailable"));
+        void toggleFullscreen();
         return;
       }
       if (casterMode && keyboardEvent.key.toLowerCase() === "b") {
@@ -843,9 +864,11 @@ export function ReplayV2Player({
     casterMode,
     changeSpeed,
     flashNotice,
+    fullscreen,
     stepAction,
     stepGame,
     stepTurn,
+    toggleFullscreen,
     togglePlayback,
   ]);
 
@@ -903,15 +926,6 @@ export function ReplayV2Player({
       stream?.getTracks().forEach((track) => track.stop());
     }
   }, [currentMs, flashNotice, replayId]);
-
-  const toggleFullscreen = useCallback(async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await shellRef.current?.requestFullscreen();
-    } catch {
-      flashNotice("Fullscreen is unavailable");
-    }
-  }, [flashNotice]);
 
   const enterCasterCleanFeed = useCallback(() => {
     if (!casterMode) return;
@@ -1216,6 +1230,7 @@ export function ReplayV2Player({
       ref={shellRef}
       data-caster-clean={casterClean ? "true" : undefined}
       data-caster-mode={casterMode ? "true" : undefined}
+      data-fullscreen={fullscreen ? "true" : undefined}
       data-replay-player="v2"
     >
       <div className={styles.scaleHost} ref={hostRef}>
@@ -1284,6 +1299,7 @@ export function ReplayV2Player({
                 currentEventLabel={presentationStage ? presentationStageLabel(presentationStage) : eventLabel(currentEvent)}
                 currentMs={currentMs}
                 embed={embed}
+                fullscreen={fullscreen}
                 inspectedCard={inspectedCard}
                 onActivityTab={setActivityTab}
                 onCapture={() => void captureFrame()}
@@ -1300,6 +1316,7 @@ export function ReplayV2Player({
                   libraryHref={casterLibraryHref}
                   currentEventLabel={eventLabel(currentCasterEvent)}
                   currentMs={currentMs}
+                  fullscreen={fullscreen}
                   noteInputRef={casterNoteRef}
                   onAddBookmark={() => addCasterMoment(false)}
                   onBookmarkNote={setCasterBookmarkNote}
@@ -1510,6 +1527,7 @@ export function ReplayV2Player({
                   currentMs={currentMs}
                   durationMs={durationMs}
                   eventIndex={eventIndex}
+                  fullscreen={fullscreen}
                   onChangeSpeed={changeSpeed}
                   onFrame={(index) => {
                     const event = replay.events[index];
@@ -1517,6 +1535,7 @@ export function ReplayV2Player({
                   }}
                   onGame={(gameIndex) => beginGamePresentation(gameIndex)}
                   onHelp={() => setShowHelp(true)}
+                  onFullscreen={() => void toggleFullscreen()}
                   onJumpBookmark={jumpToCasterBookmark}
                   onSeek={seekTo}
                   onStepAction={stepAction}
@@ -3880,6 +3899,7 @@ function InspectorRail({
   currentEventLabel,
   currentMs,
   embed,
+  fullscreen,
   inspectedCard,
   onActivityTab,
   onCapture,
@@ -3894,6 +3914,7 @@ function InspectorRail({
   currentEventLabel: string;
   currentMs: number;
   embed: boolean;
+  fullscreen: boolean;
   inspectedCard: ReplayCardState | null;
   onActivityTab: (tab: "chat" | "log") => void;
   onCapture: () => void;
@@ -3930,7 +3951,7 @@ function InspectorRail({
           <div className={styles.railActions}>
             <IconButton label="Capture replay frame" name="camera" onClick={onCapture} />
             <IconButton label="Share replay" name="share" onClick={onShare} />
-            <IconButton label="Fullscreen" name="fullscreen" onClick={onFullscreen} />
+            <IconButton label={fullscreen ? "Exit player fullscreen" : "Player fullscreen"} name="fullscreen" onClick={onFullscreen} />
             <IconButton label="Keyboard shortcuts" name="help" onClick={onHelp} />
           </div>
         ) : <span className={styles.casterLiveBadge}>CLEAN FEED</span>}
@@ -4034,6 +4055,7 @@ function CasterStudioPanel({
   libraryHref,
   currentEventLabel,
   currentMs,
+  fullscreen,
   noteInputRef,
   onAddBookmark,
   onBookmarkNote,
@@ -4055,6 +4077,7 @@ function CasterStudioPanel({
   libraryHref: string;
   currentEventLabel: string;
   currentMs: number;
+  fullscreen: boolean;
   noteInputRef: RefObject<HTMLTextAreaElement | null>;
   onAddBookmark: () => void;
   onBookmarkNote: (value: string) => void;
@@ -4099,7 +4122,7 @@ function CasterStudioPanel({
             <Icon name="play" /> Enter clean feed <kbd>P</kbd>
           </button>
           <button className={styles.casterSecondaryButton} onClick={onFullscreen} type="button">
-            <Icon name="fullscreen" /> Fullscreen <kbd>F</kbd>
+            <Icon name="fullscreen" /> {fullscreen ? "Exit fullscreen" : "Fullscreen"} <kbd>F</kbd>
           </button>
         </section>
 
@@ -4774,10 +4797,12 @@ function TransportControls({
   currentMs,
   durationMs,
   eventIndex,
+  fullscreen,
   onChangeSpeed,
   onFrame,
   onGame,
   onHelp,
+  onFullscreen,
   onJumpBookmark,
   onPresentationFrame,
   onSeek,
@@ -4801,10 +4826,12 @@ function TransportControls({
   currentMs: number;
   durationMs: number;
   eventIndex: number;
+  fullscreen: boolean;
   onChangeSpeed: (speed: number) => void;
   onFrame: (index: number) => void;
   onGame: (gameIndex: number) => void;
   onHelp: () => void;
+  onFullscreen: () => void;
   onJumpBookmark: (bookmark: CasterBookmark) => void;
   onPresentationFrame: (stageIndex: number) => void;
   onSeek: (atMs: number, options?: { immediate?: boolean; eventIndex?: number }) => void;
@@ -4948,6 +4975,15 @@ function TransportControls({
           {speed}×
         </button>
         <button
+          aria-pressed={fullscreen}
+          className={styles.fullscreenButton}
+          data-control="fullscreen"
+          onClick={onFullscreen}
+          type="button"
+        >
+          <Icon name="fullscreen" /> {fullscreen ? "Exit full screen" : "Full screen"}
+        </button>
+        <button
           aria-expanded={showMore}
           className={`${styles.moreButton} ${showMore ? styles.moreButtonActive : ""}`}
           data-control="more"
@@ -5070,9 +5106,9 @@ function ShortcutHelp({
     ["Alt + ← / →", "Previous or next turn"],
     ["1 / 2 / 4 / 6 / 0", "Set playback speed (0 selects 10×)"],
     ["M", "Show or hide More controls"],
+    ["F", "Enter or exit player fullscreen"],
     ...(casterMode ? [
       ["P", "Toggle clean recording feed"],
-      ["F", "Enter or exit fullscreen"],
       ["B", "Bookmark the current moment"],
       ["N", "Focus the caster note field"],
     ] : []),

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getFirestoreAdmin: vi.fn(),
   get: vi.fn(),
   getCreatorVideoCarousel: vi.fn(),
+  getStreamStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/firebase/admin", () => ({
@@ -12,6 +13,10 @@ vi.mock("@/lib/firebase/admin", () => ({
 
 vi.mock("@/lib/youtube/creator-video-feed", () => ({
   getCreatorVideoCarousel: mocks.getCreatorVideoCarousel,
+}));
+
+vi.mock("@/lib/twitch/status", () => ({
+  getStreamStatus: mocks.getStreamStatus,
 }));
 
 import { GET } from "@/app/api/app/home/route";
@@ -34,6 +39,13 @@ describe("desktop homepage config", () => {
       videos: [],
       updatedAt: "",
     });
+    mocks.getStreamStatus.mockImplementation(async (channelLogin = "bmucasts") => ({
+      state: "offline",
+      isLive: false,
+      tooltip: `${channelLogin} is offline on Twitch`,
+      channelLogin,
+      channelUrl: `https://www.twitch.tv/${channelLogin}`,
+    }));
   });
 
   it("returns both configured videos in order and retains the legacy singular field", async () => {
@@ -77,9 +89,19 @@ describe("desktop homepage config", () => {
     expect(body.creatorVideoCarousel).toEqual({
       enabled: true,
       rotationSeconds: 10,
-      maxItems: 12,
+      maxItems: 16,
     });
     expect(body.creatorVideosUpdatedAt).toBe("");
+    expect(body.liveTakeover).toEqual({
+      enabled: false,
+      active: false,
+      provider: "twitch",
+      channelLogin: "bmucasts",
+      title: "BMU Casts is live",
+      status: "disabled",
+      channelUrl: "https://www.twitch.tv/bmucasts",
+    });
+    expect(mocks.getStreamStatus).not.toHaveBeenCalled();
     expect(response.headers.get("cache-control")).toContain("s-maxage=1800");
   });
 
@@ -239,5 +261,90 @@ describe("desktop homepage config", () => {
     expect(body.featuredVideos).toHaveLength(2);
     expect(body.creatorVideos).toEqual([]);
     expect(body.creatorVideosUpdatedAt).toBe("");
+  });
+
+  it("publishes a takeover only when it is enabled and Twitch verifies it is live", async () => {
+    mocks.get.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        liveTakeover: {
+          enabled: true,
+          provider: "twitch",
+          channelLogin: "BMUCasts",
+          title: "  Riftbound   ranked night ",
+          embedUrl: "https://evil.example/player",
+        },
+        liveTakeoverUpdatedAt: 9876,
+      }),
+    });
+    mocks.getStreamStatus.mockResolvedValue({
+      state: "live",
+      isLive: true,
+      tooltip: "bmucasts is live on Twitch",
+      channelLogin: "bmucasts",
+      channelUrl: "https://www.twitch.tv/bmucasts",
+    });
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.liveTakeover).toEqual({
+      enabled: true,
+      active: true,
+      provider: "twitch",
+      channelLogin: "bmucasts",
+      title: "Riftbound ranked night",
+      status: "live",
+      channelUrl: "https://www.twitch.tv/bmucasts",
+      updatedAt: 9876,
+    });
+    expect(body.liveTakeover).not.toHaveProperty("embedUrl");
+    expect(mocks.getStreamStatus).toHaveBeenCalledWith("bmucasts");
+  });
+
+  it.each(["offline", "unavailable"] as const)(
+    "fails closed when Twitch status is %s",
+    async (state) => {
+      mocks.get.mockResolvedValue({
+        exists: true,
+        data: () => ({ liveTakeover: { enabled: true } }),
+      });
+      mocks.getStreamStatus.mockResolvedValue({
+        state,
+        isLive: false,
+        tooltip: "not live",
+        channelLogin: "bmucasts",
+        channelUrl: "https://www.twitch.tv/bmucasts",
+      });
+
+      const body = await (await GET()).json();
+
+      expect(body.liveTakeover).toMatchObject({
+        enabled: true,
+        active: false,
+        status: state,
+      });
+    },
+  );
+
+  it("keeps legacy Home content available when the Twitch lookup throws", async () => {
+    mocks.get.mockResolvedValue({
+      exists: true,
+      data: () => ({ liveTakeover: { enabled: true } }),
+    });
+    mocks.getStreamStatus.mockRejectedValue(new Error("Twitch timed out"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.featuredVideos).toHaveLength(2);
+    expect(body.creatorVideos).toEqual([]);
+    expect(body.liveTakeover).toMatchObject({
+      enabled: true,
+      active: false,
+      status: "unavailable",
+    });
   });
 });

@@ -2861,9 +2861,9 @@ button.cardPile { cursor: pointer; }
 }
 
 .transportGroup { display: flex; align-items: center; gap: 4px; }
-.controlButton, .speedControl, .moreButton { display: inline-flex; height: 39px; align-items: center; justify-content: center; gap: 2px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #71859b; cursor: pointer; }
+.controlButton, .speedControl, .moreButton, .fullscreenButton { display: inline-flex; height: 39px; align-items: center; justify-content: center; gap: 2px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #71859b; cursor: pointer; }
 .controlButton { width: 43px; }
-.controlButton:hover, .controlButton:focus-visible, .speedControl:hover, .moreButton:hover, .moreButtonActive { border-color: rgba(118,198,237,.19); outline: none; background: rgba(91,176,224,.08); color: #d9f2ff; }
+.controlButton:hover, .controlButton:focus-visible, .speedControl:hover, .moreButton:hover, .fullscreenButton:hover, .fullscreenButton:focus-visible, .fullscreenButton[aria-pressed="true"], .moreButtonActive { border-color: rgba(118,198,237,.19); outline: none; background: rgba(91,176,224,.08); color: #d9f2ff; }
 .controlButton svg { width: 20px; height: 20px; }
 .controlButton span { margin-left: -7px; font-size: 8px; font-weight: 800; }
 .controlButtonSmall { width: 28px; height: 28px; border-radius: 7px; }
@@ -2879,6 +2879,8 @@ button.cardPile { cursor: pointer; }
 .speedControl { width: 43px; color: #a6c7dc; font-size: 11px; font-weight: 750; }
 .moreButton { min-width: 84px; padding: 0 12px; color: #8ca1b7; font-size: 10px; font-weight: 700; }
 .moreButton svg { width: 15px; }
+.fullscreenButton { min-width: 104px; gap: 6px; padding: 0 12px; color: #8ca1b7; font-size: 10px; font-weight: 700; }
+.fullscreenButton svg { width: 15px; }
 
 .analysisToggleButton {
   display: inline-flex;

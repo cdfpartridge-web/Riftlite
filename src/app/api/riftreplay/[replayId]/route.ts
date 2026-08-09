@@ -1,12 +1,11 @@
 import { gunzipSync } from "node:zlib";
 
-import { get } from "@vercel/blob";
-import type { DocumentData, DocumentReference } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import { canonicalIdentityUid } from "@/lib/identity-server";
 import { optionalReplayUser } from "@/lib/replay-v2-server";
+import { readCompressedPayload } from "@/lib/riftreplay-storage";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -71,32 +70,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
       },
     },
   );
-}
-
-export async function readCompressedPayload(
-  docRef: DocumentReference<DocumentData>,
-  metadata: Record<string, unknown>,
-) {
-  const blobUrl = String(metadata.blobUrl ?? "");
-  const blobPath = String(metadata.blobPath ?? "");
-  if (metadata.storageProvider === "vercel-blob-private" && blobPath) {
-    const result = await get(blobPath, { access: "private" });
-    if (!result || result.statusCode !== 200 || !result.stream) {
-      throw new Error("Private replay blob could not be read.");
-    }
-    return Buffer.from(await new Response(result.stream).arrayBuffer());
-  }
-  if (metadata.storageProvider === "vercel-blob" && blobUrl) {
-    const response = await fetch(blobUrl, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`Replay blob fetch failed: ${response.status}`);
-    }
-    return Buffer.from(await response.arrayBuffer());
-  }
-
-  const chunkSnap = await docRef.collection("chunks").orderBy("index", "asc").get();
-  const base64 = chunkSnap.docs.map((chunk) => String(chunk.data().data ?? "")).join("");
-  return base64 ? Buffer.from(base64, "base64") : Buffer.alloc(0);
 }
 
 function publicMetadata(metadata: Record<string, unknown>) {

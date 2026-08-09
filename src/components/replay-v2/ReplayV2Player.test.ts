@@ -69,6 +69,52 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(view.container.querySelector("[data-combined-replay]")).not.toBeInTheDocument();
   });
 
+  it("offers labelled player fullscreen controls and keeps F and Escape in sync", async () => {
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_fullscreen" }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-replay-player="v2"]')).toBeInTheDocument();
+    });
+    const shell = view.container.querySelector<HTMLElement>('[data-replay-player="v2"]')!;
+    const fullscreenDescriptor = Object.getOwnPropertyDescriptor(document, "fullscreenElement");
+    const exitDescriptor = Object.getOwnPropertyDescriptor(document, "exitFullscreen");
+    let fullscreenElement: Element | null = null;
+    const requestFullscreen = vi.fn(async () => {
+      fullscreenElement = shell;
+      document.dispatchEvent(new Event("fullscreenchange"));
+    });
+    const exitFullscreen = vi.fn(async () => {
+      fullscreenElement = null;
+      document.dispatchEvent(new Event("fullscreenchange"));
+    });
+    Object.defineProperty(shell, "requestFullscreen", { configurable: true, value: requestFullscreen });
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => fullscreenElement });
+    Object.defineProperty(document, "exitFullscreen", { configurable: true, value: exitFullscreen });
+
+    try {
+      fireEvent.click(view.getByRole("button", { name: "Full screen" }));
+      await waitFor(() => expect(shell).toHaveAttribute("data-fullscreen", "true"));
+      expect(requestFullscreen).toHaveBeenCalledOnce();
+      expect(view.getByRole("button", { name: "Exit full screen" })).toHaveAttribute("aria-pressed", "true");
+      expect(view.getByRole("button", { name: "Exit player fullscreen" })).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(shell).not.toHaveAttribute("data-fullscreen"));
+      expect(exitFullscreen).toHaveBeenCalledOnce();
+
+      fireEvent.keyDown(window, { key: "f" });
+      await waitFor(() => expect(shell).toHaveAttribute("data-fullscreen", "true"));
+      expect(requestFullscreen).toHaveBeenCalledTimes(2);
+    } finally {
+      view.unmount();
+      Reflect.deleteProperty(shell, "requestFullscreen");
+      if (fullscreenDescriptor) Object.defineProperty(document, "fullscreenElement", fullscreenDescriptor);
+      else Reflect.deleteProperty(document, "fullscreenElement");
+      if (exitDescriptor) Object.defineProperty(document, "exitFullscreen", exitDescriptor);
+      else Reflect.deleteProperty(document, "exitFullscreen");
+    }
+  });
+
   it("creates a temporary analysis branch with conservative future-hand knowledge", async () => {
     const replay = futureKnownAnalysisReplay();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {

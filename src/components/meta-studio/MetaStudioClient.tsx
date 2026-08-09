@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "firebase/auth";
-import { Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
+import { ExternalLink, Plus, RadioTower, RefreshCw, Save, Trash2, X } from "lucide-react";
 
 import { MetaStudioCanvas } from "@/components/meta-studio/MetaStudioCanvas";
 import styles from "@/components/meta-studio/MetaStudio.module.css";
@@ -12,6 +12,12 @@ import {
   type MetaStudioFilters,
   type MetaStudioReport,
 } from "@/lib/community/meta-studio";
+import {
+  DEFAULT_LIVE_TAKEOVER_CONFIG,
+  type LiveTakeoverConfig,
+  type PublicLiveTakeover,
+} from "@/lib/live-takeover";
+import type { StreamStatus } from "@/lib/types";
 import {
   DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG,
   type CreatorVideoCarouselConfig,
@@ -96,6 +102,273 @@ type CreatorVideoConfigResponse = {
   config: CreatorVideoCarouselConfig;
   preview: CreatorVideoCreatorPreview[];
 };
+
+type LiveTakeoverResponse = {
+  config: LiveTakeoverConfig;
+  liveTakeover: PublicLiveTakeover;
+  streamStatus: StreamStatus;
+  message?: string;
+};
+
+type LiveTakeoverPanelProps = {
+  onClose: () => void;
+};
+
+export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
+  const [config, setConfig] = useState<LiveTakeoverConfig>({
+    ...DEFAULT_LIVE_TAKEOVER_CONFIG,
+  });
+  const [liveTakeover, setLiveTakeover] = useState<PublicLiveTakeover | null>(null);
+  const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
+
+  const applyResponse = useCallback((payload: LiveTakeoverResponse) => {
+    setConfig({ ...payload.config });
+    setLiveTakeover(payload.liveTakeover);
+    setStreamStatus(payload.streamStatus);
+    if (payload.message) setFeedback(payload.message);
+  }, []);
+
+  const requestConfig = useCallback(async () => {
+    const response = await fetch("/api/meta-studio/live-takeover", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const payload = await response.json() as Partial<LiveTakeoverResponse> & { error?: string };
+    if (!response.ok || !payload.config || !payload.liveTakeover || !payload.streamStatus) {
+      throw new Error(payload.error ?? "Live takeover settings could not be loaded.");
+    }
+    return payload as LiveTakeoverResponse;
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void requestConfig()
+      .then((payload) => {
+        if (mounted) applyResponse(payload);
+      })
+      .catch((reason: unknown) => {
+        if (mounted) {
+          setError(reason instanceof Error
+            ? reason.message
+            : "Live takeover settings could not be loaded.");
+        }
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [applyResponse, requestConfig]);
+
+  const refreshConfig = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    setFeedback("");
+    try {
+      const payload = await requestConfig();
+      applyResponse(payload);
+      setFeedback("Live takeover settings and Twitch status refreshed.");
+    } catch (reason) {
+      setError(reason instanceof Error
+        ? reason.message
+        : "Live takeover settings could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }, [applyResponse, requestConfig]);
+
+  async function saveConfig(nextConfig: LiveTakeoverConfig = config) {
+    setSaving(true);
+    setError("");
+    setFeedback(nextConfig.enabled
+      ? "Checking Twitch and arming the live takeover..."
+      : "Ending the live takeover...");
+    try {
+      const response = await fetch("/api/meta-studio/live-takeover", {
+        method: "PUT",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: nextConfig }),
+      });
+      const payload = await response.json() as Partial<LiveTakeoverResponse> & { error?: string };
+      if (!response.ok || !payload.config || !payload.liveTakeover || !payload.streamStatus) {
+        throw new Error(payload.error ?? "Live takeover settings could not be saved.");
+      }
+      applyResponse(payload as LiveTakeoverResponse);
+    } catch (reason) {
+      setFeedback("");
+      setError(reason instanceof Error
+        ? reason.message
+        : "Live takeover settings could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const busy = loading || saving;
+  const savedEnabled = liveTakeover?.enabled ?? false;
+  const state = liveTakeover?.active
+    ? "active"
+    : savedEnabled
+      ? streamStatus?.state === "unavailable" ? "unavailable" : "armed"
+      : "disabled";
+  const stateTitle = state === "active"
+    ? "Live on RiftLite"
+    : state === "armed"
+      ? "Armed — waiting for Twitch"
+      : state === "unavailable"
+        ? "Armed — Twitch status unavailable"
+        : "Takeover off";
+  const stateDescription = state === "active"
+    ? "Desktop Home is replacing the YouTube carousel with the muted live stream."
+    : state === "armed"
+      ? "Desktop Home will switch automatically as soon as Twitch reports this channel live."
+      : state === "unavailable"
+        ? "The carousel remains visible until Twitch can safely confirm the channel is live."
+        : "Desktop Home continues to show the normal creator video carousel.";
+
+  return (
+    <div aria-labelledby="live-takeover-panel-title" aria-modal="true" className={styles.creatorConfigBackdrop} role="dialog">
+      <section className={`${styles.creatorConfigPanel} ${styles.liveTakeoverPanel}`}>
+        <header className={styles.creatorConfigHeader}>
+          <div>
+            <span>DESKTOP HOME CONTENT</span>
+            <h2 id="live-takeover-panel-title">Live stream takeover</h2>
+            <p>
+              Arm a Twitch stream for Desktop Home. RiftLite only takes over the video slot
+              after Twitch confirms the channel is live, then starts it muted.
+            </p>
+          </div>
+          <button aria-label="Close live takeover settings" className={styles.creatorIconButton} onClick={onClose} type="button">
+            <X aria-hidden="true" size={20} />
+          </button>
+        </header>
+
+        <div className={styles.creatorConfigToolbar}>
+          <div className={styles.liveTakeoverSummary} data-state={state}>
+            <span className={styles.liveTakeoverPulse} />
+            <div>
+              <strong>{stateTitle}</strong>
+              <small>{stateDescription}</small>
+            </div>
+          </div>
+          <div className={styles.creatorConfigActions}>
+            <button disabled={busy} onClick={() => void refreshConfig()} type="button">
+              <RefreshCw aria-hidden="true" className={loading ? styles.spinning : ""} size={16} />
+              Refresh
+            </button>
+            <button
+              className={savedEnabled ? styles.liveTakeoverStopButton : styles.creatorPrimaryButton}
+              disabled={busy}
+              onClick={() => void saveConfig({ ...config, enabled: !savedEnabled })}
+              type="button"
+            >
+              <RadioTower aria-hidden="true" size={16} />
+              {savedEnabled ? "End takeover" : "Go live on RiftLite"}
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className={styles.creatorConfigLoading}>Loading live takeover settings...</div>
+        ) : (
+          <fieldset className={`${styles.creatorConfigBody} ${styles.liveTakeoverBody}`} disabled={saving}>
+            <label className={styles.creatorToggleField}>
+              <span>
+                <strong>Enable live takeover</strong>
+                <small>This master switch never overrides Twitch&apos;s live check.</small>
+              </span>
+              <input
+                aria-label="Enable live takeover"
+                checked={config.enabled}
+                onChange={(event) => {
+                  setConfig((current) => ({ ...current, enabled: event.target.checked }));
+                  setFeedback("Unsaved changes.");
+                  setError("");
+                }}
+                type="checkbox"
+              />
+            </label>
+
+            <div className={styles.liveTakeoverFields}>
+              <label className={styles.creatorField}>
+                <span>Provider</span>
+                <select aria-label="Live takeover provider" disabled value={config.provider}>
+                  <option value="twitch">Twitch</option>
+                </select>
+                <small>YouTube support can be added later without accepting arbitrary player URLs.</small>
+              </label>
+              <label className={styles.creatorField}>
+                <span>Twitch channel</span>
+                <input
+                  aria-label="Twitch channel login"
+                  autoCapitalize="none"
+                  maxLength={25}
+                  minLength={4}
+                  onChange={(event) => {
+                    setConfig((current) => ({ ...current, channelLogin: event.target.value }));
+                    setFeedback("Unsaved changes.");
+                    setError("");
+                  }}
+                  placeholder="bmucasts"
+                  spellCheck={false}
+                  value={config.channelLogin}
+                />
+                <small>Use the channel login only — no @, URL, embed code, or player HTML.</small>
+              </label>
+              <label className={`${styles.creatorField} ${styles.liveTakeoverTitleField}`}>
+                <span>Desktop title</span>
+                <input
+                  aria-label="Live takeover title"
+                  maxLength={120}
+                  onChange={(event) => {
+                    setConfig((current) => ({ ...current, title: event.target.value }));
+                    setFeedback("Unsaved changes.");
+                    setError("");
+                  }}
+                  placeholder="BMU Casts is live"
+                  value={config.title}
+                />
+              </label>
+            </div>
+
+            <div className={styles.liveTakeoverSafety}>
+              <RadioTower aria-hidden="true" size={21} />
+              <div>
+                <strong>Twitch status: {streamStatus?.state ?? "unavailable"}</strong>
+                <span>{streamStatus?.tooltip ?? "Twitch status has not been checked yet."}</span>
+              </div>
+              <a href={`https://www.twitch.tv/${config.channelLogin || "bmucasts"}`} rel="noreferrer" target="_blank">
+                Open channel <ExternalLink aria-hidden="true" size={14} />
+              </a>
+            </div>
+
+            <div className={styles.liveTakeoverSaveRow}>
+              <p>Saved changes usually reach active desktop clients within 30 seconds; allow up to about a minute if an edge cache is refreshing.</p>
+              <button className={styles.creatorPrimaryButton} disabled={busy} onClick={() => void saveConfig()} type="button">
+                <Save aria-hidden="true" size={16} />
+                {saving ? "Saving..." : "Save settings"}
+              </button>
+            </div>
+          </fieldset>
+        )}
+
+        <footer className={styles.creatorConfigFooter}>
+          <p aria-live="polite" className={error ? styles.creatorConfigError : styles.creatorConfigFeedback} role="status">
+            {error || feedback || "Changes are private until you save."}
+          </p>
+          <button disabled={busy} onClick={onClose} type="button">Close</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
 
 type CreatorVideoCarouselPanelProps = {
   onClose: () => void;
@@ -589,6 +862,7 @@ export function MetaStudioClient({
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [creatorVideoPanelOpen, setCreatorVideoPanelOpen] = useState(false);
+  const [liveTakeoverPanelOpen, setLiveTakeoverPanelOpen] = useState(false);
   const appliedFilters = useRef(previewReport?.filters ?? DEFAULT_FILTERS);
   const query = useMemo(() => reportQuery(filters).toString(), [filters]);
 
@@ -736,6 +1010,7 @@ export function MetaStudioClient({
           setError("");
           setFilters(nextFilters);
         }}
+        onOpenLiveTakeover={() => setLiveTakeoverPanelOpen(true)}
         onOpenCreatorVideos={() => setCreatorVideoPanelOpen(true)}
         onRefresh={() => {
           setLoading(true);
@@ -748,6 +1023,9 @@ export function MetaStudioClient({
       />
       {creatorVideoPanelOpen ? (
         <CreatorVideoCarouselPanel onClose={() => setCreatorVideoPanelOpen(false)} />
+      ) : null}
+      {liveTakeoverPanelOpen ? (
+        <LiveTakeoverPanel onClose={() => setLiveTakeoverPanelOpen(false)} />
       ) : null}
     </>
   );
