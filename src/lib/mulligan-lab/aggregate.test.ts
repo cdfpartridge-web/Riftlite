@@ -300,7 +300,7 @@ describe("Mulligan Lab observed-data aggregate", () => {
       });
   });
 
-  it("caps a contributor at five hands and leaves insufficient evidence ungraded", () => {
+  it("includes every hand in raw counts while leaving one contributor ungraded", () => {
     const base = extractObservedMulligan(observedReplay("cap-base"), "one-player");
     if (!base) throw new Error("fixture must be extractable");
     const candidates = Array.from({ length: 12 }, (_, index) => ({
@@ -314,32 +314,41 @@ describe("Mulligan Lab observed-data aggregate", () => {
     expect(snapshot?.drills[0].cardEvidence.find((entry) => entry.cardCode === "OGN-001"))
       .toMatchObject({
         scope: "matchup",
-        scopeHands: 5,
+        scopeHands: 12,
         scopePlayers: 1,
-        offered: 5,
+        offered: 12,
         players: 1,
+        guidancePlayers: 1,
         guidance: "unclear",
       });
   });
 
-  it("derives the baseline from the same per-card capped opportunities", () => {
-    const base = extractObservedMulligan(observedReplay("baseline-cap"), "one-player");
+  it("derives one majority vote per contributor from all hands and lets ties abstain", () => {
+    const base = extractObservedMulligan(observedReplay("majority-vote"), "player-a");
     if (!base) throw new Error("fixture must be extractable");
-    const candidates = Array.from({ length: 10 }, (_, index) => ({
+    const candidates = Array.from({ length: 5 }, (_, index) => ({
       ...base,
       observedHandId: `mh1_${(index + 350).toString(16).padStart(32, "0")}`,
-      // Card 1 is available in all ten hands but capped at five. Card 2's
-      // decision pattern changes after the cap and must not leak into baseline.
-      redrawnCardIndexes: index < 5 ? [1] : [0],
+      contributorKey: index < 3 ? "player-a" : "player-b",
+      // Player A keeps card 0 twice and redraws it once: one keep vote.
+      // Player B keeps/redraws once each: a deterministic abstention.
+      redrawnCardIndexes: index === 1 || index === 4 ? [0] : [1],
     }));
     const snapshot = buildMulliganLabSnapshot(candidates, {
       generatedAt: new Date("2026-08-12T02:00:00.000Z"),
     });
     const evidence = snapshot?.drills[0].cardEvidence.find((entry) => entry.cardCode === "OGN-001");
 
-    // Five capped observations for each of four unique hand cards: three are
-    // always kept and one always redrawn, hence a 15/20 scope baseline.
-    expect(evidence).toMatchObject({ offered: 5, kept: 5, baselineKeepRate: 0.75 });
+    expect(evidence).toMatchObject({
+      offered: 5,
+      kept: 3,
+      redrawn: 2,
+      players: 2,
+      guidancePlayers: 1,
+      guidanceKept: 1,
+      guidanceKeepRate: 1,
+      baselineKeepRate: 5 / 6,
+    });
   });
 
   it("pools alternate art by base identity while keeping the shown exact print", () => {
@@ -497,10 +506,10 @@ describe("Mulligan Lab observed-data aggregate", () => {
     })?.drills.map((drill) => drill.id)).toEqual(snapshot?.drills.map((drill) => drill.id));
   });
 
-  it("publishes truthful fact coverage dates and truncation status", () => {
+  it("publishes truthful all-history coverage across preseason and current season", () => {
     const candidate = extractObservedMulligan(observedReplay("coverage"), "player-a");
     if (!candidate) throw new Error("fixture must be extractable");
-    candidate.observation.observedOn = "2026-08-10";
+    candidate.observation.observedOn = "2026-07-30";
     const later = {
       ...candidate,
       observedHandId: `mh1_${"d".repeat(32)}`,
@@ -510,14 +519,24 @@ describe("Mulligan Lab observed-data aggregate", () => {
     const snapshot = buildMulliganLabSnapshot([candidate, later], {
       generatedAt: new Date("2026-08-12T22:00:00.000Z"),
       coverageTruncated: true,
+      backfillComplete: true,
     });
 
     expect(snapshot?.source).toMatchObject({
-      observedFrom: "2026-08-10",
+      observedFrom: "2026-07-30",
       observedThrough: "2026-08-12",
       includedFacts: 2,
       coverageTruncated: true,
+      coveragePolicy: "all-available-history",
+      includedPeriods: ["preseason", "current-season"],
+      backfillComplete: true,
+      seasonCoverage: {
+        currentSeasonStartedOn: "2026-07-31",
+        preseasonFacts: 1,
+        currentSeasonFacts: 1,
+      },
     });
+    expect(snapshot?.drills[0].cardEvidence.every((evidence) => evidence.offered === 2)).toBe(true);
   });
 });
 

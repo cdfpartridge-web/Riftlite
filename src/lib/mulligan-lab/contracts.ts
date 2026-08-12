@@ -151,7 +151,7 @@ export const MulliganLabDrillSchema = z.object({
   }
 });
 
-const MulliganLabSourceSchema = z.object({
+const PreviousMulliganLabSourceSchema = z.object({
   kind: z.literal("precomputed-observed-replays"),
   corpus: z.literal("anonymized-canonical-web-replays"),
   minimumHands: z.number().int().positive(),
@@ -162,7 +162,33 @@ const MulliganLabSourceSchema = z.object({
   coverageTruncated: z.boolean(),
 }).strict();
 
-const LegacyMulliganLabSourceSchema = MulliganLabSourceSchema.omit({
+const MulliganLabSourceSchema = PreviousMulliganLabSourceSchema.extend({
+  coveragePolicy: z.literal("all-available-history"),
+  includedPeriods: z.array(z.enum(["preseason", "current-season"])).max(2),
+  backfillComplete: z.boolean(),
+  seasonCoverage: z.object({
+    currentSeasonStartedOn: z.literal("2026-07-31"),
+    preseasonFacts: z.number().int().nonnegative(),
+    currentSeasonFacts: z.number().int().nonnegative(),
+  }).strict(),
+}).strict().superRefine((source, context) => {
+  const { preseasonFacts, currentSeasonFacts } = source.seasonCoverage;
+  if (preseasonFacts + currentSeasonFacts !== source.includedFacts) {
+    context.addIssue({ code: "custom", message: "season fact counts must sum to includedFacts" });
+  }
+  const expectedPeriods = [
+    ...(preseasonFacts > 0 ? ["preseason" as const] : []),
+    ...(currentSeasonFacts > 0 ? ["current-season" as const] : []),
+  ];
+  if (
+    source.includedPeriods.length !== expectedPeriods.length ||
+    source.includedPeriods.some((period, index) => period !== expectedPeriods[index])
+  ) {
+    context.addIssue({ code: "custom", message: "includedPeriods must match non-empty season counts" });
+  }
+});
+
+const LegacyMulliganLabSourceSchema = PreviousMulliganLabSourceSchema.omit({
   observedFrom: true,
   observedThrough: true,
   includedFacts: true,
@@ -193,6 +219,16 @@ export const MulliganLabUnavailableResponseSchema = z.object({
     "snapshot_expired",
     "data_unavailable",
   ]),
+}).strict();
+
+// A previously published v2 snapshot remains readable during the website
+// rollout. New refreshes always add explicit all-history/backfill metadata.
+const PreviousV2ReadyResponseSchema = MulliganLabReadyResponseSchema.extend({
+  source: PreviousMulliganLabSourceSchema,
+}).strict();
+
+const PreviousV2UnavailableResponseSchema = MulliganLabUnavailableResponseSchema.extend({
+  source: PreviousMulliganLabSourceSchema,
 }).strict();
 
 const LegacyCardEvidenceSchema = MulliganLabCardSchema.extend({
@@ -245,6 +281,8 @@ const LegacyUnavailableResponseSchema = MulliganLabUnavailableResponseSchema.ext
 export const MulliganLabResponseSchema = z.union([
   MulliganLabReadyResponseSchema,
   MulliganLabUnavailableResponseSchema,
+  PreviousV2ReadyResponseSchema,
+  PreviousV2UnavailableResponseSchema,
   LegacyReadyResponseSchema,
   LegacyUnavailableResponseSchema,
 ]);
@@ -279,6 +317,14 @@ export function unavailableMulliganLabResponse(
       observedThrough: null,
       includedFacts: 0,
       coverageTruncated: false,
+      coveragePolicy: "all-available-history",
+      includedPeriods: [],
+      backfillComplete: false,
+      seasonCoverage: {
+        currentSeasonStartedOn: "2026-07-31",
+        preseasonFacts: 0,
+        currentSeasonFacts: 0,
+      },
     },
     drills: [],
     reason,

@@ -25,6 +25,7 @@ const CARD_CODE = /^[A-Z]{3}-\d{3}(?:[A-Z]|\*)?$/;
 const MAIN_DECK_SIZE = 40;
 const CARD_GUIDANCE_MINIMUM_OFFERS = 25;
 const CARD_GUIDANCE_MINIMUM_PLAYERS = 10;
+const CURRENT_SEASON_STARTED_ON = "2026-07-31" as const;
 
 export type ObservedMulliganCandidate = {
   observedHandId: string;
@@ -45,6 +46,7 @@ export type MulliganLabAggregateOptions = {
   generatedAt?: Date;
   lifetimeHours?: number;
   coverageTruncated?: boolean;
+  backfillComplete?: boolean;
 };
 
 /**
@@ -165,6 +167,7 @@ export function buildMulliganLabSnapshot(
   const generatedAt = options.generatedAt ?? new Date();
   const lifetimeHours = positiveInteger(options.lifetimeHours) ?? 36;
   const coverageTruncated = options.coverageTruncated === true;
+  const backfillComplete = options.backfillComplete === true;
 
   const balancedCandidates = dedupeCandidates(candidates);
   const groups = new Map<string, ObservedMulliganCandidate[]>();
@@ -270,6 +273,11 @@ export function buildMulliganLabSnapshot(
   }
   if (!drills.length) return null;
 
+  const preseasonFacts = balancedCandidates.filter((candidate) => (
+    candidate.observation.observedOn < CURRENT_SEASON_STARTED_ON
+  )).length;
+  const currentSeasonFacts = balancedCandidates.length - preseasonFacts;
+
   const response: MulliganLabReadyResponse = {
     schema: "riftlite-mulligan-lab",
     version: 2,
@@ -285,6 +293,17 @@ export function buildMulliganLabSnapshot(
       observedThrough: observedDateBoundary(balancedCandidates, "last"),
       includedFacts: balancedCandidates.length,
       coverageTruncated,
+      coveragePolicy: "all-available-history",
+      includedPeriods: [
+        ...(preseasonFacts > 0 ? ["preseason" as const] : []),
+        ...(currentSeasonFacts > 0 ? ["current-season" as const] : []),
+      ],
+      backfillComplete,
+      seasonCoverage: {
+        currentSeasonStartedOn: CURRENT_SEASON_STARTED_ON,
+        preseasonFacts,
+        currentSeasonFacts,
+      },
     },
     drills: drills.sort((left, right) => drillEvidencePriority(right) - drillEvidencePriority(left)),
   };
@@ -420,6 +439,7 @@ type RawCardEvidence = MulliganLabCard & {
   contributors: Set<string>;
   keptContributors: Set<string>;
   redrawnContributors: Set<string>;
+  guidanceTallies: Map<string, { kept: number; redrawn: number }>;
   guidanceDecisions: Map<string, boolean>;
 };
 
@@ -431,15 +451,15 @@ type RawEvidenceScope = {
 };
 
 /**
- * Counts one card opportunity per hand, matching the user's "in 100 games"
- * interpretation. If duplicate copies appear and at least one is redrawn, the
- * hand is classified once in the redraw branch. Its result is likewise counted
- * only once, never once per copy or in both decision branches.
+ * Counts every unambiguous card opportunity once per hand, matching the user's
+ * "in 100 games" interpretation. Duplicate copies that were all kept or all
+ * redrawn still count once; a split duplicate decision is omitted because it
+ * belongs to neither binary branch. Raw descriptive counts include every
+ * deduped eligible hand. Guidance remains contributor-balanced: all of one
+ * player's observations produce one majority vote, while an exact tie abstains.
  */
 function buildRawEvidence(group: ObservedMulliganCandidate[]): RawEvidenceScope {
   const cards = new Map<string, RawCardEvidence>();
-  const scopeContributionCounts = new Map<string, number>();
-  const cardContributionCounts = new Map<string, number>();
   for (const candidate of [...group].sort((left, right) => left.observedHandId.localeCompare(right.observedHandId))) {
     const redrawnIndexes = new Set(candidate.redrawnCardIndexes);
     const cardsInHand = new Map<string, {
@@ -457,20 +477,11 @@ function buildRawEvidence(group: ObservedMulliganCandidate[]): RawEvidenceScope 
       });
     });
 
-    const scopeContributionCount = scopeContributionCounts.get(candidate.contributorKey) ?? 0;
-    if (scopeContributionCount < 5) {
-      scopeContributionCounts.set(candidate.contributorKey, scopeContributionCount + 1);
-    }
-
     for (const [identityCode, { card, copies, redrawnCopies }] of cardsInHand) {
       // A partial duplicate decision is neither a keep nor a redraw signal for
       // that identity. Exclude it rather than forcing both copies into one
       // branch and overstating the player's intent.
       if (redrawnCopies > 0 && redrawnCopies < copies) continue;
-      const contributionKey = `${identityCode}|${candidate.contributorKey}`;
-      const cardContributionCount = cardContributionCounts.get(contributionKey) ?? 0;
-      if (cardContributionCount >= 5) continue;
-      cardContributionCounts.set(contributionKey, cardContributionCount + 1);
       const entry = cards.get(identityCode) ?? {
         ...card,
         offered: 0,
@@ -481,30 +492,38 @@ function buildRawEvidence(group: ObservedMulliganCandidate[]): RawEvidenceScope 
         contributors: new Set<string>(),
         keptContributors: new Set<string>(),
         redrawnContributors: new Set<string>(),
+        guidanceTallies: new Map<string, { kept: number; redrawn: number }>(),
         guidanceDecisions: new Map<string, boolean>(),
       };
       entry.offered += 1;
       entry.contributors.add(candidate.contributorKey);
-      // Candidate order is deterministic, so this is a stable one-vote-per-
-      // contributor sample for confidence/grade calculation.
-      if (!entry.guidanceDecisions.has(candidate.contributorKey)) {
-        entry.guidanceDecisions.set(candidate.contributorKey, redrawnCopies !== copies);
-      }
+      const tally = entry.guidanceTallies.get(candidate.contributorKey) ?? { kept: 0, redrawn: 0 };
       if (redrawnCopies === copies) {
         entry.redrawn += 1;
         entry.redrawnContributors.add(candidate.contributorKey);
+        tally.redrawn += 1;
         if (candidate.wonGame) entry.redrawnWins += 1;
       } else {
         entry.kept += 1;
         entry.keptContributors.add(candidate.contributorKey);
+        tally.kept += 1;
         if (candidate.wonGame) entry.keptWins += 1;
       }
+      entry.guidanceTallies.set(candidate.contributorKey, tally);
       cards.set(identityCode, entry);
     }
   }
-  // The baseline uses the exact same per-card, max-five-per-contributor
-  // opportunity population as the published card rates. This avoids comparing
-  // a card against a differently sampled first-five-hands population.
+
+  for (const entry of cards.values()) {
+    for (const [contributor, tally] of entry.guidanceTallies) {
+      // Ties abstain: inventing a keep/redraw preference would bias the
+      // contributor-balanced recommendation in an arbitrary direction.
+      if (tally.kept === tally.redrawn) continue;
+      entry.guidanceDecisions.set(contributor, tally.kept > tally.redrawn);
+    }
+  }
+  // The baseline uses the same one-majority-vote-per-contributor/card
+  // population as guidance, while raw rates above remain fully descriptive.
   const offeredOpportunities = [...cards.values()]
     .reduce((sum, entry) => sum + entry.guidanceDecisions.size, 0);
   const keptOpportunities = [...cards.values()]
@@ -512,8 +531,8 @@ function buildRawEvidence(group: ObservedMulliganCandidate[]): RawEvidenceScope 
       sum + [...entry.guidanceDecisions.values()].filter(Boolean).length
     ), 0);
   return {
-    hands: [...scopeContributionCounts.values()].reduce((sum, count) => sum + count, 0),
-    contributors: new Set(scopeContributionCounts.keys()),
+    hands: group.length,
+    contributors: new Set(group.map((candidate) => candidate.contributorKey)),
     baselineKeepRate: offeredOpportunities > 0 ? keptOpportunities / offeredOpportunities : 0,
     cards,
   };
@@ -525,7 +544,7 @@ function publishEvidence(
   minimumHands: number,
   minimumPlayers: number,
 ): Map<string, MulliganLabCardEvidence> {
-  return new Map([...matchup.cards.keys()].map((code) => {
+  return new Map([...matchup.cards.keys()].flatMap((code) => {
     const matchupCard = matchup.cards.get(code)!;
     const reliableOffers = Math.max(CARD_GUIDANCE_MINIMUM_OFFERS, minimumHands);
     const reliablePlayers = Math.max(
@@ -573,6 +592,10 @@ function publishEvidence(
     const scope = usePlayerLegend ? playerLegend : matchup;
     // Every matchup card is necessarily present in its player-legend parent.
     const entry = scope.cards.get(code) ?? matchupCard;
+    // A scope made entirely of tied per-player majorities has no honest
+    // contributor-balanced rate. Omit it; candidate selection will avoid
+    // publishing a drill whose displayed hand lacks evidence.
+    if (entry.guidanceDecisions.size === 0) return [];
     const players = entry.contributors.size;
     const keptPlayers = entry.keptContributors.size;
     const redrawnPlayers = entry.redrawnContributors.size;
@@ -629,7 +652,7 @@ function publishEvidence(
         evidenceStatus,
       ),
     };
-    return [code, evidence];
+    return [[code, evidence] as const];
   }));
 }
 

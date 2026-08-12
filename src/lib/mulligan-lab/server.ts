@@ -42,7 +42,6 @@ const AGGREGATE_COLLECTION = "aggregates";
 const AGGREGATE_DOCUMENT = "mulligan-lab-v1";
 const DEFAULT_CORPUS_LIMIT = 1_500;
 const MAX_CORPUS_LIMIT = 5_000;
-const MAX_ELIGIBLE_FACTS = 50_000;
 
 type BackfillCursor = {
   replayId: string;
@@ -157,7 +156,10 @@ export async function refreshMulliganLabAggregate(
     }
   }
 
-  const factCorpus = await readEligibleFactCandidates(db, MAX_ELIGIBLE_FACTS);
+  const nextBackfill = buildNextBackfillState(backfill, replayDocuments, limit, failed);
+  // Read every eligible fact. The corpus intentionally spans all available
+  // history; document-id order is pagination only and never a selection cap.
+  const factCorpus = await readEligibleFactCandidates(db);
   const candidates = factCorpus.candidates;
 
   const minimumHands = envPositiveInteger("MULLIGAN_LAB_MINIMUM_HANDS")
@@ -169,6 +171,7 @@ export async function refreshMulliganLabAggregate(
     minimumPlayers,
     maxDrills: envPositiveInteger("MULLIGAN_LAB_MAX_DRILLS") ?? 64,
     coverageTruncated: factCorpus.truncated,
+    backfillComplete: nextBackfill.complete,
   });
   const result: MulliganLabRefreshResult = {
     published: Boolean(payload),
@@ -178,14 +181,13 @@ export async function refreshMulliganLabAggregate(
     factsCreated,
     factsRead: factCorpus.read,
     factCoverageTruncated: factCorpus.truncated,
-    backfillComplete: backfill.complete || (failed === 0 && replayDocuments.length < limit),
+    backfillComplete: nextBackfill.complete,
     strictCandidates: candidates.length,
     drills: payload?.drills.length ?? 0,
     rejected,
     failed,
   };
 
-  const nextBackfill = buildNextBackfillState(backfill, replayDocuments, limit, failed);
   if (payload) {
     await aggregateRef.set({
       payload,
@@ -252,13 +254,12 @@ async function readExistingFactDocuments(
 
 async function readEligibleFactCandidates(
   db: Firestore,
-  limit: number,
 ): Promise<{ candidates: ObservedMulliganCandidate[]; read: number; truncated: boolean }> {
   const candidates: ObservedMulliganCandidate[] = [];
   let read = 0;
   let cursor: QueryDocumentSnapshot | undefined;
-  while (read <= limit) {
-    const pageSize = Math.min(500, limit + 1 - read);
+  while (true) {
+    const pageSize = 500;
     let query = db.collection(MULLIGAN_LAB_FACT_COLLECTION)
       .where("status", "==", "eligible")
       .orderBy(FieldPath.documentId())
@@ -267,14 +268,13 @@ async function readEligibleFactCandidates(
     const snapshot = await query.get();
     for (const document of snapshot.docs) {
       read += 1;
-      if (read > limit) break;
       const candidate = storedMulliganFactCandidate(document.data());
       if (candidate) candidates.push(candidate);
     }
     cursor = snapshot.docs.at(-1);
-    if (snapshot.empty || snapshot.docs.length < pageSize || read > limit) break;
+    if (snapshot.empty || snapshot.docs.length < pageSize) break;
   }
-  return { candidates, read: Math.min(read, limit), truncated: read > limit };
+  return { candidates, read, truncated: false };
 }
 
 async function writeIneligibleFactMarker(db: Firestore, replayId: string): Promise<void> {
