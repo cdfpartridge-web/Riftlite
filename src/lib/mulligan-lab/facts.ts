@@ -18,18 +18,18 @@ import { canonicalizeCandidateWithPackagedRegistry } from "@/lib/mulligan-lab/re
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 
 export const MULLIGAN_LAB_FACT_COLLECTION = "mulliganLabFactsV1";
-export const MULLIGAN_LAB_FACT_VERSION = 1;
+export const MULLIGAN_LAB_FACT_VERSION = 2;
 
 export type StoredMulliganFact = Omit<ObservedMulliganCandidate, "contributorKey"> & {
   schema: "riftlite-mulligan-fact";
-  version: 1;
+  version: 1 | 2;
   status: "eligible";
   contributorHash: string;
 };
 
 export type StoredMulliganFactMarker = {
   schema: "riftlite-mulligan-fact";
-  version: 1;
+  version: 2;
   status: "ineligible";
 };
 
@@ -47,7 +47,7 @@ export function buildStoredMulliganFact(
     if (!candidate || !validStoredCandidate(candidate)) return null;
     return {
       schema: "riftlite-mulligan-fact",
-      version: 1,
+      version: MULLIGAN_LAB_FACT_VERSION,
       status: "eligible",
       contributorHash: sha256(ownerUid),
       observedHandId: candidate.observedHandId,
@@ -83,9 +83,14 @@ export function ineligibleMulliganFactMarker(): StoredMulliganFactMarker {
 export function isCurrentMulliganFact(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const fact = value as Partial<StoredMulliganFact | StoredMulliganFactMarker>;
-  return fact.schema === "riftlite-mulligan-fact"
-    && fact.version === MULLIGAN_LAB_FACT_VERSION
-    && (fact.status === "eligible" || fact.status === "ineligible");
+  if (fact.schema !== "riftlite-mulligan-fact") return false;
+  // Existing eligible v1 facts contain the complete observation and are
+  // normalized through the current registry when read. Old v1 ineligible
+  // markers carry no evidence and must be retried now legal star/base prints
+  // are accepted by extractor v2.
+  return fact.status === "eligible"
+    ? fact.version === 1 || fact.version === MULLIGAN_LAB_FACT_VERSION
+    : fact.status === "ineligible" && fact.version === MULLIGAN_LAB_FACT_VERSION;
 }
 
 export function setMulliganFactInTransaction(
@@ -106,7 +111,7 @@ export function storedMulliganFactCandidate(value: unknown): ObservedMulliganCan
   const fact = value as Partial<StoredMulliganFact>;
   if (
     fact.schema !== "riftlite-mulligan-fact" ||
-    fact.version !== 1 ||
+    (fact.version !== 1 && fact.version !== MULLIGAN_LAB_FACT_VERSION) ||
     fact.status !== "eligible" ||
     typeof fact.contributorHash !== "string" ||
     !/^[a-f0-9]{64}$/.test(fact.contributorHash) ||

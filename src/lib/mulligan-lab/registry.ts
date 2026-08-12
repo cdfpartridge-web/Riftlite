@@ -1,10 +1,14 @@
 import registryData from "@/lib/mulligan-lab/card-registry-v1.json";
 import type { ObservedMulliganCandidate } from "@/lib/mulligan-lab/aggregate";
 
-type RegistryCard = { name: string; type: string };
+type RegistryCard = { basePrintId: string; name: string; type: string };
 
 const registry = registryData.cards as Record<string, RegistryCard>;
 const FORBIDDEN_DECK_TYPES = new Set(["legend", "battlefield", "rune"]);
+
+export function mulliganCardIdentity(cardCode: string): string | null {
+  return registry[cardCode]?.basePrintId ?? null;
+}
 
 /**
  * Resolves observed card codes to the same canonical identities shipped in the

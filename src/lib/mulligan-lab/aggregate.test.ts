@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMulliganLabSnapshot,
   extractObservedMulligan,
+  mulliganDeckFingerprint,
 } from "@/lib/mulligan-lab/aggregate";
 import { MulliganLabResponseSchema } from "@/lib/mulligan-lab/contracts";
 import type {
@@ -63,7 +64,7 @@ describe("Mulligan Lab observed-data aggregate", () => {
     expect(extractObservedMulligan(replay, "player-keep-all")?.redrawnCardIndexes).toEqual([]);
   });
 
-  it("publishes raw evidence early and marks it sufficient only after both reliability gates pass", () => {
+  it("publishes raw evidence early and keeps per-card guidance neutral below its stronger gate", () => {
     const first = extractObservedMulligan(observedReplay("replay-a", true), "player-a");
     const second = extractObservedMulligan(observedReplay("replay-b", false), "player-b");
     if (!first || !second) throw new Error("fixtures must be extractable");
@@ -75,10 +76,19 @@ describe("Mulligan Lab observed-data aggregate", () => {
     });
     expect(early?.drills).toHaveLength(2);
     expect(early?.drills[0]).toMatchObject({
-      evidence: { status: "early", scope: "matchup-initiative", hands: 2, players: 2 },
+      evidence: { status: "early", scope: "matchup", hands: 2, players: 2 },
     });
     expect(early?.drills[0].cardEvidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ cardCode: "OGN-001", offered: 2, kept: 2, redrawn: 0 }),
+      expect.objectContaining({
+        cardCode: "OGN-001",
+        identityCode: "OGN-001",
+        scope: "matchup",
+        offered: 2,
+        kept: 2,
+        redrawn: 0,
+        guidance: "unclear",
+        evidenceStatus: "limited",
+      }),
     ]));
 
     const snapshot = buildMulliganLabSnapshot([first, second], {
@@ -90,7 +100,12 @@ describe("Mulligan Lab observed-data aggregate", () => {
     expect(snapshot?.drills).toHaveLength(2);
     expect(snapshot?.drills[0].evidence).toEqual({
       status: "sufficient",
-      scope: "matchup-initiative",
+      scope: "matchup",
+      deckScope: "all-observed-decks",
+      guidanceBasis: "community-keep-rate",
+      outcomeInterpretation: "descriptive-not-causal",
+      playerLegendIdentityCode: "UNL-191",
+      opponentLegendIdentityCode: "VEN-145",
       hands: 2,
       players: 2,
     });
@@ -103,7 +118,185 @@ describe("Mulligan Lab observed-data aggregate", () => {
     expect(serialized).not.toContain("player-a");
     expect(serialized).not.toContain("player-b");
     expect(serialized).not.toContain("replay-a");
+    expect(serialized).not.toContain("observedDecision");
+    expect(serialized).not.toContain("observedHandId");
+    expect(serialized).not.toContain("eventKey");
+    expect(serialized).not.toContain("matchKey");
+    expect(snapshot?.version).toBe(2);
     expect(MulliganLabResponseSchema.safeParse(snapshot).success).toBe(true);
+  });
+
+  it("pools both initiatives for one oriented legend matchup", () => {
+    const first = extractObservedMulligan(observedReplay("first"), "player-a");
+    const second = extractObservedMulligan(observedReplay("second"), "player-b");
+    if (!first || !second) throw new Error("fixtures must be extractable");
+    second.initiative = "second";
+
+    const snapshot = buildMulliganLabSnapshot([first, second], {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+
+    expect(snapshot?.drills).toHaveLength(2);
+    expect(snapshot?.drills.every((drill) => drill.evidence.hands === 2)).toBe(true);
+  });
+
+  it("uses player-legend evidence when a matchup is sparse and grades a broad consensus", () => {
+    const base = extractObservedMulligan(observedReplay("holistic-base"), "player-0");
+    if (!base) throw new Error("fixture must be extractable");
+    const candidates = Array.from({ length: 30 }, (_, index) => ({
+      ...base,
+      observedHandId: `mh1_${(index + 100).toString(16).padStart(32, "0")}`,
+      contributorKey: `player-${index}`,
+      matchup: {
+        ...base.matchup,
+        opponentLegend: index < 15
+          ? base.matchup.opponentLegend
+          : { cardCode: "SFD-250", name: "Other legend" },
+      },
+      redrawnCardIndexes: index < 3 ? [0, 1] : [1],
+      wonGame: index % 2 === 0,
+    }));
+
+    const snapshot = buildMulliganLabSnapshot(candidates, {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    const evidence = snapshot?.drills[0].cardEvidence.find((entry) => entry.cardCode === "OGN-001");
+
+    expect(evidence).toMatchObject({
+      scope: "player-legend",
+      scopeHands: 30,
+      scopePlayers: 30,
+      offered: 30,
+      players: 30,
+      kept: 27,
+      redrawn: 3,
+      keepRate: 0.9,
+      guidancePlayers: 30,
+      guidanceKept: 27,
+      guidanceKeepRate: 0.9,
+      guidance: "strong_keep",
+      evidenceStatus: "robust",
+      outcomeStatus: "one_sided",
+    });
+  });
+
+  it("counts unanimous duplicate choices once and omits a partial duplicate decision", () => {
+    const allKept = extractObservedMulligan(observedReplay("duplicate-kept", true, []), "player-a");
+    const allRedrawn = extractObservedMulligan(observedReplay("duplicate-redrawn", false, [0, 1]), "player-b");
+    const mixed = extractObservedMulligan(observedReplay("duplicate-mixed", true, [0]), "player-c");
+    if (!allKept || !allRedrawn || !mixed) throw new Error("fixtures must be extractable");
+    for (const candidate of [allKept, allRedrawn, mixed]) candidate.hand[1] = { ...candidate.hand[0] };
+
+    const snapshot = buildMulliganLabSnapshot([allKept, allRedrawn, mixed], {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    const evidence = snapshot?.drills[0].cardEvidence.find((entry) => entry.cardCode === "OGN-001");
+
+    expect(evidence).toMatchObject({
+      offered: 2,
+      kept: 1,
+      redrawn: 1,
+      keptWins: 1,
+      redrawnWins: 0,
+    });
+  });
+
+  it("does not publish a drill whose duplicate identity has only partial decisions", () => {
+    const mixed = extractObservedMulligan(observedReplay("duplicate-only-mixed", true, [0]), "player-a");
+    if (!mixed) throw new Error("fixture must be extractable");
+    mixed.hand[1] = { ...mixed.hand[0] };
+
+    expect(buildMulliganLabSnapshot([mixed], {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    })).toBeNull();
+  });
+
+  it("prefers reliable exact-matchup evidence over the broader backoff", () => {
+    const base = extractObservedMulligan(observedReplay("exact-base"), "player-0");
+    if (!base) throw new Error("fixture must be extractable");
+    const candidates = Array.from({ length: 30 }, (_, index) => ({
+      ...base,
+      observedHandId: `mh1_${(index + 200).toString(16).padStart(32, "0")}`,
+      contributorKey: `player-${index}`,
+      redrawnCardIndexes: [1],
+    }));
+    const snapshot = buildMulliganLabSnapshot(candidates, {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    expect(snapshot?.drills[0].cardEvidence.find((entry) => entry.cardCode === "OGN-001"))
+      .toMatchObject({
+        scope: "matchup",
+        offered: 30,
+        players: 30,
+        guidancePlayers: 30,
+        guidanceKept: 30,
+        guidanceKeepRate: 1,
+        guidance: "strong_keep",
+      });
+  });
+
+  it("caps a contributor at five hands and leaves insufficient evidence ungraded", () => {
+    const base = extractObservedMulligan(observedReplay("cap-base"), "one-player");
+    if (!base) throw new Error("fixture must be extractable");
+    const candidates = Array.from({ length: 12 }, (_, index) => ({
+      ...base,
+      observedHandId: `mh1_${(index + 300).toString(16).padStart(32, "0")}`,
+      redrawnCardIndexes: [1],
+    }));
+    const snapshot = buildMulliganLabSnapshot(candidates, {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    expect(snapshot?.drills[0].cardEvidence.find((entry) => entry.cardCode === "OGN-001"))
+      .toMatchObject({
+        scope: "matchup",
+        scopeHands: 5,
+        scopePlayers: 1,
+        offered: 5,
+        players: 1,
+        guidance: "unclear",
+      });
+  });
+
+  it("derives the baseline from the same per-card capped opportunities", () => {
+    const base = extractObservedMulligan(observedReplay("baseline-cap"), "one-player");
+    if (!base) throw new Error("fixture must be extractable");
+    const candidates = Array.from({ length: 10 }, (_, index) => ({
+      ...base,
+      observedHandId: `mh1_${(index + 350).toString(16).padStart(32, "0")}`,
+      // Card 1 is available in all ten hands but capped at five. Card 2's
+      // decision pattern changes after the cap and must not leak into baseline.
+      redrawnCardIndexes: index < 5 ? [1] : [0],
+    }));
+    const snapshot = buildMulliganLabSnapshot(candidates, {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    const evidence = snapshot?.drills[0].cardEvidence.find((entry) => entry.cardCode === "OGN-001");
+
+    // Five capped observations for each of four unique hand cards: three are
+    // always kept and one always redrawn, hence a 15/20 scope baseline.
+    expect(evidence).toMatchObject({ offered: 5, kept: 5, baselineKeepRate: 0.75 });
+  });
+
+  it("pools alternate art by base identity while keeping the shown exact print", () => {
+    const base = extractObservedMulligan(observedReplay("base-art"), "player-a");
+    const alternate = extractObservedMulligan(observedReplay("alternate-art"), "player-b");
+    if (!base || !alternate) throw new Error("fixtures must be extractable");
+    replaceCardPrint(base, "OGN-001", "OGN-027", "Darius, Trifarian");
+    replaceCardPrint(alternate, "OGN-001", "OGN-027A", "Darius, Trifarian");
+    const snapshot = buildMulliganLabSnapshot([base, alternate], {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+
+    expect(new Set(snapshot?.drills.map((drill) => (
+      drill.hand.find((card) => card.cardCode.startsWith("OGN-027"))?.cardCode
+    )))).toEqual(new Set(["OGN-027", "OGN-027A"]));
+    for (const drill of snapshot?.drills ?? []) {
+      const shown = drill.hand.find((card) => card.cardCode.startsWith("OGN-027"));
+      expect(drill.cardEvidence.find((entry) => entry.cardCode === shown?.cardCode)).toMatchObject({
+        identityCode: "OGN-027",
+        offered: 2,
+      });
+    }
   });
 
   it("round-robins matchup cohorts so one large cohort cannot consume the drill pack", () => {
@@ -178,13 +371,103 @@ describe("Mulligan Lab observed-data aggregate", () => {
       contributorKey: `rotation-player-${index}`,
     }));
 
-    const handIds = [12, 13, 14].map((day) => buildMulliganLabSnapshot(candidates, {
+    const drillIds = [12, 13, 14].map((day) => buildMulliganLabSnapshot(candidates, {
       maxDrills: 1,
       generatedAt: new Date(Date.UTC(2026, 7, day, 2)),
-    })?.drills[0].observedHandId);
-    expect(new Set(handIds).size).toBe(3);
+    })?.drills[0].id);
+    expect(new Set(drillIds).size).toBe(3);
+  });
+
+  it("prioritizes evidence-rich matchups when the daily pack is bounded", () => {
+    const base = extractObservedMulligan(observedReplay("rich-base"), "player-a");
+    if (!base) throw new Error("fixture must be extractable");
+    const rich = Array.from({ length: 5 }, (_, index) => ({
+      ...base,
+      observedHandId: `mh1_${(index + 400).toString(16).padStart(32, "0")}`,
+      contributorKey: `rich-player-${index}`,
+    }));
+    const sparse = {
+      ...base,
+      observedHandId: `mh1_${"f".repeat(32)}`,
+      contributorKey: "sparse-player",
+      matchup: {
+        ...base.matchup,
+        opponentLegend: { cardCode: "SFD-250", name: "Sparse opponent" },
+      },
+    };
+    const snapshot = buildMulliganLabSnapshot([...rich, sparse], {
+      maxDrills: 1,
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    expect(snapshot?.drills[0].matchup.opponentLegend.cardCode).toBe("VEN-145");
+  });
+
+  it("orders robust directional exercises before developing and limited exercises", () => {
+    const base = extractObservedMulligan(observedReplay("priority-base"), "player-0");
+    if (!base) throw new Error("fixture must be extractable");
+    const robust = Array.from({ length: 30 }, (_, index) => ({
+      ...base,
+      observedHandId: `mh1_${(index + 500).toString(16).padStart(32, "0")}`,
+      contributorKey: `priority-player-${index}`,
+      redrawnCardIndexes: [1],
+    }));
+    const limited = {
+      ...base,
+      observedHandId: `mh1_${"e".repeat(32)}`,
+      contributorKey: "limited-player",
+      matchup: {
+        ...base.matchup,
+        playerLegend: { cardCode: "SFD-221", name: "Limited player legend" },
+        opponentLegend: { cardCode: "SFD-250", name: "Limited opponent" },
+      },
+    };
+    const snapshot = buildMulliganLabSnapshot([...robust, limited], {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+
+    expect(snapshot?.drills[0].cardEvidence.some((entry) => entry.guidance === "strong_keep")).toBe(true);
+    expect(snapshot?.drills.at(-1)?.matchup.playerLegend.cardCode).toBe("SFD-221");
+    expect(buildMulliganLabSnapshot([...robust, limited], {
+      generatedAt: new Date("2026-08-12T22:00:00.000Z"),
+    })?.drills.map((drill) => drill.id)).toEqual(snapshot?.drills.map((drill) => drill.id));
+  });
+
+  it("publishes truthful fact coverage dates and truncation status", () => {
+    const candidate = extractObservedMulligan(observedReplay("coverage"), "player-a");
+    if (!candidate) throw new Error("fixture must be extractable");
+    candidate.observation.observedOn = "2026-08-10";
+    const later = {
+      ...candidate,
+      observedHandId: `mh1_${"d".repeat(32)}`,
+      contributorKey: "player-b",
+      observation: { ...candidate.observation, observedOn: "2026-08-12" },
+    };
+    const snapshot = buildMulliganLabSnapshot([candidate, later], {
+      generatedAt: new Date("2026-08-12T22:00:00.000Z"),
+      coverageTruncated: true,
+    });
+
+    expect(snapshot?.source).toMatchObject({
+      observedFrom: "2026-08-10",
+      observedThrough: "2026-08-12",
+      includedFacts: 2,
+      coverageTruncated: true,
+    });
   });
 });
+
+function replaceCardPrint(
+  candidate: NonNullable<ReturnType<typeof extractObservedMulligan>>,
+  from: string,
+  cardCode: string,
+  name: string,
+): void {
+  candidate.hand = candidate.hand.map((card) => card.cardCode === from ? { cardCode, name } : card);
+  candidate.deck.mainDeck = candidate.deck.mainDeck.map((card) => (
+    card.cardCode === from ? { ...card, cardCode, name } : card
+  ));
+  candidate.deck.fingerprint = mulliganDeckFingerprint(candidate.deck.mainDeck);
+}
 
 function observedReplay(
   id = "replay-a",

@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { refreshMulliganLabAggregate } from "@/lib/mulligan-lab/server";
@@ -15,6 +16,9 @@ export async function POST(request: NextRequest) {
     const result = await refreshMulliganLabAggregate(
       Number.isInteger(requested) && requested > 0 ? requested : undefined,
     );
+    // Only evict a still-valid public snapshot after its v2 replacement has
+    // actually been persisted. A failed/empty repair keeps the prior cache.
+    if (result.published) revalidatePath("/api/app/mulligan-lab");
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -168,6 +168,7 @@ export async function refreshMulliganLabAggregate(
     minimumHands,
     minimumPlayers,
     maxDrills: envPositiveInteger("MULLIGAN_LAB_MAX_DRILLS") ?? 64,
+    coverageTruncated: factCorpus.truncated,
   });
   const result: MulliganLabRefreshResult = {
     published: Boolean(payload),

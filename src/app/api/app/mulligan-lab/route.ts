@@ -7,7 +7,10 @@ export const runtime = "nodejs";
 
 const HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=21600",
+  // Alpha/testing favors deterministic freshness over one inexpensive cached
+  // aggregate-document read. Manual CDN s-maxage responses are not purged by
+  // revalidatePath, so no-store guarantees a completed refresh is immediate.
+  "Cache-Control": "no-store",
 };
 
 export async function GET() {

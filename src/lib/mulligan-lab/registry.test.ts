@@ -4,7 +4,10 @@ import {
   mulliganDeckFingerprint,
   type ObservedMulliganCandidate,
 } from "@/lib/mulligan-lab/aggregate";
-import { canonicalizeCandidateWithPackagedRegistry } from "@/lib/mulligan-lab/registry";
+import {
+  canonicalizeCandidateWithPackagedRegistry,
+  mulliganCardIdentity,
+} from "@/lib/mulligan-lab/registry";
 
 describe("Mulligan Lab packaged card registry", () => {
   it("uses an exact known code while normalizing Atlas display-name aliases", () => {
@@ -30,6 +33,12 @@ describe("Mulligan Lab packaged card registry", () => {
     const candidate = observedCandidate();
     candidate.hand[0].cardCode = "BAD-999";
     expect(canonicalizeCandidateWithPackagedRegistry(candidate)).toBeNull();
+  });
+
+  it("maps alternate and star artwork to the exact gameplay base identity", () => {
+    expect(mulliganCardIdentity("OGN-027A")).toBe("OGN-027");
+    expect(mulliganCardIdentity("OGN-299*")).toBe("OGN-299");
+    expect(mulliganCardIdentity("BAD-999")).toBeNull();
   });
 });
 

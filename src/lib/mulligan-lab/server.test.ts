@@ -35,7 +35,7 @@ describe("Mulligan Lab fact backfill", () => {
     expect(fake.replayQuery.startAfter).not.toHaveBeenCalled();
     expect(fake.aggregateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        backfill: { factVersion: 1, complete: true, cursor: null },
+        backfill: { factVersion: 2, complete: true, cursor: null },
       }),
       { merge: true },
     );
@@ -43,7 +43,7 @@ describe("Mulligan Lab fact backfill", () => {
 
   it("resumes the index-free document-id walk from its persisted cursor", async () => {
     const fake = fakeMulliganDb({
-      factVersion: 1,
+      factVersion: 2,
       complete: false,
       cursor: { replayId: "rl2_previous" },
     });
@@ -52,6 +52,25 @@ describe("Mulligan Lab fact backfill", () => {
     await refreshMulliganLabAggregate(25);
 
     expect(fake.replayQuery.startAfter).toHaveBeenCalledWith("rl2_previous");
+  });
+
+  it("restarts an old v1 cursor so rejected markers can be reconsidered by extractor v2", async () => {
+    const fake = fakeMulliganDb({
+      factVersion: 1,
+      complete: true,
+      cursor: null,
+    });
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await refreshMulliganLabAggregate(25);
+
+    expect(fake.replayQuery.startAfter).not.toHaveBeenCalled();
+    expect(fake.aggregateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backfill: { factVersion: 2, complete: true, cursor: null },
+      }),
+      { merge: true },
+    );
   });
 });
 

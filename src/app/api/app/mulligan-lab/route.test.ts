@@ -32,6 +32,6 @@ describe("Mulligan Lab desktop endpoint", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ status: "unavailable", drills: [] });
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
-    expect(response.headers.get("cache-control")).toContain("s-maxage=3600");
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 });

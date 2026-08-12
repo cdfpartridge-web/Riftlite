@@ -16,10 +16,11 @@ if (!Array.isArray(source.cards) || source.schemaVersion !== 1) {
 const cards = Object.fromEntries(source.cards.map((card) => {
   if (
     typeof card.printId !== "string" ||
+    typeof card.basePrintId !== "string" ||
     typeof card.name !== "string" ||
     typeof card.type !== "string"
   ) throw new Error("Source registry contains an invalid card.");
-  return [card.printId, { name: card.name, type: card.type }];
+  return [card.printId, { basePrintId: card.basePrintId, name: card.name, type: card.type }];
 }).sort(([left], [right]) => left.localeCompare(right)));
 
 if (Object.keys(cards).length !== source.cards.length) {

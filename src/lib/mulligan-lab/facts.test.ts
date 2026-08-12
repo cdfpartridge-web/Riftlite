@@ -29,6 +29,19 @@ describe("Mulligan Lab anonymous fact documents", () => {
     expect(storedMulliganFactCandidate(marker)).toBeNull();
   });
 
+  it("keeps complete v1 eligible facts but retries information-free v1 rejection markers", () => {
+    const eligible = eligibleFact();
+    expect(eligible.version).toBe(1);
+    expect(isCurrentMulliganFact(eligible)).toBe(true);
+    expect(storedMulliganFactCandidate(eligible)).not.toBeNull();
+    expect(isCurrentMulliganFact({
+      schema: "riftlite-mulligan-fact",
+      version: 1,
+      status: "ineligible",
+    })).toBe(false);
+    expect(ineligibleMulliganFactMarker()).toMatchObject({ version: 2, status: "ineligible" });
+  });
+
   it("excludes combined dual-perspective replays so source matches are not double-counted", () => {
     const combined = {
       collaboration: {

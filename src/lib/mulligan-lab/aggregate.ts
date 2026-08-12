@@ -16,16 +16,20 @@ import {
   type MulliganLabCardEvidence,
   type MulliganLabDeck,
   type MulliganLabDrill,
+  type MulliganLabObservation,
   type MulliganLabReadyResponse,
 } from "@/lib/mulligan-lab/contracts";
+import { mulliganCardIdentity } from "@/lib/mulligan-lab/registry";
 
-const CARD_CODE = /^[A-Z]{3}-\d{3}[A-Z]?$/;
+const CARD_CODE = /^[A-Z]{3}-\d{3}(?:[A-Z]|\*)?$/;
 const MAIN_DECK_SIZE = 40;
+const CARD_GUIDANCE_MINIMUM_OFFERS = 25;
+const CARD_GUIDANCE_MINIMUM_PLAYERS = 10;
 
 export type ObservedMulliganCandidate = {
   observedHandId: string;
   contributorKey: string;
-  observation: MulliganLabDrill["observation"];
+  observation: MulliganLabObservation;
   matchup: MulliganLabDrill["matchup"];
   initiative: MulliganLabDrill["initiative"];
   hand: MulliganLabCard[];
@@ -40,6 +44,7 @@ export type MulliganLabAggregateOptions = {
   maxDrills?: number;
   generatedAt?: Date;
   lifetimeHours?: number;
+  coverageTruncated?: boolean;
 };
 
 /**
@@ -159,24 +164,52 @@ export function buildMulliganLabSnapshot(
   const maxDrills = Math.min(64, positiveInteger(options.maxDrills) ?? 64);
   const generatedAt = options.generatedAt ?? new Date();
   const lifetimeHours = positiveInteger(options.lifetimeHours) ?? 36;
+  const coverageTruncated = options.coverageTruncated === true;
 
+  const balancedCandidates = dedupeCandidates(candidates);
   const groups = new Map<string, ObservedMulliganCandidate[]>();
-  for (const candidate of dedupeCandidates(candidates)) {
+  const playerLegendGroups = new Map<string, ObservedMulliganCandidate[]>();
+  for (const candidate of balancedCandidates) {
     const key = matchupKey(candidate);
     groups.set(key, [...(groups.get(key) ?? []), candidate]);
+    const legendKey = playerLegendKey(candidate);
+    playerLegendGroups.set(legendKey, [...(playerLegendGroups.get(legendKey) ?? []), candidate]);
   }
 
   const preparedGroups = [...groups.entries()]
-    .map(([groupKey, group]) => ({
-      groupKey,
-      group: group.sort((left, right) => left.observedHandId.localeCompare(right.observedHandId)),
-      contributors: new Set(group.map((candidate) => candidate.contributorKey)),
-      evidence: buildEvidence(group),
-    }))
-    // Prefer broader evidence when there are more than 64 matchup cohorts,
-    // then round-robin so one large cohort cannot consume the entire pack.
+    .map(([groupKey, unsortedGroup]) => {
+      const group = unsortedGroup.sort((left, right) => left.observedHandId.localeCompare(right.observedHandId));
+      const contributors = new Set(group.map((candidate) => candidate.contributorKey));
+      const playerLegendGroup = playerLegendGroups.get(playerLegendKey(group[0]!)) ?? group;
+      const matchupEvidence = buildRawEvidence(group);
+      const playerLegendEvidence = buildRawEvidence(playerLegendGroup);
+      const evidence = publishEvidence(
+        matchupEvidence,
+        playerLegendEvidence,
+        minimumHands,
+        minimumPlayers,
+      );
+      return {
+        groupKey,
+        group,
+        contributors,
+        evidence,
+        drillCandidates: group.filter((candidate) => (
+          candidate.hand.every((card) => evidence.has(cardIdentity(card.cardCode)))
+        )),
+        evidenceTier: group.length >= 8 && contributors.size >= 4
+          ? 2
+          : group.length >= 3 && contributors.size >= 2
+            ? 1
+            : 0,
+      };
+    })
+    // Evidence-rich matchups appear first. Daily rotation still changes which
+    // sparse cohorts fill the remaining bounded slots.
     .sort((left, right) => (
-      right.group.length - left.group.length || left.groupKey.localeCompare(right.groupKey)
+      right.evidenceTier - left.evidenceTier ||
+      right.group.length - left.group.length ||
+      left.groupKey.localeCompare(right.groupKey)
     ));
 
   // A bounded public document cannot carry every exact hand and its bound
@@ -185,42 +218,51 @@ export function buildMulliganLabSnapshot(
   // successive daily refreshes walk the whole circular cohort list. Candidate
   // hands rotate independently within each included cohort.
   const rotationDay = utcDayNumber(generatedAt);
-  const groupOffset = preparedGroups.length > maxDrills
-    ? (rotationDay * maxDrills) % preparedGroups.length
-    : 0;
-  const rotatedGroups = rotate(preparedGroups, groupOffset);
+  const rotatedGroups = rotateWithinEvidenceTiers(preparedGroups, rotationDay);
 
   const drills: MulliganLabDrill[] = [];
   for (let candidateIndex = 0; drills.length < maxDrills; candidateIndex += 1) {
     let added = false;
     for (const prepared of rotatedGroups) {
-      if (candidateIndex >= prepared.group.length) continue;
-      const candidateOffset = dailyCandidateOffset(rotationDay, prepared.groupKey, prepared.group.length);
-      const candidate = prepared.group[(candidateOffset + candidateIndex) % prepared.group.length];
+      if (candidateIndex >= prepared.drillCandidates.length) continue;
+      const candidateOffset = dailyCandidateOffset(
+        rotationDay,
+        prepared.groupKey,
+        prepared.drillCandidates.length,
+      );
+      const candidate = prepared.drillCandidates[
+        (candidateOffset + candidateIndex) % prepared.drillCandidates.length
+      ];
       if (!candidate) continue;
+      const handCards = new Map(candidate.hand.map((card) => [card.cardCode, card]));
       added = true;
-      const handCodes = new Set(candidate.hand.map((card) => card.cardCode));
       drills.push({
-        id: `ml1_${digest([prepared.groupKey, candidate.observedHandId, candidate.deck.fingerprint]).slice(0, 32)}`,
-        observedHandId: candidate.observedHandId,
-        observation: candidate.observation,
+        id: `ml2_${digest([prepared.groupKey, candidate.observedHandId, candidate.deck.fingerprint]).slice(0, 32)}`,
         matchup: candidate.matchup,
         initiative: candidate.initiative,
         hand: candidate.hand,
-        observedDecision: {
-          redrawnCardIndexes: candidate.redrawnCardIndexes,
-          wonGame: candidate.wonGame,
-        },
         deck: candidate.deck,
         evidence: {
           status: prepared.group.length >= minimumHands && prepared.contributors.size >= minimumPlayers
             ? "sufficient"
             : "early",
-          scope: "matchup-initiative",
+          scope: "matchup",
+          deckScope: "all-observed-decks",
+          guidanceBasis: "community-keep-rate",
+          outcomeInterpretation: "descriptive-not-causal",
+          playerLegendIdentityCode: playerLegendKey(candidate),
+          opponentLegendIdentityCode: opponentLegendKey(candidate),
           hands: prepared.group.length,
           players: prepared.contributors.size,
         },
-        cardEvidence: [...handCodes].sort().map((code) => prepared.evidence.get(code)!),
+        cardEvidence: [...handCards].sort(([left], [right]) => left.localeCompare(right))
+          .map(([code, card]) => ({
+            ...prepared.evidence.get(cardIdentity(code))!,
+            // The statistics pool cosmetic prints by base identity, while the
+            // exact code/name continues to bind feedback to the shown art.
+            cardCode: code,
+            name: card.name,
+          })),
       });
       if (drills.length >= maxDrills) break;
     }
@@ -230,7 +272,7 @@ export function buildMulliganLabSnapshot(
 
   const response: MulliganLabReadyResponse = {
     schema: "riftlite-mulligan-lab",
-    version: 1,
+    version: 2,
     status: "ready",
     generatedAt: generatedAt.toISOString(),
     expiresAt: new Date(generatedAt.getTime() + lifetimeHours * 60 * 60 * 1_000).toISOString(),
@@ -239,8 +281,12 @@ export function buildMulliganLabSnapshot(
       corpus: "anonymized-canonical-web-replays",
       minimumHands,
       minimumPlayers,
+      observedFrom: observedDateBoundary(balancedCandidates, "first"),
+      observedThrough: observedDateBoundary(balancedCandidates, "last"),
+      includedFacts: balancedCandidates.length,
+      coverageTruncated,
     },
-    drills: drills.sort((left, right) => left.id.localeCompare(right.id)),
+    drills: drills.sort((left, right) => drillEvidencePriority(right) - drillEvidencePriority(left)),
   };
   return MulliganLabReadyResponseSchema.parse(response);
 }
@@ -365,14 +411,67 @@ function exactCard(card: ReplayCardState): MulliganLabCard | null {
   return { cardCode, name };
 }
 
-function buildEvidence(
-  group: ObservedMulliganCandidate[],
-): Map<string, MulliganLabCardEvidence> {
-  const stats = new Map<string, MulliganLabCardEvidence & { contributors: Set<string> }>();
-  for (const candidate of group) {
-    const redrawn = new Set(candidate.redrawnCardIndexes);
+type RawCardEvidence = MulliganLabCard & {
+  offered: number;
+  kept: number;
+  redrawn: number;
+  keptWins: number;
+  redrawnWins: number;
+  contributors: Set<string>;
+  keptContributors: Set<string>;
+  redrawnContributors: Set<string>;
+  guidanceDecisions: Map<string, boolean>;
+};
+
+type RawEvidenceScope = {
+  hands: number;
+  contributors: Set<string>;
+  baselineKeepRate: number;
+  cards: Map<string, RawCardEvidence>;
+};
+
+/**
+ * Counts one card opportunity per hand, matching the user's "in 100 games"
+ * interpretation. If duplicate copies appear and at least one is redrawn, the
+ * hand is classified once in the redraw branch. Its result is likewise counted
+ * only once, never once per copy or in both decision branches.
+ */
+function buildRawEvidence(group: ObservedMulliganCandidate[]): RawEvidenceScope {
+  const cards = new Map<string, RawCardEvidence>();
+  const scopeContributionCounts = new Map<string, number>();
+  const cardContributionCounts = new Map<string, number>();
+  for (const candidate of [...group].sort((left, right) => left.observedHandId.localeCompare(right.observedHandId))) {
+    const redrawnIndexes = new Set(candidate.redrawnCardIndexes);
+    const cardsInHand = new Map<string, {
+      card: MulliganLabCard;
+      copies: number;
+      redrawnCopies: number;
+    }>();
     candidate.hand.forEach((card, index) => {
-      const entry = stats.get(card.cardCode) ?? {
+      const identityCode = cardIdentity(card.cardCode);
+      const current = cardsInHand.get(identityCode);
+      cardsInHand.set(identityCode, {
+        card,
+        copies: (current?.copies ?? 0) + 1,
+        redrawnCopies: (current?.redrawnCopies ?? 0) + (redrawnIndexes.has(index) ? 1 : 0),
+      });
+    });
+
+    const scopeContributionCount = scopeContributionCounts.get(candidate.contributorKey) ?? 0;
+    if (scopeContributionCount < 5) {
+      scopeContributionCounts.set(candidate.contributorKey, scopeContributionCount + 1);
+    }
+
+    for (const [identityCode, { card, copies, redrawnCopies }] of cardsInHand) {
+      // A partial duplicate decision is neither a keep nor a redraw signal for
+      // that identity. Exclude it rather than forcing both copies into one
+      // branch and overstating the player's intent.
+      if (redrawnCopies > 0 && redrawnCopies < copies) continue;
+      const contributionKey = `${identityCode}|${candidate.contributorKey}`;
+      const cardContributionCount = cardContributionCounts.get(contributionKey) ?? 0;
+      if (cardContributionCount >= 5) continue;
+      cardContributionCounts.set(contributionKey, cardContributionCount + 1);
+      const entry = cards.get(identityCode) ?? {
         ...card,
         offered: 0,
         kept: 0,
@@ -380,29 +479,131 @@ function buildEvidence(
         keptWins: 0,
         redrawnWins: 0,
         contributors: new Set<string>(),
+        keptContributors: new Set<string>(),
+        redrawnContributors: new Set<string>(),
+        guidanceDecisions: new Map<string, boolean>(),
       };
       entry.offered += 1;
       entry.contributors.add(candidate.contributorKey);
-      if (redrawn.has(index)) {
+      // Candidate order is deterministic, so this is a stable one-vote-per-
+      // contributor sample for confidence/grade calculation.
+      if (!entry.guidanceDecisions.has(candidate.contributorKey)) {
+        entry.guidanceDecisions.set(candidate.contributorKey, redrawnCopies !== copies);
+      }
+      if (redrawnCopies === copies) {
         entry.redrawn += 1;
+        entry.redrawnContributors.add(candidate.contributorKey);
         if (candidate.wonGame) entry.redrawnWins += 1;
       } else {
         entry.kept += 1;
+        entry.keptContributors.add(candidate.contributorKey);
         if (candidate.wonGame) entry.keptWins += 1;
       }
-      stats.set(card.cardCode, entry);
-    });
+      cards.set(identityCode, entry);
+    }
   }
-  return new Map([...stats]
-    .map(([code, entry]) => [code, {
+  // The baseline uses the exact same per-card, max-five-per-contributor
+  // opportunity population as the published card rates. This avoids comparing
+  // a card against a differently sampled first-five-hands population.
+  const offeredOpportunities = [...cards.values()]
+    .reduce((sum, entry) => sum + entry.guidanceDecisions.size, 0);
+  const keptOpportunities = [...cards.values()]
+    .reduce((sum, entry) => (
+      sum + [...entry.guidanceDecisions.values()].filter(Boolean).length
+    ), 0);
+  return {
+    hands: [...scopeContributionCounts.values()].reduce((sum, count) => sum + count, 0),
+    contributors: new Set(scopeContributionCounts.keys()),
+    baselineKeepRate: offeredOpportunities > 0 ? keptOpportunities / offeredOpportunities : 0,
+    cards,
+  };
+}
+
+function publishEvidence(
+  matchup: RawEvidenceScope,
+  playerLegend: RawEvidenceScope,
+  minimumHands: number,
+  minimumPlayers: number,
+): Map<string, MulliganLabCardEvidence> {
+  return new Map([...matchup.cards.keys()].map((code) => {
+    const matchupCard = matchup.cards.get(code)!;
+    const reliableOffers = Math.max(CARD_GUIDANCE_MINIMUM_OFFERS, minimumHands);
+    const reliablePlayers = Math.max(
+      CARD_GUIDANCE_MINIMUM_OFFERS,
+      CARD_GUIDANCE_MINIMUM_PLAYERS,
+      minimumPlayers,
+    );
+    const matchupReliable = matchupCard.guidanceDecisions.size >= reliablePlayers;
+    const playerLegendCard = playerLegend.cards.get(code) ?? matchupCard;
+    const playerLegendReliable = (
+      playerLegendCard.guidanceDecisions.size >= reliablePlayers
+    );
+    // Back off only when the broader scope is actually reliable. Otherwise
+    // retain the honest limited matchup evidence rather than presenting a
+    // broader but equally inconclusive population as an answer.
+    const usePlayerLegend = !matchupReliable && playerLegendReliable;
+    const scopeName = usePlayerLegend ? "player-legend" as const : "matchup" as const;
+    const scope = usePlayerLegend ? playerLegend : matchup;
+    // Every matchup card is necessarily present in its player-legend parent.
+    const entry = scope.cards.get(code) ?? matchupCard;
+    const players = entry.contributors.size;
+    const keptPlayers = entry.keptContributors.size;
+    const redrawnPlayers = entry.redrawnContributors.size;
+    const keepRate = entry.kept / entry.offered;
+    const guidancePlayers = entry.guidanceDecisions.size;
+    const guidanceKept = [...entry.guidanceDecisions.values()].filter(Boolean).length;
+    const guidanceKeepRate = guidanceKept / guidancePlayers;
+    const keptWinRate = entry.kept > 0 ? entry.keptWins / entry.kept : null;
+    const redrawnWinRate = entry.redrawn > 0 ? entry.redrawnWins / entry.redrawn : null;
+    const winRateDelta = keptWinRate !== null && redrawnWinRate !== null
+      ? keptWinRate - redrawnWinRate
+      : null;
+    const evidenceStatus = cardEvidenceStatus(
+      entry.offered,
+      guidancePlayers,
+      reliableOffers,
+      Math.max(CARD_GUIDANCE_MINIMUM_OFFERS, reliablePlayers),
+    );
+    const evidence: MulliganLabCardEvidence = {
       cardCode: entry.cardCode,
+      identityCode: code,
       name: entry.name,
+      scope: scopeName,
+      scopeHands: scope.hands,
+      scopePlayers: scope.contributors.size,
       offered: entry.offered,
+      players,
       kept: entry.kept,
+      keptPlayers,
       redrawn: entry.redrawn,
+      redrawnPlayers,
       keptWins: entry.keptWins,
       redrawnWins: entry.redrawnWins,
-    }]));
+      keepRate,
+      baselineKeepRate: scope.baselineKeepRate,
+      guidancePlayers,
+      guidanceKept,
+      guidanceKeepRate,
+      keptWinRate,
+      redrawnWinRate,
+      winRateDelta,
+      guidance: communityGuidance(
+        guidanceKept,
+        guidancePlayers,
+        scope.baselineKeepRate,
+        evidenceStatus,
+      ),
+      evidenceStatus,
+      outcomeStatus: outcomeEvidenceStatus(
+        entry.kept,
+        entry.redrawn,
+        keptPlayers,
+        redrawnPlayers,
+        evidenceStatus,
+      ),
+    };
+    return [code, evidence];
+  }));
 }
 
 function dedupeCandidates(candidates: ObservedMulliganCandidate[]): ObservedMulliganCandidate[] {
@@ -411,10 +612,83 @@ function dedupeCandidates(candidates: ObservedMulliganCandidate[]): ObservedMull
 
 function matchupKey(candidate: ObservedMulliganCandidate): string {
   return [
-    candidate.matchup.playerLegend.cardCode,
-    candidate.matchup.opponentLegend.cardCode,
-    candidate.initiative,
+    playerLegendKey(candidate),
+    opponentLegendKey(candidate),
   ].join("|");
+}
+
+function playerLegendKey(candidate: ObservedMulliganCandidate): string {
+  return cardIdentity(candidate.matchup.playerLegend.cardCode);
+}
+
+function opponentLegendKey(candidate: ObservedMulliganCandidate): string {
+  return cardIdentity(candidate.matchup.opponentLegend.cardCode);
+}
+
+function cardIdentity(cardCode: string): string {
+  return mulliganCardIdentity(cardCode) ?? cardCode;
+}
+
+function cardEvidenceStatus(
+  offered: number,
+  players: number,
+  minimumHands: number,
+  minimumPlayers: number,
+): MulliganLabCardEvidence["evidenceStatus"] {
+  if (offered < 8 || players < 4) return "limited";
+  if (offered < minimumHands || players < minimumPlayers) return "developing";
+  return "robust";
+}
+
+/**
+ * Behavioural recommendation based only on how the community handled this
+ * card in this oriented matchup. Outcomes are deliberately excluded: players
+ * self-select keeps, deck builds differ, and the result is heavily confounded.
+ * A Wilson interval prevents a handful of unanimous decisions becoming a
+ * confident recommendation.
+ */
+function communityGuidance(
+  kept: number,
+  offered: number,
+  baselineKeepRate: number,
+  evidenceStatus: MulliganLabCardEvidence["evidenceStatus"],
+): MulliganLabCardEvidence["guidance"] {
+  if (evidenceStatus === "limited") return "unclear";
+  const keepRate = kept / offered;
+  if (evidenceStatus !== "robust") return "unclear";
+  const { lower, upper } = wilsonInterval(kept, offered, 1.959963984540054);
+  if (keepRate >= 0.85 && lower > 0.5) return "strong_keep";
+  if (keepRate >= 0.65 && lower > 0.5 && keepRate > baselineKeepRate) return "keep";
+  if (keepRate <= 0.15 && upper < 0.5) return "strong_redraw";
+  if (keepRate <= 0.35 && upper < 0.5 && keepRate < baselineKeepRate) return "redraw";
+  return "mixed";
+}
+
+function outcomeEvidenceStatus(
+  kept: number,
+  redrawn: number,
+  keptPlayers: number,
+  redrawnPlayers: number,
+  evidenceStatus: MulliganLabCardEvidence["evidenceStatus"],
+): MulliganLabCardEvidence["outcomeStatus"] {
+  if (evidenceStatus === "limited") return "sparse";
+  return kept >= 25 && redrawn >= 25 && keptPlayers >= 10 && redrawnPlayers >= 10
+    ? "comparable"
+    : "one_sided";
+}
+
+function wilsonInterval(successes: number, trials: number, z: number): { lower: number; upper: number } {
+  const proportion = successes / trials;
+  const zSquared = z * z;
+  const denominator = 1 + zSquared / trials;
+  const center = (proportion + zSquared / (2 * trials)) / denominator;
+  const margin = z * Math.sqrt(
+    (proportion * (1 - proportion) + zSquared / (4 * trials)) / trials,
+  ) / denominator;
+  return {
+    lower: Math.max(0, center - margin),
+    upper: Math.min(1, center + margin),
+  };
 }
 
 function utcDayNumber(value: Date): number {
@@ -433,6 +707,37 @@ function dailyCandidateOffset(day: number, groupKey: string, length: number): nu
 function rotate<T>(values: T[], offset: number): T[] {
   if (!values.length || offset <= 0) return values;
   return [...values.slice(offset), ...values.slice(0, offset)];
+}
+
+function rotateWithinEvidenceTiers<T extends { evidenceTier: number; groupKey: string }>(
+  values: T[],
+  day: number,
+): T[] {
+  const result: T[] = [];
+  for (const tier of [2, 1, 0]) {
+    const bucket = values.filter((value) => value.evidenceTier === tier)
+      .sort((left, right) => left.groupKey.localeCompare(right.groupKey));
+    if (!bucket.length) continue;
+    const offset = (day + Number.parseInt(digest(`tier-${tier}`).slice(0, 8), 16)) % bucket.length;
+    result.push(...rotate(bucket, offset));
+  }
+  return result;
+}
+
+function drillEvidencePriority(drill: MulliganLabDrill): number {
+  const robust = drill.cardEvidence.filter((entry) => entry.evidenceStatus === "robust");
+  if (robust.some((entry) => !["mixed", "unclear"].includes(entry.guidance))) return 4;
+  if (robust.length) return 3;
+  if (drill.cardEvidence.some((entry) => entry.evidenceStatus === "developing")) return 2;
+  return 1;
+}
+
+function observedDateBoundary(
+  candidates: ObservedMulliganCandidate[],
+  position: "first" | "last",
+): string {
+  const dates = candidates.map((candidate) => candidate.observation.observedOn).sort();
+  return (position === "first" ? dates[0] : dates.at(-1))!;
 }
 
 function digest(value: unknown): string {
