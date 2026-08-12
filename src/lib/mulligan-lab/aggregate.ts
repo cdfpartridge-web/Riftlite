@@ -529,19 +529,46 @@ function publishEvidence(
     const matchupCard = matchup.cards.get(code)!;
     const reliableOffers = Math.max(CARD_GUIDANCE_MINIMUM_OFFERS, minimumHands);
     const reliablePlayers = Math.max(
-      CARD_GUIDANCE_MINIMUM_OFFERS,
       CARD_GUIDANCE_MINIMUM_PLAYERS,
       minimumPlayers,
     );
-    const matchupReliable = matchupCard.guidanceDecisions.size >= reliablePlayers;
+    const matchupReliable = (
+      matchupCard.offered >= reliableOffers &&
+      matchupCard.guidanceDecisions.size >= reliablePlayers
+    );
+    const matchupDeveloping = (
+      matchupCard.offered >= 8 &&
+      matchupCard.guidanceDecisions.size >= 4
+    );
     const playerLegendCard = playerLegend.cards.get(code) ?? matchupCard;
     const playerLegendReliable = (
+      playerLegendCard.offered >= reliableOffers &&
       playerLegendCard.guidanceDecisions.size >= reliablePlayers
     );
-    // Back off only when the broader scope is actually reliable. Otherwise
-    // retain the honest limited matchup evidence rather than presenting a
-    // broader but equally inconclusive population as an answer.
-    const usePlayerLegend = !matchupReliable && playerLegendReliable;
+    const playerLegendDeveloping = (
+      playerLegendCard.offered >= 8 &&
+      playerLegendCard.guidanceDecisions.size >= 4
+    );
+    const playerLegendIsMateriallyBroader = (
+      playerLegendCard.offered >= matchupCard.offered * 2 &&
+      playerLegendCard.guidanceDecisions.size >= matchupCard.guidanceDecisions.size * 2
+    );
+    // Preserve the more relevant exact matchup whenever it is robust. A
+    // broader player-legend scope may replace it only when that scope is
+    // itself robust, upgrades limited evidence to developing, or is at least
+    // twice as broad on both observations and independent contributors.
+    const usePlayerLegend = (
+      !matchupReliable &&
+      (
+        playerLegendReliable ||
+        (!matchupDeveloping && playerLegendDeveloping) ||
+        (
+          matchupDeveloping &&
+          playerLegendDeveloping &&
+          playerLegendIsMateriallyBroader
+        )
+      )
+    );
     const scopeName = usePlayerLegend ? "player-legend" as const : "matchup" as const;
     const scope = usePlayerLegend ? playerLegend : matchup;
     // Every matchup card is necessarily present in its player-legend parent.
@@ -562,7 +589,7 @@ function publishEvidence(
       entry.offered,
       guidancePlayers,
       reliableOffers,
-      Math.max(CARD_GUIDANCE_MINIMUM_OFFERS, reliablePlayers),
+      reliablePlayers,
     );
     const evidence: MulliganLabCardEvidence = {
       cardCode: entry.cardCode,

@@ -180,6 +180,71 @@ describe("Mulligan Lab observed-data aggregate", () => {
     });
   });
 
+  it("shows a materially broader developing player-legend fallback", () => {
+    const base = extractObservedMulligan(observedReplay("developing-fallback"), "player-0");
+    if (!base) throw new Error("fixture must be extractable");
+    const candidates = Array.from({ length: 8 }, (_, index) => ({
+      ...base,
+      observedHandId: `mh1_${(index + 180).toString(16).padStart(32, "0")}`,
+      contributorKey: `developing-player-${index % 4}`,
+      matchup: {
+        ...base.matchup,
+        opponentLegend: index < 2
+          ? base.matchup.opponentLegend
+          : { cardCode: "SFD-250", name: "Other legend" },
+      },
+      redrawnCardIndexes: [1],
+    }));
+
+    const snapshot = buildMulliganLabSnapshot(candidates, {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    const target = snapshot?.drills.find((drill) => (
+      drill.matchup.opponentLegend.cardCode === "VEN-145"
+    ));
+    expect(target?.cardEvidence.find((entry) => entry.cardCode === "OGN-001"))
+      .toMatchObject({
+        scope: "player-legend",
+        offered: 8,
+        guidancePlayers: 4,
+        evidenceStatus: "developing",
+        guidance: "unclear",
+      });
+  });
+
+  it("keeps developing matchup evidence over a marginally broader legend scope", () => {
+    const base = extractObservedMulligan(observedReplay("developing-relevance"), "player-0");
+    if (!base) throw new Error("fixture must be extractable");
+    const candidates = Array.from({ length: 9 }, (_, index) => ({
+      ...base,
+      observedHandId: `mh1_${(index + 190).toString(16).padStart(32, "0")}`,
+      contributorKey: `relevance-player-${index < 8 ? index % 4 : 4}`,
+      matchup: {
+        ...base.matchup,
+        opponentLegend: index < 8
+          ? base.matchup.opponentLegend
+          : { cardCode: "SFD-250", name: "Other legend" },
+      },
+      redrawnCardIndexes: [1],
+    }));
+
+    const snapshot = buildMulliganLabSnapshot(candidates, {
+      generatedAt: new Date("2026-08-12T02:00:00.000Z"),
+    });
+    const target = snapshot?.drills.find((drill) => (
+      drill.matchup.opponentLegend.cardCode === "VEN-145"
+    ));
+
+    expect(target?.cardEvidence.find((entry) => entry.cardCode === "OGN-001"))
+      .toMatchObject({
+        scope: "matchup",
+        offered: 8,
+        guidancePlayers: 4,
+        evidenceStatus: "developing",
+        guidance: "unclear",
+      });
+  });
+
   it("counts unanimous duplicate choices once and omits a partial duplicate decision", () => {
     const allKept = extractObservedMulligan(observedReplay("duplicate-kept", true, []), "player-a");
     const allRedrawn = extractObservedMulligan(observedReplay("duplicate-redrawn", false, [0, 1]), "player-b");
@@ -217,7 +282,7 @@ describe("Mulligan Lab observed-data aggregate", () => {
     const candidates = Array.from({ length: 30 }, (_, index) => ({
       ...base,
       observedHandId: `mh1_${(index + 200).toString(16).padStart(32, "0")}`,
-      contributorKey: `player-${index}`,
+      contributorKey: `player-${index % 10}`,
       redrawnCardIndexes: [1],
     }));
     const snapshot = buildMulliganLabSnapshot(candidates, {
@@ -227,9 +292,9 @@ describe("Mulligan Lab observed-data aggregate", () => {
       .toMatchObject({
         scope: "matchup",
         offered: 30,
-        players: 30,
-        guidancePlayers: 30,
-        guidanceKept: 30,
+        players: 10,
+        guidancePlayers: 10,
+        guidanceKept: 10,
         guidanceKeepRate: 1,
         guidance: "strong_keep",
       });
