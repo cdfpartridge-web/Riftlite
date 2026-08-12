@@ -19,6 +19,7 @@
     "report:app-usage": "node scripts/app-usage-report.mjs",
     "report:marketing": "node scripts/marketing-report.mjs",
     "replay:tcga:preview": "tsx scripts/build-tcga-replay-preview.ts",
+    "mulligan:audit": "tsx scripts/audit-mulligan-canonical.ts",
     "repair:profile-names": "node scripts/repair-profile-display-names.mjs",
     "repair:private-counters": "node scripts/backfill-private-community-counters.mjs",
     "discord:register": "node scripts/register-discord-commands.mjs"

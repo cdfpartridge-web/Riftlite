@@ -49,6 +49,10 @@ import {
   replayPublicationWarnings,
 } from "@/lib/replay-v2-server/publication-status";
 import { identityUidsFor } from "@/lib/social/server";
+import {
+  buildStoredMulliganFact,
+  setMulliganFactInTransaction,
+} from "@/lib/mulligan-lab/facts";
 
 export type InitReplayResult = {
   record: ReplayRecord;
@@ -328,6 +332,7 @@ export async function completeReplay(
       canonicalForPublication.source.messageCount,
       listing,
       publicationWarnings,
+      canonicalForPublication,
     );
   } catch (error) {
     await markProcessingFailed(db, ownerUid, ownerUids, replayId, generation, error);
@@ -494,6 +499,7 @@ async function finalizeCanonicalGeneration(
   messageCount: number,
   listing: ReplayListingMetadata,
   warnings: ReplayPublicationWarning[],
+  canonicalReplay: CanonicalReplayV2,
 ): Promise<ReplayRecord> {
   const replayRef = db.collection(REPLAY_COLLECTION).doc(replayId);
   return db.runTransaction(async (transaction) => {
@@ -540,6 +546,12 @@ async function finalizeCanonicalGeneration(
     } else {
       transaction.delete(publicRef);
     }
+    setMulliganFactInTransaction(
+      db,
+      transaction,
+      replayId,
+      buildStoredMulliganFact(canonicalReplay, current.ownerUid),
+    );
     return updated;
   });
 }
