@@ -37,9 +37,10 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    # The one-time Mulligan Lab fact backfill may use the full five-minute
-    # webhook budget. Normal daily fact-only refreshes finish much sooner.
-    timeout-minutes: 8
+    # The initial Mulligan and Sideboard Lab fact backfills may each use
+    # their full five-minute webhook budget. Normal daily fact-only
+    # refreshes finish much sooner.
+    timeout-minutes: 15
     steps:
       - name: Hit refresh webhook
         env:
@@ -83,5 +84,26 @@ jobs:
             -H "Authorization: Bearer $REFRESH_SECRET" \
             -w "\nHTTP %{http_code} in %{time_total}s\n" \
             "https://riftlite.vercel.app/api/app/mulligan-lab/refresh")
+
+          echo "$response"
+
+      - name: Refresh Sideboard Lab snapshot
+        env:
+          REFRESH_SECRET: ${{ secrets.COMMUNITY_AGGREGATE_SECRET }}
+        run: |
+          if [ -z "$REFRESH_SECRET" ]; then
+            echo "::error::COMMUNITY_AGGREGATE_SECRET is not set in repo secrets"
+            exit 1
+          fi
+
+          response=$(curl \
+            --fail \
+            --silent \
+            --show-error \
+            --max-time 300 \
+            -X POST \
+            -H "Authorization: Bearer $REFRESH_SECRET" \
+            -w "\nHTTP %{http_code} in %{time_total}s\n" \
+            "https://riftlite.vercel.app/api/app/sideboard-lab/refresh")
 
           echo "$response"

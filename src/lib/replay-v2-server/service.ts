@@ -53,6 +53,10 @@ import {
   buildStoredMulliganFact,
   setMulliganFactInTransaction,
 } from "@/lib/mulligan-lab/facts";
+import {
+  buildStoredSideboardFactDocument,
+  setSideboardFactInTransaction,
+} from "@/lib/sideboard-lab/facts";
 
 export type InitReplayResult = {
   record: ReplayRecord;
@@ -551,6 +555,12 @@ async function finalizeCanonicalGeneration(
       transaction,
       replayId,
       buildStoredMulliganFact(canonicalReplay, current.ownerUid),
+    );
+    setSideboardFactInTransaction(
+      db,
+      transaction,
+      replayId,
+      buildStoredSideboardFactDocument(canonicalReplay, current.ownerUid),
     );
     return updated;
   });
