@@ -187,11 +187,83 @@ describe("Sideboard Lab aggregate", () => {
       selectedMedianCopies: 1,
       status: "robust",
     });
+    expectQuantityToMatchEvidence(sideCard!);
     expect(sideCard?.periods).toMatchObject({
       preseason: { opportunities: 15 },
       currentSeason: { opportunities: 15 },
     });
     expect(JSON.stringify(pack)).not.toContain("pack-player");
+  });
+
+  it("keeps quantity evidence on the same opportunity scope as player-Legend fallback evidence", () => {
+    const matchup = Array.from({ length: 8 }, (_, index) => {
+      const value = candidate(index + 1_300, {
+        contributorKey: `matchup-player-${index % 4}`,
+        selectedIn: false,
+      });
+      setObservedSwapCopies(value, [0, 1, 2, 0, 1, 0, 2, 0][index]!);
+      return value;
+    });
+    const broaderOpportunities = Array.from({ length: 24 }, (_, index) => {
+      const value = candidate(index + 1_400, {
+        contributorKey: `broader-player-${index}`,
+        selectedIn: false,
+      });
+      value.matchup.opponentLegend = canonicalCard("OGN-247");
+      setObservedSwapCopies(value, index < 8 ? 0 : index < 16 ? 1 : 2);
+      return value;
+    });
+    const broaderWithoutOpportunity = Array.from({ length: 8 }, (_, index) => {
+      const value = candidate(index + 1_500, {
+        contributorKey: `no-opportunity-player-${index}`,
+        selectedIn: false,
+      });
+      value.matchup.opponentLegend = canonicalCard("OGN-247");
+      removeSideboardOpportunity(value, "OGN-050");
+      return value;
+    });
+
+    const pack = buildSideboardLabPack([
+      ...matchup,
+      ...broaderOpportunities,
+      ...broaderWithoutOpportunity,
+    ], {
+      playerLegendIdentityCode: "UNL-191",
+      opponentLegendIdentityCode: "VEN-145",
+      priorGameResult: "win",
+    }, {
+      generatedAt: new Date("2026-08-13T06:00:00.000Z"),
+      maxDrills: 1,
+    });
+
+    expect(SideboardLabPackResponseSchema.safeParse(pack).success).toBe(true);
+    const evidence = pack?.drills[0].cardEvidence.find((entry) => (
+      entry.direction === "in" && entry.identityCode === "OGN-050"
+    ));
+    expect(evidence).toMatchObject({
+      scope: "player-legend",
+      scopeDecisions: 40,
+      opportunities: 32,
+      selected: 20,
+      selectedCopies: 30,
+      quantity: {
+        histogram: [
+          { copies: 0, decisions: 12 },
+          { copies: 1, decisions: 10 },
+          { copies: 2, decisions: 10 },
+        ],
+        selectedMedianCopies: 1.5,
+        status: "robust",
+      },
+      periods: {
+        currentSeason: {
+          opportunities: 32,
+          selected: 20,
+          selectedCopies: 30,
+        },
+      },
+    });
+    expectQuantityToMatchEvidence(evidence!);
   });
 
   it.each([
@@ -399,6 +471,49 @@ function wideCandidate(index: number): ObservedSideboardCandidate {
 
 function canonicalDeckCard(cardCode: string, count: number) {
   return { ...canonicalCard(cardCode), count };
+}
+
+function setObservedSwapCopies(value: ObservedSideboardCandidate, copies: number) {
+  value.cardsIn = copies > 0 ? [canonicalDeckCard("OGN-050", copies)] : [];
+  value.cardsOut = copies > 0 ? [canonicalDeckCard("OGN-001", copies)] : [];
+  const mainDeck = value.deck.mainDeck.map((card) => (
+    card.cardCode === "OGN-001" ? { ...card, count: card.count - copies } : card
+  )).filter((card) => card.count > 0);
+  if (copies > 0) mainDeck.push(canonicalDeckCard("OGN-050", copies));
+  const sideboard = value.deck.sideboard.map((card) => (
+    card.cardCode === "OGN-050" ? { ...card, count: card.count - copies } : card
+  )).filter((card) => card.count > 0);
+  if (copies > 0) sideboard.push(canonicalDeckCard("OGN-001", copies));
+  value.submittedDeck = {
+    fingerprint: sideboardDeckFingerprint(mainDeck, sideboard),
+    mainDeck,
+    sideboard,
+  };
+}
+
+function removeSideboardOpportunity(value: ObservedSideboardCandidate, cardCode: string) {
+  const sideboard = value.deck.sideboard.filter((card) => card.cardCode !== cardCode);
+  const deck = {
+    ...value.deck,
+    fingerprint: sideboardDeckFingerprint(value.deck.mainDeck, sideboard),
+    sideboard,
+  };
+  value.deck = deck;
+  value.submittedDeck = deck;
+  value.cardsIn = [];
+  value.cardsOut = [];
+}
+
+function expectQuantityToMatchEvidence(
+  evidence: NonNullable<ReturnType<typeof buildSideboardLabPack>>["drills"][number]["cardEvidence"][number],
+) {
+  const histogram = evidence.quantity.histogram;
+  expect(histogram.reduce((sum, bucket) => sum + bucket.decisions, 0)).toBe(evidence.opportunities);
+  expect(histogram.filter((bucket) => bucket.copies > 0)
+    .reduce((sum, bucket) => sum + bucket.decisions, 0)).toBe(evidence.selected);
+  expect(histogram.reduce((sum, bucket) => sum + bucket.copies * bucket.decisions, 0))
+    .toBe(evidence.selectedCopies);
+  expect(evidence.quantity.selectedMedianCopies === null).toBe(evidence.selected === 0);
 }
 
 function canonicalCard(cardCode: string) {

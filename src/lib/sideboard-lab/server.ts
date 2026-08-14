@@ -38,10 +38,18 @@ import type { ReplayArtifactPointer } from "@/lib/replay-v2-server/model";
 const AGGREGATE_COLLECTION = "aggregates";
 const AGGREGATE_DOCUMENT = "sideboard-lab-v1";
 const PACK_DOCUMENT_PREFIX = "sideboard-lab-pack-v1";
+const PACK_DOCUMENT_ID_PREFIX = `${PACK_DOCUMENT_PREFIX}-`;
+const PACK_QUERY_PAGE_SIZE = 250;
+const PACK_DELETE_BATCH_SIZE = 50;
 const DEFAULT_CORPUS_LIMIT = 1_500;
 const MAX_CORPUS_LIMIT = 5_000;
 
 type BackfillCursor = { replayId: string };
+
+type SideboardPackDocument = {
+  id: string;
+  payload: Exclude<SideboardLabPackResponse, { status: "unavailable" }>;
+};
 
 export type SideboardLabRefreshResult = {
   published: boolean;
@@ -292,14 +300,14 @@ export async function refreshSideboardLabAggregate(
     lastAttempt: result,
     backfill: nextBackfill,
   }, { merge: true });
-  if (payload) await writeSideboardPackDocuments(db, packs);
+  if (payload) await syncSideboardPackDocuments(db, packs);
   return result;
 }
 
 function buildSideboardPackDocuments(
   candidates: ReturnType<typeof storedSideboardFactCandidates>,
   options: Parameters<typeof buildSideboardLabPack>[2],
-): Array<{ id: string; payload: Exclude<SideboardLabPackResponse, { status: "unavailable" }> }> {
+): SideboardPackDocument[] {
   const pairs = new Map<string, {
     player: string;
     opponent: string;
@@ -455,14 +463,45 @@ function buildSideboardPackDocuments(
   return [...output].map(([id, payload]) => ({ id, payload }));
 }
 
-async function writeSideboardPackDocuments(
+/**
+ * Replaces the precomputed Sideboard v2 pack set without touching the daily
+ * Sideboard snapshot, Mulligan packs, or any other aggregate document.
+ * Writes finish first; only then are obsolete IDs inside this exact prefix
+ * removed in bounded, document-id-only pages.
+ */
+export async function syncSideboardPackDocuments(
   db: Firestore,
-  packs: Array<{ id: string; payload: Exclude<SideboardLabPackResponse, { status: "unavailable" }> }>,
+  packs: SideboardPackDocument[],
 ): Promise<void> {
   for (let offset = 0; offset < packs.length; offset += 12) {
     await Promise.all(packs.slice(offset, offset + 12).map(({ id, payload }) => (
       db.collection(AGGREGATE_COLLECTION).doc(id).set({ payload, updatedAt: new Date() }, { merge: true })
     )));
+  }
+
+  const currentIds = new Set(packs.map(({ id }) => id));
+  const collection = db.collection(AGGREGATE_COLLECTION);
+  let cursor: string | null = null;
+  while (true) {
+    let query = collection.orderBy(FieldPath.documentId());
+    query = cursor ? query.startAfter(cursor) : query.startAt(PACK_DOCUMENT_ID_PREFIX);
+    const snapshot = await query
+      .endBefore(`${PACK_DOCUMENT_ID_PREFIX}\uf8ff`)
+      .limit(PACK_QUERY_PAGE_SIZE)
+      .get();
+    if (snapshot.empty) break;
+
+    const staleIds = snapshot.docs
+      .map((document) => document.id)
+      .filter((id) => id.startsWith(PACK_DOCUMENT_ID_PREFIX) && !currentIds.has(id));
+    for (let offset = 0; offset < staleIds.length; offset += PACK_DELETE_BATCH_SIZE) {
+      await Promise.all(staleIds.slice(offset, offset + PACK_DELETE_BATCH_SIZE).map((id) => (
+        collection.doc(id).delete()
+      )));
+    }
+
+    cursor = snapshot.docs.at(-1)?.id ?? null;
+    if (!cursor || snapshot.docs.length < PACK_QUERY_PAGE_SIZE) break;
   }
 }
 

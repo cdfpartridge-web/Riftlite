@@ -9,6 +9,7 @@ import {
   readSideboardLabPack,
   refreshSideboardLabAggregate,
   sideboardPackDocumentId,
+  syncSideboardPackDocuments,
 } from "@/lib/sideboard-lab/server";
 
 describe("Sideboard Lab all-history fact refresh", () => {
@@ -58,6 +59,19 @@ describe("Sideboard Lab all-history fact refresh", () => {
       }),
       { merge: true },
     );
+  });
+
+  it("preserves existing packs when refresh cannot produce a valid snapshot", async () => {
+    const staleId = sideboardPackDocumentId("UNL-191", "VEN-145");
+    const fake = fakeSideboardDb(undefined, {
+      aggregatePackPages: [page([document(staleId, { payload: { marker: "existing" } })])],
+    });
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(refreshSideboardLabAggregate(25)).resolves.toMatchObject({ published: false });
+
+    expect(fake.aggregatePackQuery.orderBy).not.toHaveBeenCalled();
+    expect(fake.packDelete).not.toHaveBeenCalled();
   });
 
   it("reads every fact document page and filters eligibility in the strict adapter", async () => {
@@ -114,11 +128,38 @@ describe("Sideboard Lab all-history fact refresh", () => {
     );
     expect(readIds).not.toContain(sideboardPackDocumentId("UNL-191"));
   });
+
+  it("removes stale Sideboard packs while preserving current and unrelated aggregates", async () => {
+    const currentId = sideboardPackDocumentId("UNL-191", "VEN-145", undefined, "win");
+    const staleId = sideboardPackDocumentId("UNL-191", "VEN-145");
+    const dailySideboardId = "sideboard-lab-v1";
+    const mulliganPackId = "mulligan-lab-pack-v1-not-sideboard";
+    const fake = fakeAggregatePackDb(new Map([
+      [currentId, { payload: { marker: "old-current" } }],
+      [staleId, { payload: { marker: "stale" } }],
+      [dailySideboardId, { payload: { marker: "daily" } }],
+      [mulliganPackId, { payload: { marker: "mulligan" } }],
+    ]));
+    const currentPayload = { marker: "fresh-current" } as never;
+
+    await syncSideboardPackDocuments(fake.db as never, [{ id: currentId, payload: currentPayload }]);
+
+    expect(fake.deletedIds).toEqual([staleId]);
+    expect(fake.documents.has(staleId)).toBe(false);
+    expect(fake.documents.get(currentId)).toEqual(expect.objectContaining({ payload: currentPayload }));
+    expect(fake.documents.get(dailySideboardId)).toEqual({ payload: { marker: "daily" } });
+    expect(fake.documents.get(mulliganPackId)).toEqual({ payload: { marker: "mulligan" } });
+    expect(fake.query.startAt).toHaveBeenCalledWith("sideboard-lab-pack-v1-");
+    expect(fake.query.endBefore).toHaveBeenCalledWith("sideboard-lab-pack-v1-\uf8ff");
+  });
 });
 
 function fakeSideboardDb(
   backfill?: Record<string, unknown>,
-  options: { factPages?: Array<{ docs: ReturnType<typeof document>[]; empty: boolean }> } = {},
+  options: {
+    factPages?: Array<{ docs: ReturnType<typeof document>[]; empty: boolean }>;
+    aggregatePackPages?: Array<{ docs: ReturnType<typeof document>[]; empty: boolean }>;
+  } = {},
 ) {
   const aggregateSet = vi.fn().mockResolvedValue(undefined);
   const aggregateRef = {
@@ -130,9 +171,16 @@ function fakeSideboardDb(
   };
   const replayQuery = chainQueryPages([page([])]);
   const factQuery = chainQueryPages(options.factPages ?? [page([])]);
+  const aggregatePackQuery = chainQueryPages(options.aggregatePackPages ?? [page([])]);
+  const packDelete = vi.fn().mockResolvedValue(undefined);
   const db = {
     collection: vi.fn((name: string) => {
-      if (name === "aggregates") return { doc: () => aggregateRef };
+      if (name === "aggregates") return {
+        ...aggregatePackQuery,
+        doc: (id: string) => id === "sideboard-lab-v1"
+          ? aggregateRef
+          : { delete: packDelete, set: vi.fn().mockResolvedValue(undefined) },
+      };
       if (name === "replayV2") return replayQuery;
       if (name === "sideboardLabFactsV1") return {
         ...factQuery,
@@ -142,7 +190,68 @@ function fakeSideboardDb(
     }),
     getAll: vi.fn().mockResolvedValue([]),
   };
-  return { db, aggregateSet, replayQuery, factQuery };
+  return { db, aggregateSet, replayQuery, factQuery, aggregatePackQuery, packDelete };
+}
+
+function fakeAggregatePackDb(initial: Map<string, Record<string, unknown>>) {
+  const documents = new Map(initial);
+  const deletedIds: string[] = [];
+  let start = "";
+  let after = "";
+  let end = "\uffff";
+  let maximum = Number.POSITIVE_INFINITY;
+  const query = {
+    orderBy: vi.fn(),
+    startAt: vi.fn(),
+    startAfter: vi.fn(),
+    endBefore: vi.fn(),
+    limit: vi.fn(),
+    get: vi.fn(),
+  };
+  query.orderBy.mockReturnValue(query);
+  query.startAt.mockImplementation((value: string) => {
+    start = value;
+    return query;
+  });
+  query.startAfter.mockImplementation((value: string) => {
+    after = value;
+    return query;
+  });
+  query.endBefore.mockImplementation((value: string) => {
+    end = value;
+    return query;
+  });
+  query.limit.mockImplementation((value: number) => {
+    maximum = value;
+    return query;
+  });
+  query.get.mockImplementation(async () => {
+    const docs = [...documents]
+      .filter(([id]) => id >= start && id > after && id < end)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .slice(0, maximum)
+      .map(([id, value]) => ({ id, data: () => value }));
+    return { docs, empty: docs.length === 0 };
+  });
+  const collection = {
+    ...query,
+    doc: (id: string) => ({
+      set: vi.fn(async (value: Record<string, unknown>, options?: { merge?: boolean }) => {
+        documents.set(id, options?.merge ? { ...(documents.get(id) ?? {}), ...value } : value);
+      }),
+      delete: vi.fn(async () => {
+        deletedIds.push(id);
+        documents.delete(id);
+      }),
+    }),
+  };
+  const db = {
+    collection: vi.fn((name: string) => {
+      if (name !== "aggregates") throw new Error(`Unexpected collection ${name}`);
+      return collection;
+    }),
+  };
+  return { db, deletedIds, documents, query };
 }
 
 function chainQueryPages(snapshots: Array<{ docs: unknown[]; empty: boolean }>) {
@@ -150,13 +259,17 @@ function chainQueryPages(snapshots: Array<{ docs: unknown[]; empty: boolean }>) 
     where: vi.fn(),
     orderBy: vi.fn(),
     limit: vi.fn(),
+    startAt: vi.fn(),
     startAfter: vi.fn(),
+    endBefore: vi.fn(),
     get: vi.fn(),
   };
   query.where.mockReturnValue(query);
   query.orderBy.mockReturnValue(query);
   query.limit.mockReturnValue(query);
+  query.startAt.mockReturnValue(query);
   query.startAfter.mockReturnValue(query);
+  query.endBefore.mockReturnValue(query);
   snapshots.forEach((snapshot) => query.get.mockResolvedValueOnce(snapshot));
   query.get.mockResolvedValue({ docs: [], empty: true });
   return query;
