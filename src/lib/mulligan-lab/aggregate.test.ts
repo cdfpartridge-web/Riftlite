@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildMulliganLabPack,
   buildMulliganLabSnapshot,
   extractObservedMulligan,
   mulliganDeckFingerprint,
 } from "@/lib/mulligan-lab/aggregate";
-import { MulliganLabResponseSchema } from "@/lib/mulligan-lab/contracts";
+import { MulliganLabPackResponseSchema, MulliganLabResponseSchema } from "@/lib/mulligan-lab/contracts";
 import type {
   CanonicalReplayV2,
   ReplayCardState,
@@ -138,6 +139,55 @@ describe("Mulligan Lab observed-data aggregate", () => {
 
     expect(snapshot?.drills).toHaveLength(2);
     expect(snapshot?.drills.every((drill) => drill.evidence.hands === 2)).toBe(true);
+  });
+
+  it("publishes a privacy-gated targeted pack with curve, initiative, and period slices", () => {
+    const base = extractObservedMulligan(observedReplay("target-pack"), "player-0");
+    if (!base) throw new Error("fixture must be extractable");
+    const candidates = Array.from({ length: 30 }, (_, index) => ({
+      ...base,
+      observedHandId: `mh1_${(index + 800).toString(16).padStart(32, "0")}`,
+      contributorKey: `target-player-${index % 12}`,
+      observation: {
+        ...base.observation,
+        observedOn: index < 15 ? "2026-07-15" : "2026-08-12",
+      },
+      initiative: index % 2 === 0 ? "first" as const : "second" as const,
+      redrawnCardIndexes: index < 24 ? [1] : [0, 1],
+    }));
+    const pack = buildMulliganLabPack(candidates, {
+      playerLegendIdentityCode: "UNL-191",
+      opponentLegendIdentityCode: "VEN-145",
+      deckFingerprint: base.deck.fingerprint,
+    }, {
+      generatedAt: new Date("2026-08-13T06:00:00.000Z"),
+      backfillComplete: true,
+      maxDrills: 4,
+    });
+
+    expect(MulliganLabPackResponseSchema.safeParse(pack).success).toBe(true);
+    expect(pack).toMatchObject({
+      schema: "riftlite-mulligan-lab-pack",
+      query: {
+        resolved: { scope: "exact-deck", sharedCards: 40, totalCards: 40 },
+        fallbackReason: null,
+      },
+      source: {
+        includedPeriods: ["preseason", "current-season"],
+        cardRegistryPrints: 1180,
+      },
+    });
+    expect(pack?.drills[0].context?.curve).toMatchObject({
+      classification: "two-drop-present",
+      twoDropCount: 1,
+    });
+    const evidence = pack?.drills[0].cardEvidence.find((entry) => entry.cardCode === "OGN-001");
+    expect(evidence?.slices).toMatchObject({
+      matchingCurve: { offered: 30, players: 12 },
+      preseason: { offered: 15 },
+      currentSeason: { offered: 15 },
+    });
+    expect(JSON.stringify(pack)).not.toContain("target-player");
   });
 
   it("uses player-legend evidence when a matchup is sparse and grades a broad consensus", () => {

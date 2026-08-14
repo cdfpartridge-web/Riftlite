@@ -11,21 +11,29 @@ import { seekReplayByEventIndex } from "@/lib/replay-v2";
 import {
   DEFAULT_MULLIGAN_LAB_MINIMUM_HANDS,
   DEFAULT_MULLIGAN_LAB_MINIMUM_PLAYERS,
+  MulliganLabPackReadyResponseSchema,
   MulliganLabReadyResponseSchema,
   type MulliganLabCard,
   type MulliganLabCardEvidence,
   type MulliganLabDeck,
   type MulliganLabDrill,
+  type MulliganLabEvidenceSlice,
   type MulliganLabObservation,
+  type MulliganLabPackReadyResponse,
   type MulliganLabReadyResponse,
 } from "@/lib/mulligan-lab/contracts";
-import { mulliganCardIdentity } from "@/lib/mulligan-lab/registry";
+import {
+  MULLIGAN_CARD_REGISTRY_METADATA,
+  mulliganCardIdentity,
+  mulliganCardMetadata,
+} from "@/lib/mulligan-lab/registry";
 
 const CARD_CODE = /^[A-Z]{3}-\d{3}(?:[A-Z]|\*)?$/;
 const MAIN_DECK_SIZE = 40;
 const CARD_GUIDANCE_MINIMUM_OFFERS = 25;
 const CARD_GUIDANCE_MINIMUM_PLAYERS = 10;
 const CURRENT_SEASON_STARTED_ON = "2026-07-31" as const;
+const MAX_PACK_JSON_BYTES = 700_000;
 
 export type ObservedMulliganCandidate = {
   observedHandId: string;
@@ -47,6 +55,17 @@ export type MulliganLabAggregateOptions = {
   lifetimeHours?: number;
   coverageTruncated?: boolean;
   backfillComplete?: boolean;
+  targetPlayerLegendIdentityCode?: string;
+  targetOpponentLegendIdentityCode?: string;
+  targetDeckFingerprint?: string;
+  targetInitiative?: "first" | "second";
+};
+
+export type MulliganLabPackTarget = {
+  playerLegendIdentityCode: string;
+  opponentLegendIdentityCode?: string;
+  deckFingerprint?: string;
+  initiative?: "first" | "second";
 };
 
 /**
@@ -180,6 +199,14 @@ export function buildMulliganLabSnapshot(
   }
 
   const preparedGroups = [...groups.entries()]
+    .filter(([, group]) => {
+      const sample = group[0];
+      if (!sample) return false;
+      return (
+        (!options.targetPlayerLegendIdentityCode || playerLegendKey(sample) === options.targetPlayerLegendIdentityCode) &&
+        (!options.targetOpponentLegendIdentityCode || opponentLegendKey(sample) === options.targetOpponentLegendIdentityCode)
+      );
+    })
     .map(([groupKey, unsortedGroup]) => {
       const group = unsortedGroup.sort((left, right) => left.observedHandId.localeCompare(right.observedHandId));
       const contributors = new Set(group.map((candidate) => candidate.contributorKey));
@@ -198,7 +225,9 @@ export function buildMulliganLabSnapshot(
         contributors,
         evidence,
         drillCandidates: group.filter((candidate) => (
-          candidate.hand.every((card) => evidence.has(cardIdentity(card.cardCode)))
+          candidate.hand.every((card) => evidence.has(cardIdentity(card.cardCode))) &&
+          (!options.targetDeckFingerprint || candidate.deck.fingerprint === options.targetDeckFingerprint) &&
+          (!options.targetInitiative || candidate.initiative === options.targetInitiative)
         )),
         evidenceTier: group.length >= 8 && contributors.size >= 4
           ? 2
@@ -308,6 +337,112 @@ export function buildMulliganLabSnapshot(
     drills: drills.sort((left, right) => drillEvidencePriority(right) - drillEvidencePriority(left)),
   };
   return MulliganLabReadyResponseSchema.parse(response);
+}
+
+/**
+ * Builds a queryable pack for one oriented matchup (or its player-Legend
+ * fallback). The sampled hands/decks may be narrowed, but every percentage is
+ * still calculated from the full anonymous matchup/Legend corpus.
+ */
+export function buildMulliganLabPack(
+  candidates: ObservedMulliganCandidate[],
+  target: MulliganLabPackTarget,
+  options: MulliganLabAggregateOptions = {},
+): MulliganLabPackReadyResponse | null {
+  const minimumHands = positiveInteger(options.minimumHands) ?? DEFAULT_MULLIGAN_LAB_MINIMUM_HANDS;
+  const minimumPlayers = positiveInteger(options.minimumPlayers) ?? DEFAULT_MULLIGAN_LAB_MINIMUM_PLAYERS;
+  const balanced = dedupeCandidates(candidates);
+  const exactDeckCohort = target.deckFingerprint
+    ? balanced.filter((candidate) => (
+      playerLegendKey(candidate) === target.playerLegendIdentityCode &&
+      (!target.opponentLegendIdentityCode || opponentLegendKey(candidate) === target.opponentLegendIdentityCode) &&
+      candidate.deck.fingerprint === target.deckFingerprint &&
+      (!target.initiative || candidate.initiative === target.initiative)
+    ))
+    : [];
+  const exactDeckKnown = exactDeckCohort.length > 0;
+  const exactDeckPublishable = exactDeckCohort.length >= 8 &&
+    new Set(exactDeckCohort.map((candidate) => candidate.contributorKey)).size >= 4;
+  const snapshot = buildMulliganLabSnapshot(balanced, {
+    ...options,
+    maxDrills: Math.min(24, positiveInteger(options.maxDrills) ?? 24),
+    targetPlayerLegendIdentityCode: target.playerLegendIdentityCode,
+    targetOpponentLegendIdentityCode: target.opponentLegendIdentityCode,
+    targetDeckFingerprint: exactDeckPublishable ? target.deckFingerprint : undefined,
+    targetInitiative: target.initiative,
+  });
+  if (!snapshot) return null;
+
+  const enhancedDrills = snapshot.drills.map((drill) => {
+    const matchup = balanced.filter((candidate) => (
+      playerLegendKey(candidate) === playerLegendKeyFromDrill(drill) &&
+      opponentLegendKey(candidate) === opponentLegendKeyFromDrill(drill)
+    ));
+    const curve = mulliganCurveContext(drill.hand);
+    const matchingCurve = matchup.filter((candidate) => (
+      mulliganCurveContext(candidate.hand).classification === curve.classification
+    ));
+    const matchingInitiative = matchup.filter((candidate) => candidate.initiative === drill.initiative);
+    const preseason = matchup.filter((candidate) => candidate.observation.observedOn < CURRENT_SEASON_STARTED_ON);
+    const currentSeason = matchup.filter((candidate) => candidate.observation.observedOn >= CURRENT_SEASON_STARTED_ON);
+    return {
+      ...drill,
+      context: {
+        curve,
+        // Battlefield selections are not consistently present before the
+        // authoritative mulligan event. Do not infer them from later board
+        // state; a future fact revision can fill these independently.
+        battlefields: { player: null, opponent: null },
+      },
+      cardEvidence: drill.cardEvidence.map((entry) => ({
+        ...entry,
+        slices: {
+          matchingCurve: evidenceSlice(matchingCurve, entry.identityCode, minimumHands, minimumPlayers),
+          matchingInitiative: evidenceSlice(matchingInitiative, entry.identityCode, minimumHands, minimumPlayers),
+          preseason: evidenceSlice(preseason, entry.identityCode, minimumHands, minimumPlayers),
+          currentSeason: evidenceSlice(currentSeason, entry.identityCode, minimumHands, minimumPlayers),
+        },
+      })),
+    };
+  });
+  const exactDeckResolved = Boolean(exactDeckPublishable && target.deckFingerprint &&
+    enhancedDrills.some((drill) => drill.deck.fingerprint === target.deckFingerprint));
+  const response: MulliganLabPackReadyResponse = {
+    schema: "riftlite-mulligan-lab-pack",
+    version: 1,
+    status: "ready",
+    generatedAt: snapshot.generatedAt,
+    expiresAt: snapshot.expiresAt,
+    query: {
+      requested: {
+        playerLegend: target.playerLegendIdentityCode,
+        opponentLegend: target.opponentLegendIdentityCode ?? null,
+        deckFingerprint: target.deckFingerprint ?? null,
+        initiative: target.initiative ?? null,
+      },
+      resolved: {
+        scope: exactDeckResolved
+          ? "exact-deck"
+          : target.opponentLegendIdentityCode ? "matchup" : "player-legend",
+        deckFingerprint: exactDeckResolved ? target.deckFingerprint! : null,
+        sharedCards: exactDeckResolved ? 40 : null,
+        totalCards: exactDeckResolved ? 40 : null,
+      },
+      fallbackReason: target.deckFingerprint && !exactDeckResolved
+        ? exactDeckKnown ? "insufficient-private-cohort" : "deck-not-observed"
+        : null,
+    },
+    source: {
+      ...snapshot.source,
+      cardRegistryGeneratedAt: MULLIGAN_CARD_REGISTRY_METADATA.generatedAt,
+      cardRegistryPrints: MULLIGAN_CARD_REGISTRY_METADATA.prints,
+    },
+    drills: enhancedDrills,
+  };
+  while (response.drills.length > 1 && Buffer.byteLength(JSON.stringify(response), "utf8") > MAX_PACK_JSON_BYTES) {
+    response.drills.pop();
+  }
+  return MulliganLabPackReadyResponseSchema.parse(response);
 }
 
 function firstGame(replay: CanonicalReplayV2): ReplayGame | undefined {
@@ -654,6 +789,74 @@ function publishEvidence(
     };
     return [[code, evidence] as const];
   }));
+}
+
+function evidenceSlice(
+  group: ObservedMulliganCandidate[],
+  identityCode: string,
+  minimumHands: number,
+  minimumPlayers: number,
+): MulliganLabEvidenceSlice | null {
+  if (!group.length) return null;
+  const scope = buildRawEvidence(group);
+  const entry = scope.cards.get(identityCode);
+  if (!entry || entry.guidanceDecisions.size < 4 || entry.offered < 8) return null;
+  const guidancePlayers = entry.guidanceDecisions.size;
+  const guidanceKept = [...entry.guidanceDecisions.values()].filter(Boolean).length;
+  const evidenceStatus = cardEvidenceStatus(
+    entry.offered,
+    guidancePlayers,
+    Math.max(CARD_GUIDANCE_MINIMUM_OFFERS, minimumHands),
+    Math.max(CARD_GUIDANCE_MINIMUM_PLAYERS, minimumPlayers),
+  );
+  return {
+    offered: entry.offered,
+    players: entry.contributors.size,
+    kept: entry.kept,
+    redrawn: entry.redrawn,
+    guidancePlayers,
+    guidanceKept,
+    guidanceKeepRate: guidanceKept / guidancePlayers,
+    guidance: communityGuidance(
+      guidanceKept,
+      guidancePlayers,
+      scope.baselineKeepRate,
+      evidenceStatus,
+    ),
+    evidenceStatus,
+  };
+}
+
+function mulliganCurveContext(
+  hand: MulliganLabCard[],
+): NonNullable<MulliganLabDrill["context"]>["curve"] {
+  let twoDropCount = 0;
+  let earlyUnitCount = 0;
+  for (const card of hand) {
+    const metadata = mulliganCardMetadata(card.cardCode);
+    if (!metadata) {
+      return { classification: "unknown", twoDropCount: null, earlyUnitCount: null };
+    }
+    if (metadata.type.toLowerCase() !== "unit") continue;
+    if (metadata.costEnergy === null) {
+      return { classification: "unknown", twoDropCount: null, earlyUnitCount: null };
+    }
+    if (metadata.costEnergy === 2) twoDropCount += 1;
+    if (metadata.costEnergy <= 2) earlyUnitCount += 1;
+  }
+  return {
+    classification: twoDropCount > 0 ? "two-drop-present" : "two-drop-missing",
+    twoDropCount,
+    earlyUnitCount,
+  };
+}
+
+function playerLegendKeyFromDrill(drill: MulliganLabDrill): string {
+  return cardIdentity(drill.matchup.playerLegend.cardCode);
+}
+
+function opponentLegendKeyFromDrill(drill: MulliganLabDrill): string {
+  return cardIdentity(drill.matchup.opponentLegend.cardCode);
 }
 
 function dedupeCandidates(candidates: ObservedMulliganCandidate[]): ObservedMulliganCandidate[] {

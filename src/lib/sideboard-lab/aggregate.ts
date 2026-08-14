@@ -3,15 +3,22 @@ import { createHash } from "node:crypto";
 import {
   DEFAULT_SIDEBOARD_LAB_MINIMUM_DECISIONS,
   DEFAULT_SIDEBOARD_LAB_MINIMUM_PLAYERS,
+  SideboardLabPackReadyResponseSchema,
   SideboardLabReadyResponseSchema,
   type SideboardLabCard,
   type SideboardLabCardEvidence,
   type SideboardLabDeck,
   type SideboardLabDrill,
+  type SideboardLabEvidenceSlice,
+  type SideboardLabPackReadyResponse,
   type SideboardLabReadyResponse,
   type SideboardLabSwapCard,
 } from "@/lib/sideboard-lab/contracts";
-import { mulliganCardIdentity } from "@/lib/mulligan-lab/registry";
+import {
+  MULLIGAN_CARD_REGISTRY_METADATA,
+  mulliganCardIdentity,
+  mulliganCardMetadata,
+} from "@/lib/mulligan-lab/registry";
 import type { ObservedSideboardCandidate } from "@/lib/sideboard-lab/extract";
 
 const CARD_GUIDANCE_MINIMUM_OPPORTUNITIES = 25;
@@ -31,6 +38,17 @@ export type SideboardLabAggregateOptions = {
   lifetimeHours?: number;
   coverageTruncated?: boolean;
   backfillComplete?: boolean;
+  targetPlayerLegendIdentityCode?: string;
+  targetOpponentLegendIdentityCode?: string;
+  targetDeckFingerprint?: string;
+  targetPriorGameResult?: "win" | "loss";
+};
+
+export type SideboardLabPackTarget = {
+  playerLegendIdentityCode: string;
+  opponentLegendIdentityCode?: string;
+  deckFingerprint?: string;
+  priorGameResult?: "win" | "loss";
 };
 
 type Direction = "in" | "out";
@@ -84,7 +102,17 @@ export function buildSideboardLabSnapshot(
     legendGroups.set(legend, [...(legendGroups.get(legend) ?? []), candidate]);
   }
 
-  const prepared = [...matchupGroups.entries()].map(([groupKey, unsorted]) => {
+  const prepared = [...matchupGroups.entries()]
+    .filter(([, group]) => {
+      const sample = group[0];
+      if (!sample) return false;
+      return (
+        (!options.targetPlayerLegendIdentityCode || playerLegendIdentityCode(sample) === options.targetPlayerLegendIdentityCode) &&
+        (!options.targetOpponentLegendIdentityCode || opponentLegendKey(sample) === options.targetOpponentLegendIdentityCode) &&
+        (!options.targetPriorGameResult || priorResultKey(sample) === options.targetPriorGameResult)
+      );
+    })
+    .map(([groupKey, unsorted]) => {
     const group = [...unsorted].sort((left, right) => (
       left.observedDecisionId.localeCompare(right.observedDecisionId)
     ));
@@ -97,7 +125,10 @@ export function buildSideboardLabSnapshot(
       minimumDecisions,
       minimumPlayers,
     );
-    const drillCandidates = group.filter((candidate) => everyDeckCardHasEvidence(candidate.deck, evidence));
+    const drillCandidates = group.filter((candidate) => (
+      everyDeckCardHasEvidence(candidate.deck, evidence) &&
+      (!options.targetDeckFingerprint || candidate.deck.fingerprint === options.targetDeckFingerprint)
+    ));
     const evidenceTier = group.length >= 8 && contributors.size >= 4
       ? 2
       : group.length >= 3 && contributors.size >= 2
@@ -184,6 +215,145 @@ export function buildSideboardLabSnapshot(
     response.drills.pop();
   }
   return SideboardLabReadyResponseSchema.parse(response);
+}
+
+/** Builds the additive Sideboard v2 pack used by targeted desktop queries. */
+export function buildSideboardLabPack(
+  candidates: ObservedSideboardCandidate[],
+  target: SideboardLabPackTarget,
+  options: SideboardLabAggregateOptions = {},
+): SideboardLabPackReadyResponse | null {
+  const minimumDecisions = positiveInteger(options.minimumDecisions)
+    ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_DECISIONS;
+  const minimumPlayers = positiveInteger(options.minimumPlayers)
+    ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_PLAYERS;
+  const balanced = dedupeCandidates(candidates);
+  const exactDeckCohort = target.deckFingerprint
+    ? balanced.filter((candidate) => (
+      playerLegendIdentityCode(candidate) === target.playerLegendIdentityCode &&
+      (!target.opponentLegendIdentityCode || opponentLegendKey(candidate) === target.opponentLegendIdentityCode) &&
+      (!target.priorGameResult || priorResultKey(candidate) === target.priorGameResult) &&
+      candidate.deck.fingerprint === target.deckFingerprint
+    ))
+    : [];
+  const exactDeckKnown = exactDeckCohort.length > 0;
+  const exactDeckPublishable = exactDeckCohort.length >= 8 &&
+    new Set(exactDeckCohort.map((candidate) => candidate.contributorKey)).size >= 4;
+  const snapshot = buildSideboardLabSnapshot(balanced, {
+    ...options,
+    maxDrills: Math.min(24, positiveInteger(options.maxDrills) ?? 12),
+    targetPlayerLegendIdentityCode: target.playerLegendIdentityCode,
+    targetOpponentLegendIdentityCode: target.opponentLegendIdentityCode,
+    targetPriorGameResult: target.priorGameResult,
+    targetDeckFingerprint: exactDeckPublishable ? target.deckFingerprint : undefined,
+  });
+  if (!snapshot) return null;
+
+  const drills = snapshot.drills.flatMap((drill) => {
+    const group = balanced.filter((candidate) => (
+      playerLegendIdentityCode(candidate) === cardIdentity(drill.matchup.playerLegend.cardCode) &&
+      opponentLegendKey(candidate) === cardIdentity(drill.matchup.opponentLegend.cardCode) &&
+      priorResultKey(candidate) === drill.priorGameResult
+    ));
+    // A broad pack can contain both Game 1 result strata. Keep each stratum
+    // behind the same public cohort gate as an explicitly requested result
+    // shard; otherwise the broad response could disclose a subgroup that the
+    // result-specific endpoint correctly withholds. Explicit result packs are
+    // already gated before their precomputed shard is written.
+    if (!target.priorGameResult && !isPublicSideboardCohort(group)) return [];
+    return [{
+      ...drill,
+      context: {
+        nextInitiative: sideboardNextInitiative(group, drill.deck.fingerprint),
+        format: "bo3" as const,
+        provider: "atlas" as const,
+        targetGameNumber: 2 as const,
+      },
+      decisionEvidence: sideboardDecisionEvidence(group),
+      packages: sideboardPackages(group, minimumDecisions, minimumPlayers),
+      cardEvidence: drill.cardEvidence.map((entry) => ({
+        ...entry,
+        quantity: sideboardQuantityEvidence(
+          group,
+          entry.direction,
+          entry.identityCode,
+          minimumDecisions,
+          minimumPlayers,
+        ),
+        periods: {
+          preseason: sideboardEvidenceSlice(
+            group.filter((candidate) => candidate.observation.observedOn < CURRENT_SEASON_STARTED_ON),
+            entry.direction,
+            entry.identityCode,
+            minimumDecisions,
+            minimumPlayers,
+          ),
+          currentSeason: sideboardEvidenceSlice(
+            group.filter((candidate) => candidate.observation.observedOn >= CURRENT_SEASON_STARTED_ON),
+            entry.direction,
+            entry.identityCode,
+            minimumDecisions,
+            minimumPlayers,
+          ),
+        },
+      })),
+    }];
+  });
+  if (!drills.length) return null;
+  const exactDeckResolved = Boolean(exactDeckPublishable && target.deckFingerprint &&
+    drills.some((drill) => drill.deck.fingerprint === target.deckFingerprint));
+  const response: SideboardLabPackReadyResponse = {
+    schema: "riftlite-sideboard-lab-pack",
+    version: 1,
+    status: "ready",
+    generatedAt: snapshot.generatedAt,
+    expiresAt: snapshot.expiresAt,
+    query: {
+      requested: {
+        playerLegend: target.playerLegendIdentityCode,
+        opponentLegend: target.opponentLegendIdentityCode ?? null,
+        deckFingerprint: target.deckFingerprint ?? null,
+        priorGameResult: target.priorGameResult ?? null,
+      },
+      resolved: {
+        scope: exactDeckResolved
+          ? "exact-deck"
+          : target.opponentLegendIdentityCode ? "matchup" : "player-legend",
+        deckFingerprint: exactDeckResolved ? target.deckFingerprint! : null,
+        sharedCards: exactDeckResolved ? 40 : null,
+        totalCards: exactDeckResolved ? 40 : null,
+      },
+      fallbackReason: target.deckFingerprint && !exactDeckResolved
+        ? exactDeckKnown ? "insufficient-private-cohort" : "deck-not-observed"
+        : null,
+    },
+    source: {
+      ...snapshot.source,
+      cardRegistryGeneratedAt: MULLIGAN_CARD_REGISTRY_METADATA.generatedAt,
+      cardRegistryPrints: MULLIGAN_CARD_REGISTRY_METADATA.prints,
+      formatPolicy: {
+        format: "bo3",
+        // Canonical captures do not currently carry a ruleset identifier. The
+        // current reference is therefore display guidance only; extraction
+        // continues to accept structurally valid historical facts instead of
+        // retroactively applying today's ten-card cap.
+        observedRulesEpoch: "unknown",
+        currentReference: {
+          mainDeckCards: 40,
+          sideboardMaximum: 10,
+          swaps: "one-for-one",
+          championChangesAllowed: true,
+          fixedSections: ["legend", "runes", "battlefields"],
+        },
+        historicalValidation: "structural-only-no-retroactive-rules",
+      },
+    },
+    drills,
+  };
+  while (response.drills.length > 1 && Buffer.byteLength(JSON.stringify(response), "utf8") > MAX_SNAPSHOT_JSON_BYTES) {
+    response.drills.pop();
+  }
+  return SideboardLabPackReadyResponseSchema.parse(response);
 }
 
 function buildRawEvidence(group: ObservedSideboardCandidate[]): RawEvidenceScope {
@@ -371,6 +541,200 @@ function evidenceForDeck(
   })).sort((left, right) => (
     left.direction.localeCompare(right.direction) || left.cardCode.localeCompare(right.cardCode)
   ));
+}
+
+function sideboardDecisionEvidence(group: ObservedSideboardCandidate[]) {
+  const byCopies = new Map<number, { decisions: number; players: Set<string> }>();
+  let noChangeDecisions = 0;
+  const noChangePlayers = new Set<string>();
+  const copySamples: number[] = [];
+  for (const candidate of group) {
+    const copies = candidate.cardsIn.reduce((sum, card) => sum + card.count, 0);
+    copySamples.push(copies);
+    const bucket = byCopies.get(copies) ?? { decisions: 0, players: new Set<string>() };
+    bucket.decisions += 1;
+    bucket.players.add(candidate.contributorKey);
+    byCopies.set(copies, bucket);
+    if (copies === 0) {
+      noChangeDecisions += 1;
+      noChangePlayers.add(candidate.contributorKey);
+    }
+  }
+  return {
+    decisions: group.length,
+    players: new Set(group.map((candidate) => candidate.contributorKey)).size,
+    noChangeDecisions,
+    noChangePlayers: noChangePlayers.size,
+    noChangeRate: noChangeDecisions / group.length,
+    swapCountHistogram: [...byCopies.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([copies, bucket]) => ({
+        copies,
+        decisions: bucket.decisions,
+        players: bucket.players.size,
+      })),
+    medianCopiesMoved: median(copySamples),
+  };
+}
+
+function isPublicSideboardCohort(group: ObservedSideboardCandidate[]): boolean {
+  return group.length >= 8 &&
+    new Set(group.map((candidate) => candidate.contributorKey)).size >= 4;
+}
+
+function sideboardNextInitiative(
+  group: ObservedSideboardCandidate[],
+  deckFingerprint: string,
+): "first" | "second" | "unknown" {
+  const known = group.filter((candidate) => (
+    candidate.deck.fingerprint === deckFingerprint &&
+    (candidate.observation.nextInitiative === "first" || candidate.observation.nextInitiative === "second")
+  ));
+  if (new Set(known.map((candidate) => candidate.contributorKey)).size < 4) return "unknown";
+  const values = new Set(known.map((candidate) => candidate.observation.nextInitiative));
+  return values.size === 1 ? [...values][0] as "first" | "second" : "unknown";
+}
+
+function sideboardQuantityEvidence(
+  group: ObservedSideboardCandidate[],
+  direction: Direction,
+  identityCode: string,
+  minimumDecisions: number,
+  minimumPlayers: number,
+) {
+  const buckets = new Map<number, { decisions: number; players: Set<string> }>();
+  const selectedSamples: number[] = [];
+  const opportunityPlayers = new Set<string>();
+  let opportunities = 0;
+  for (const candidate of group) {
+    const available = direction === "out" ? candidate.deck.mainDeck : candidate.deck.sideboard;
+    if (!available.some((card) => cardIdentity(card.cardCode) === identityCode)) continue;
+    const selected = swapCounts(direction === "out" ? candidate.cardsOut : candidate.cardsIn)
+      .get(identityCode) ?? 0;
+    opportunities += 1;
+    opportunityPlayers.add(candidate.contributorKey);
+    if (selected > 0) selectedSamples.push(selected);
+    const bucket = buckets.get(selected) ?? { decisions: 0, players: new Set<string>() };
+    bucket.decisions += 1;
+    bucket.players.add(candidate.contributorKey);
+    buckets.set(selected, bucket);
+  }
+  return {
+    histogram: [...buckets.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([copies, bucket]) => ({
+        copies: Math.min(3, copies),
+        decisions: bucket.decisions,
+        players: bucket.players.size,
+      })),
+    selectedMedianCopies: median(selectedSamples),
+    status: cardEvidenceStatus(
+      opportunities,
+      opportunityPlayers.size,
+      Math.max(CARD_GUIDANCE_MINIMUM_OPPORTUNITIES, minimumDecisions),
+      Math.max(CARD_GUIDANCE_MINIMUM_PLAYERS, minimumPlayers),
+    ),
+  };
+}
+
+function sideboardEvidenceSlice(
+  group: ObservedSideboardCandidate[],
+  direction: Direction,
+  identityCode: string,
+  minimumDecisions: number,
+  minimumPlayers: number,
+): SideboardLabEvidenceSlice | null {
+  if (!group.length) return null;
+  const scope = buildRawEvidence(group);
+  const entry = scope.cards.get(evidenceKey(direction, identityCode));
+  if (!entry || entry.opportunities < 8 || entry.guidanceDecisions.size < 4) return null;
+  const guidancePlayers = entry.guidanceDecisions.size;
+  const guidanceSelected = [...entry.guidanceDecisions.values()].filter(Boolean).length;
+  const evidenceStatus = cardEvidenceStatus(
+    entry.opportunities,
+    guidancePlayers,
+    Math.max(CARD_GUIDANCE_MINIMUM_OPPORTUNITIES, minimumDecisions),
+    Math.max(CARD_GUIDANCE_MINIMUM_PLAYERS, minimumPlayers),
+  );
+  return {
+    opportunities: entry.opportunities,
+    players: entry.contributors.size,
+    selected: entry.selected,
+    selectedCopies: entry.selectedCopies,
+    guidancePlayers,
+    guidanceSelected,
+    guidanceSelectionRate: guidanceSelected / guidancePlayers,
+    guidance: communityGuidance(
+      guidanceSelected,
+      guidancePlayers,
+      scope.baselineByDirection[direction],
+      evidenceStatus,
+    ),
+    evidenceStatus,
+  };
+}
+
+function sideboardPackages(
+  group: ObservedSideboardCandidate[],
+  minimumDecisions: number,
+  minimumPlayers: number,
+) {
+  const packages = new Map<string, {
+    cardsIn: SideboardLabSwapCard[];
+    cardsOut: SideboardLabSwapCard[];
+    decisions: number;
+    players: Set<string>;
+  }>();
+  for (const candidate of group) {
+    const cardsIn = canonicalPackageCards(candidate.cardsIn);
+    const cardsOut = canonicalPackageCards(candidate.cardsOut);
+    if (cardsIn.length === 0 && cardsOut.length === 0) continue;
+    const key = JSON.stringify({
+      in: cardsIn.map((card) => [card.cardCode, card.count]),
+      out: cardsOut.map((card) => [card.cardCode, card.count]),
+    });
+    const entry = packages.get(key) ?? {
+      cardsIn,
+      cardsOut,
+      decisions: 0,
+      players: new Set<string>(),
+    };
+    entry.decisions += 1;
+    entry.players.add(candidate.contributorKey);
+    packages.set(key, entry);
+  }
+  return [...packages.values()]
+    .filter((entry) => entry.decisions >= 8 && entry.players.size >= 4)
+    .sort((left, right) => right.decisions - left.decisions || right.players.size - left.players.size)
+    .slice(0, 8)
+    .map((entry) => ({
+      cardsIn: entry.cardsIn,
+      cardsOut: entry.cardsOut,
+      decisions: entry.decisions,
+      players: entry.players.size,
+      selectionRate: entry.decisions / group.length,
+      evidenceStatus: entry.decisions >= Math.max(CARD_GUIDANCE_MINIMUM_OPPORTUNITIES, minimumDecisions) &&
+        entry.players.size >= Math.max(CARD_GUIDANCE_MINIMUM_PLAYERS, minimumPlayers)
+        ? "robust" as const
+        : "developing" as const,
+    }));
+}
+
+function canonicalPackageCards(cards: SideboardLabSwapCard[]): SideboardLabSwapCard[] {
+  const counts = swapCounts(cards);
+  return [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).flatMap(([cardCode, count]) => {
+    const metadata = mulliganCardMetadata(cardCode);
+    return metadata ? [{ cardCode, name: metadata.name, count }] : [];
+  });
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[middle]!
+    : (sorted[middle - 1]! + sorted[middle]!) / 2;
 }
 
 function swapCounts(cards: SideboardLabSwapCard[]): Map<string, number> {

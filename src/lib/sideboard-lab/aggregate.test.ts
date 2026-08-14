@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import registryData from "@/lib/mulligan-lab/card-registry-v1.json";
 import {
+  buildSideboardLabPack,
   buildSideboardLabSnapshot,
   sideboardDeckFingerprint,
   type ObservedSideboardCandidate,
 } from "@/lib/sideboard-lab/aggregate";
-import { SideboardLabDeckSchema } from "@/lib/sideboard-lab/contracts";
+import { SideboardLabDeckSchema, SideboardLabPackResponseSchema } from "@/lib/sideboard-lab/contracts";
 import { sideboardDeckFingerprint as extractorSideboardDeckFingerprint } from "@/lib/sideboard-lab/extract";
 
 const REGISTRY = registryData.cards as Record<string, { name: string }>;
@@ -109,6 +110,133 @@ describe("Sideboard Lab aggregate", () => {
       guidanceSelectionRate: 1 / 11,
       guidance: "strong_avoid",
     });
+  });
+
+  it("publishes deliberate/no-change, quantity, package, and period evidence in v2 packs", () => {
+    const candidates = Array.from({ length: 30 }, (_, index) => {
+      const value = candidate(index + 900, {
+        contributorKey: `pack-player-${index % 12}`,
+        selectedIn: index < 24,
+        wonGame: index % 2 === 0,
+      });
+      value.observation.observedOn = index < 15 ? "2026-07-15" : "2026-08-12";
+      return value;
+    });
+    const deckFingerprint = candidates[0].deck.fingerprint;
+    const pack = buildSideboardLabPack(candidates, {
+      playerLegendIdentityCode: "UNL-191",
+      opponentLegendIdentityCode: "VEN-145",
+      deckFingerprint,
+      priorGameResult: "win",
+    }, {
+      generatedAt: new Date("2026-08-13T06:00:00.000Z"),
+      backfillComplete: true,
+      maxDrills: 2,
+    });
+
+    expect(SideboardLabPackResponseSchema.safeParse(pack).success).toBe(true);
+    expect(pack).toMatchObject({
+      schema: "riftlite-sideboard-lab-pack",
+      query: { resolved: { scope: "exact-deck", sharedCards: 40 } },
+      source: {
+        cardRegistryPrints: 1180,
+        formatPolicy: {
+          observedRulesEpoch: "unknown",
+          currentReference: {
+            sideboardMaximum: 10,
+            swaps: "one-for-one",
+            championChangesAllowed: true,
+            fixedSections: ["legend", "runes", "battlefields"],
+          },
+          historicalValidation: "structural-only-no-retroactive-rules",
+        },
+      },
+    });
+    expect(pack?.drills[0]).toMatchObject({
+      context: {
+        nextInitiative: "unknown",
+        format: "bo3",
+        provider: "atlas",
+        targetGameNumber: 2,
+      },
+      decisionEvidence: {
+        decisions: 30,
+        players: 12,
+        noChangeDecisions: 6,
+        noChangeRate: 0.2,
+        medianCopiesMoved: 1,
+      },
+    });
+    expect(pack?.drills[0].packages).toEqual([
+      expect.objectContaining({
+        cardsIn: [expect.objectContaining({ cardCode: "OGN-050", count: 1 })],
+        cardsOut: [expect.objectContaining({ cardCode: "OGN-001", count: 1 })],
+        decisions: 24,
+        players: 12,
+        evidenceStatus: "developing",
+      }),
+    ]);
+    const sideCard = pack?.drills[0].cardEvidence.find((entry) => (
+      entry.direction === "in" && entry.cardCode === "OGN-050"
+    ));
+    expect(sideCard?.quantity).toMatchObject({
+      histogram: [
+        { copies: 0, decisions: 6 },
+        { copies: 1, decisions: 24 },
+      ],
+      selectedMedianCopies: 1,
+      status: "robust",
+    });
+    expect(sideCard?.periods).toMatchObject({
+      preseason: { opportunities: 15 },
+      currentSeason: { opportunities: 15 },
+    });
+    expect(JSON.stringify(pack)).not.toContain("pack-player");
+  });
+
+  it.each([
+    {
+      label: "fewer than eight decisions",
+      decisions: 7,
+      contributorKey: (index: number) => `sparse-decision-${index}`,
+    },
+    {
+      label: "fewer than four contributors",
+      decisions: 8,
+      contributorKey: (index: number) => `sparse-player-${index % 3}`,
+    },
+  ])("withholds a broad-pack result subgroup with $label", ({ decisions, contributorKey }) => {
+    const publishable = Array.from({ length: 8 }, (_, index) => {
+      const value = candidate(index + 1_100, {
+        contributorKey: `public-player-${index % 4}`,
+        selectedIn: index % 2 === 0,
+      });
+      value.observation.priorGameWon = true;
+      return value;
+    });
+    const privateSubgroup = Array.from({ length: decisions }, (_, index) => {
+      const value = candidate(index + 1_200, {
+        contributorKey: contributorKey(index),
+        selectedIn: index % 2 === 0,
+      });
+      value.observation.priorGameWon = false;
+      return value;
+    });
+
+    const pack = buildSideboardLabPack([...publishable, ...privateSubgroup], {
+      playerLegendIdentityCode: "UNL-191",
+      opponentLegendIdentityCode: "VEN-145",
+    }, {
+      generatedAt: new Date("2026-08-13T06:00:00.000Z"),
+      maxDrills: 4,
+    });
+
+    expect(SideboardLabPackResponseSchema.safeParse(pack).success).toBe(true);
+    expect(pack?.drills.length).toBeGreaterThan(0);
+    expect(pack?.drills.every((drill) => drill.priorGameResult === "win")).toBe(true);
+    expect(pack?.drills.every((drill) => (
+      drill.decisionEvidence.decisions === 8 && drill.decisionEvidence.players === 4
+    ))).toBe(true);
   });
 
   it("keeps sparse evidence visible but refuses to grade it", () => {

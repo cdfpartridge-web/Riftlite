@@ -17,15 +17,33 @@ describe("Sideboard Lab anonymous fact documents", () => {
 
     expect(fact).toMatchObject({
       schema: "riftlite-sideboard-fact",
-      version: 1,
+      version: 2,
       status: "eligible",
       contributorHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-      decisions: [{ observation: { provider: "atlas", targetGameNumber: 2 } }],
+      decisions: [{ observation: {
+        provider: "atlas",
+        targetGameNumber: 2,
+        nextInitiative: expect.stringMatching(/^(first|second|unknown)$/),
+      } }],
     });
     expect(JSON.stringify(fact)).not.toContain("private-owner-id");
     const restored = storedSideboardFactCandidates(fact);
     expect(restored).toHaveLength(1);
     expect(restored[0].contributorKey).toBe(fact?.contributorHash);
+
+    const legacy = {
+      ...fact,
+      version: 1 as const,
+      decisions: fact!.decisions.map((decision) => ({
+        ...decision,
+        observation: {
+          ...decision.observation,
+          nextInitiative: undefined,
+        },
+      })),
+    };
+    expect(storedSideboardFactCandidates(legacy)).toHaveLength(1);
+    expect(isCurrentSideboardFact(legacy)).toBe(false);
   });
 
   it("rejects tampered fingerprints and malformed contributor hashes", () => {

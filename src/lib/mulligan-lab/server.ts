@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 
@@ -13,13 +14,16 @@ import {
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import {
   buildMulliganLabSnapshot,
+  buildMulliganLabPack,
   type ObservedMulliganCandidate,
 } from "@/lib/mulligan-lab/aggregate";
 import {
   DEFAULT_MULLIGAN_LAB_MINIMUM_HANDS,
   DEFAULT_MULLIGAN_LAB_MINIMUM_PLAYERS,
+  MulliganLabPackResponseSchema,
   MulliganLabResponseSchema,
   unavailableMulliganLabResponse,
+  type MulliganLabPackResponse,
   type MulliganLabResponse,
 } from "@/lib/mulligan-lab/contracts";
 import {
@@ -30,6 +34,7 @@ import {
   MULLIGAN_LAB_FACT_VERSION,
   storedMulliganFactCandidate,
 } from "@/lib/mulligan-lab/facts";
+import { mulliganCardIdentity } from "@/lib/mulligan-lab/registry";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 import { readImmutableArtifact } from "@/lib/replay-v2-server/artifacts";
 import {
@@ -40,6 +45,7 @@ import type { ReplayArtifactPointer } from "@/lib/replay-v2-server/model";
 
 const AGGREGATE_COLLECTION = "aggregates";
 const AGGREGATE_DOCUMENT = "mulligan-lab-v1";
+const PACK_DOCUMENT_PREFIX = "mulligan-lab-pack-v1";
 const DEFAULT_CORPUS_LIMIT = 1_500;
 const MAX_CORPUS_LIMIT = 5_000;
 
@@ -60,6 +66,15 @@ export type MulliganLabRefreshResult = {
   drills: number;
   rejected: number;
   failed: number;
+  packs: number;
+};
+
+export type MulliganLabPackReadQuery = {
+  playerLegendIdentityCode: string;
+  opponentLegendIdentityCode?: string;
+  deckFingerprint?: string;
+  initiative?: "first" | "second";
+  limit?: number;
 };
 
 export async function readMulliganLabResponse(): Promise<MulliganLabResponse> {
@@ -81,6 +96,83 @@ export async function readMulliganLabResponse(): Promise<MulliganLabResponse> {
   } catch (error) {
     console.error("[mulligan-lab] Failed to read aggregate:", safeError(error));
     return unavailableMulliganLabResponse("data_unavailable");
+  }
+}
+
+export async function readMulliganLabPack(
+  query: MulliganLabPackReadQuery,
+): Promise<MulliganLabPackResponse> {
+  const db = getFirestoreAdmin();
+  if (!db) return unavailableMulliganPack(query, "snapshot_not_configured");
+  const documentIds = [
+    ...(query.deckFingerprint && query.opponentLegendIdentityCode
+      ? [mulliganPackDocumentId(
+        query.playerLegendIdentityCode,
+        query.opponentLegendIdentityCode,
+        query.deckFingerprint,
+        query.initiative,
+      )]
+      : []),
+    ...(query.opponentLegendIdentityCode
+      ? [mulliganPackDocumentId(
+        query.playerLegendIdentityCode,
+        query.opponentLegendIdentityCode,
+        undefined,
+        query.initiative,
+      )]
+      : []),
+    mulliganPackDocumentId(query.playerLegendIdentityCode, undefined, undefined, query.initiative),
+  ];
+  let sawExpired = false;
+  try {
+    for (const documentId of documentIds) {
+      const snapshot = await db.collection(AGGREGATE_COLLECTION).doc(documentId).get();
+      if (!snapshot.exists) continue;
+      const parsed = MulliganLabPackResponseSchema.safeParse(snapshot.data()?.payload);
+      if (!parsed.success || parsed.data.status !== "ready") continue;
+      if (Date.parse(parsed.data.expiresAt) <= Date.now()) {
+        sawExpired = true;
+        continue;
+      }
+      const initiativeDrills = query.initiative
+        ? parsed.data.drills.filter((drill) => drill.initiative === query.initiative)
+        : parsed.data.drills;
+      if (query.initiative && initiativeDrills.length === 0) continue;
+      const selected = initiativeDrills
+        .slice(0, Math.max(1, Math.min(24, Math.trunc(query.limit ?? 24))));
+      const exactDeck = query.deckFingerprint && parsed.data.query.resolved.scope === "exact-deck" && selected.some((drill) => (
+        drill.deck.fingerprint === query.deckFingerprint
+      ));
+      const exactMatchup = query.opponentLegendIdentityCode &&
+        parsed.data.query.resolved.scope !== "player-legend" && selected.some((drill) => (
+        cardIdentity(drill.matchup.opponentLegend.cardCode) === query.opponentLegendIdentityCode
+      ));
+      return MulliganLabPackResponseSchema.parse({
+        ...parsed.data,
+        query: {
+          requested: {
+            playerLegend: query.playerLegendIdentityCode,
+            opponentLegend: query.opponentLegendIdentityCode ?? null,
+            deckFingerprint: query.deckFingerprint ?? null,
+            initiative: query.initiative ?? null,
+          },
+          resolved: {
+            scope: exactDeck ? "exact-deck" : exactMatchup ? "matchup" : "player-legend",
+            deckFingerprint: exactDeck ? query.deckFingerprint! : null,
+            sharedCards: exactDeck ? 40 : null,
+            totalCards: exactDeck ? 40 : null,
+          },
+          fallbackReason: query.deckFingerprint && !exactDeck
+            ? "deck-not-observed"
+            : query.opponentLegendIdentityCode && !exactMatchup ? "matchup-not-observed" : null,
+        },
+        drills: selected,
+      });
+    }
+    return unavailableMulliganPack(query, sawExpired ? "snapshot_expired" : "matchup_not_observed");
+  } catch (error) {
+    console.error("[mulligan-lab] Failed to read targeted pack:", safeError(error));
+    return unavailableMulliganPack(query, "data_unavailable");
   }
 }
 
@@ -166,13 +258,19 @@ export async function refreshMulliganLabAggregate(
     ?? DEFAULT_MULLIGAN_LAB_MINIMUM_HANDS;
   const minimumPlayers = envPositiveInteger("MULLIGAN_LAB_MINIMUM_PLAYERS")
     ?? DEFAULT_MULLIGAN_LAB_MINIMUM_PLAYERS;
-  const payload = buildMulliganLabSnapshot(candidates, {
+  const generatedAt = new Date();
+  const aggregateOptions = {
     minimumHands,
     minimumPlayers,
     maxDrills: envPositiveInteger("MULLIGAN_LAB_MAX_DRILLS") ?? 64,
     coverageTruncated: factCorpus.truncated,
     backfillComplete: nextBackfill.complete,
-  });
+    generatedAt,
+  };
+  const payload = buildMulliganLabSnapshot(candidates, aggregateOptions);
+  const packs = payload
+    ? buildMulliganPackDocuments(candidates, aggregateOptions)
+    : [];
   const result: MulliganLabRefreshResult = {
     published: Boolean(payload),
     scanned: replayDocuments.length,
@@ -186,6 +284,7 @@ export async function refreshMulliganLabAggregate(
     drills: payload?.drills.length ?? 0,
     rejected,
     failed,
+    packs: packs.length,
   };
 
   if (payload) {
@@ -195,6 +294,7 @@ export async function refreshMulliganLabAggregate(
       lastAttempt: result,
       backfill: nextBackfill,
     }, { merge: true });
+    await writeMulliganPackDocuments(db, packs);
   } else {
     // Preserve a still-valid previous snapshot during a transient empty run,
     // but record the truthful coverage result for operations. A missing or
@@ -206,6 +306,243 @@ export async function refreshMulliganLabAggregate(
     }, { merge: true });
   }
   return result;
+}
+
+function buildMulliganPackDocuments(
+  candidates: ObservedMulliganCandidate[],
+  options: Parameters<typeof buildMulliganLabPack>[2],
+): Array<{ id: string; payload: Exclude<MulliganLabPackResponse, { status: "unavailable" }> }> {
+  const pairs = new Map<string, {
+    player: string;
+    opponent: string;
+    hands: number;
+    players: Set<string>;
+  }>();
+  const legends = new Map<string, { hands: number; players: Set<string> }>();
+  const pairInitiatives = new Map<string, {
+    player: string;
+    opponent: string;
+    initiative: "first" | "second";
+    hands: number;
+    players: Set<string>;
+  }>();
+  const legendInitiatives = new Map<string, {
+    player: string;
+    initiative: "first" | "second";
+    hands: number;
+    players: Set<string>;
+  }>();
+  const decks = new Map<string, {
+    player: string;
+    opponent: string;
+    fingerprint: string;
+    hands: number;
+    players: Set<string>;
+  }>();
+  const deckInitiatives = new Map<string, {
+    player: string;
+    opponent: string;
+    fingerprint: string;
+    initiative: "first" | "second";
+    hands: number;
+    players: Set<string>;
+  }>();
+  const candidatesByPlayer = new Map<string, ObservedMulliganCandidate[]>();
+  for (const candidate of candidates) {
+    const player = cardIdentity(candidate.matchup.playerLegend.cardCode);
+    const opponent = cardIdentity(candidate.matchup.opponentLegend.cardCode);
+    candidatesByPlayer.set(player, [...(candidatesByPlayer.get(player) ?? []), candidate]);
+    const legend = legends.get(player) ?? { hands: 0, players: new Set<string>() };
+    legend.hands += 1;
+    legend.players.add(candidate.contributorKey);
+    legends.set(player, legend);
+    const pair = pairs.get(`${player}|${opponent}`) ?? {
+      player,
+      opponent,
+      hands: 0,
+      players: new Set<string>(),
+    };
+    pair.hands += 1;
+    pair.players.add(candidate.contributorKey);
+    pairs.set(`${player}|${opponent}`, pair);
+    const pairInitiativeKey = `${player}|${opponent}|${candidate.initiative}`;
+    const pairInitiative = pairInitiatives.get(pairInitiativeKey) ?? {
+      player,
+      opponent,
+      initiative: candidate.initiative,
+      hands: 0,
+      players: new Set<string>(),
+    };
+    pairInitiative.hands += 1;
+    pairInitiative.players.add(candidate.contributorKey);
+    pairInitiatives.set(pairInitiativeKey, pairInitiative);
+    const legendInitiativeKey = `${player}|${candidate.initiative}`;
+    const legendInitiative = legendInitiatives.get(legendInitiativeKey) ?? {
+      player,
+      initiative: candidate.initiative,
+      hands: 0,
+      players: new Set<string>(),
+    };
+    legendInitiative.hands += 1;
+    legendInitiative.players.add(candidate.contributorKey);
+    legendInitiatives.set(legendInitiativeKey, legendInitiative);
+    const key = `${player}|${opponent}|${candidate.deck.fingerprint}`;
+    const cohort = decks.get(key) ?? {
+      player,
+      opponent,
+      fingerprint: candidate.deck.fingerprint,
+      hands: 0,
+      players: new Set<string>(),
+    };
+    cohort.hands += 1;
+    cohort.players.add(candidate.contributorKey);
+    decks.set(key, cohort);
+    const deckInitiativeKey = `${key}|${candidate.initiative}`;
+    const deckInitiative = deckInitiatives.get(deckInitiativeKey) ?? {
+      player,
+      opponent,
+      fingerprint: candidate.deck.fingerprint,
+      initiative: candidate.initiative,
+      hands: 0,
+      players: new Set<string>(),
+    };
+    deckInitiative.hands += 1;
+    deckInitiative.players.add(candidate.contributorKey);
+    deckInitiatives.set(deckInitiativeKey, deckInitiative);
+  }
+  const result: Array<{ id: string; payload: Exclude<MulliganLabPackResponse, { status: "unavailable" }> }> = [];
+  for (const { player, opponent, hands, players } of pairs.values()) {
+    if (hands < 8 || players.size < 4) continue;
+    const payload = buildMulliganLabPack(candidatesByPlayer.get(player) ?? [], {
+      playerLegendIdentityCode: player,
+      opponentLegendIdentityCode: opponent,
+    }, { ...options, maxDrills: 24 });
+    if (payload) result.push({ id: mulliganPackDocumentId(player, opponent), payload });
+  }
+  for (const [player, cohort] of legends) {
+    if (cohort.hands < 8 || cohort.players.size < 4) continue;
+    const payload = buildMulliganLabPack(candidatesByPlayer.get(player) ?? [], { playerLegendIdentityCode: player }, {
+      ...options,
+      maxDrills: 24,
+    });
+    if (payload) result.push({ id: mulliganPackDocumentId(player), payload });
+  }
+  for (const { player, opponent, initiative, hands, players } of pairInitiatives.values()) {
+    if (hands < 8 || players.size < 4) continue;
+    const payload = buildMulliganLabPack(candidatesByPlayer.get(player) ?? [], {
+      playerLegendIdentityCode: player,
+      opponentLegendIdentityCode: opponent,
+      initiative,
+    }, { ...options, maxDrills: 24 });
+    if (payload) result.push({
+      id: mulliganPackDocumentId(player, opponent, undefined, initiative),
+      payload,
+    });
+  }
+  for (const { player, initiative, hands, players } of legendInitiatives.values()) {
+    if (hands < 8 || players.size < 4) continue;
+    const payload = buildMulliganLabPack(candidatesByPlayer.get(player) ?? [], {
+      playerLegendIdentityCode: player,
+      initiative,
+    }, { ...options, maxDrills: 24 });
+    if (payload) result.push({
+      id: mulliganPackDocumentId(player, undefined, undefined, initiative),
+      payload,
+    });
+  }
+  for (const cohort of decks.values()) {
+    if (cohort.hands < 8 || cohort.players.size < 4) continue;
+    const payload = buildMulliganLabPack(candidatesByPlayer.get(cohort.player) ?? [], {
+      playerLegendIdentityCode: cohort.player,
+      opponentLegendIdentityCode: cohort.opponent,
+      deckFingerprint: cohort.fingerprint,
+    }, { ...options, maxDrills: 24 });
+    if (payload) {
+      result.push({
+        id: mulliganPackDocumentId(cohort.player, cohort.opponent, cohort.fingerprint),
+        payload,
+      });
+    }
+  }
+  for (const cohort of deckInitiatives.values()) {
+    if (cohort.hands < 8 || cohort.players.size < 4) continue;
+    const payload = buildMulliganLabPack(candidatesByPlayer.get(cohort.player) ?? [], {
+      playerLegendIdentityCode: cohort.player,
+      opponentLegendIdentityCode: cohort.opponent,
+      deckFingerprint: cohort.fingerprint,
+      initiative: cohort.initiative,
+    }, { ...options, maxDrills: 24 });
+    if (payload) result.push({
+      id: mulliganPackDocumentId(
+        cohort.player,
+        cohort.opponent,
+        cohort.fingerprint,
+        cohort.initiative,
+      ),
+      payload,
+    });
+  }
+  return result;
+}
+
+async function writeMulliganPackDocuments(
+  db: Firestore,
+  packs: Array<{ id: string; payload: Exclude<MulliganLabPackResponse, { status: "unavailable" }> }>,
+): Promise<void> {
+  for (let offset = 0; offset < packs.length; offset += 12) {
+    await Promise.all(packs.slice(offset, offset + 12).map(({ id, payload }) => (
+      db.collection(AGGREGATE_COLLECTION).doc(id).set({ payload, updatedAt: new Date() }, { merge: true })
+    )));
+  }
+}
+
+export function mulliganPackDocumentId(
+  playerLegendIdentityCode: string,
+  opponentLegendIdentityCode?: string,
+  deckFingerprint?: string,
+  initiative?: "first" | "second",
+): string {
+  return `${PACK_DOCUMENT_PREFIX}-${createHash("sha256").update(JSON.stringify([
+    playerLegendIdentityCode,
+    opponentLegendIdentityCode ?? null,
+    deckFingerprint ?? null,
+    initiative ?? null,
+  ])).digest("hex").slice(0, 32)}`;
+}
+
+function unavailableMulliganPack(
+  query: MulliganLabPackReadQuery,
+  reason: Extract<MulliganLabPackResponse, { status: "unavailable" }>["reason"],
+): MulliganLabPackResponse {
+  return {
+    schema: "riftlite-mulligan-lab-pack",
+    version: 1,
+    status: "unavailable",
+    generatedAt: null,
+    expiresAt: null,
+    query: {
+      requested: {
+        playerLegend: query.playerLegendIdentityCode,
+        opponentLegend: query.opponentLegendIdentityCode ?? null,
+        deckFingerprint: query.deckFingerprint ?? null,
+        initiative: query.initiative ?? null,
+      },
+      resolved: {
+        scope: query.opponentLegendIdentityCode ? "matchup" : "player-legend",
+        deckFingerprint: null,
+        sharedCards: null,
+        totalCards: null,
+      },
+      fallbackReason: reason === "matchup_not_observed" ? "matchup-not-observed" : null,
+    },
+    source: null,
+    drills: [],
+    reason,
+  };
+}
+
+function cardIdentity(cardCode: string): string {
+  return mulliganCardIdentity(cardCode) ?? cardCode;
 }
 
 async function readCanonicalReplayPageWindow(

@@ -13,13 +13,13 @@ import {
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 
 export const SIDEBOARD_LAB_FACT_COLLECTION = "sideboardLabFactsV1";
-export const SIDEBOARD_LAB_FACT_VERSION = 1;
+export const SIDEBOARD_LAB_FACT_VERSION = 2;
 
 type StoredSideboardDecision = Omit<ObservedSideboardCandidate, "contributorKey">;
 
 export type StoredSideboardFactDocument = {
   schema: "riftlite-sideboard-fact";
-  version: 1;
+  version: 1 | 2;
   status: "eligible";
   contributorHash: string;
   decisions: StoredSideboardDecision[];
@@ -27,7 +27,7 @@ export type StoredSideboardFactDocument = {
 
 export type StoredSideboardFactMarker = {
   schema: "riftlite-sideboard-fact";
-  version: 1;
+  version: 2;
   status: "ineligible";
 };
 
@@ -87,7 +87,7 @@ export function storedSideboardFactCandidates(value: unknown): ObservedSideboard
   const fact = value as Partial<StoredSideboardFactDocument>;
   if (
     fact.schema !== "riftlite-sideboard-fact" ||
-    fact.version !== SIDEBOARD_LAB_FACT_VERSION ||
+    (fact.version !== 1 && fact.version !== SIDEBOARD_LAB_FACT_VERSION) ||
     fact.status !== "eligible" ||
     typeof fact.contributorHash !== "string" ||
     !/^[a-f0-9]{64}$/.test(fact.contributorHash) ||
