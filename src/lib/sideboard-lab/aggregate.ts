@@ -249,13 +249,19 @@ export function buildSideboardLabPack(
   });
   if (!snapshot) return null;
 
-  const drills = snapshot.drills.map((drill) => {
+  const drills = snapshot.drills.flatMap((drill) => {
     const group = balanced.filter((candidate) => (
       playerLegendIdentityCode(candidate) === cardIdentity(drill.matchup.playerLegend.cardCode) &&
       opponentLegendKey(candidate) === cardIdentity(drill.matchup.opponentLegend.cardCode) &&
       priorResultKey(candidate) === drill.priorGameResult
     ));
-    return {
+    // A broad pack can contain both Game 1 result strata. Keep each stratum
+    // behind the same public cohort gate as an explicitly requested result
+    // shard; otherwise the broad response could disclose a subgroup that the
+    // result-specific endpoint correctly withholds. Explicit result packs are
+    // already gated before their precomputed shard is written.
+    if (!target.priorGameResult && !isPublicSideboardCohort(group)) return [];
+    return [{
       ...drill,
       context: {
         nextInitiative: sideboardNextInitiative(group, drill.deck.fingerprint),
@@ -291,8 +297,9 @@ export function buildSideboardLabPack(
           ),
         },
       })),
-    };
+    }];
   });
+  if (!drills.length) return null;
   const exactDeckResolved = Boolean(exactDeckPublishable && target.deckFingerprint &&
     drills.some((drill) => drill.deck.fingerprint === target.deckFingerprint));
   const response: SideboardLabPackReadyResponse = {
@@ -568,6 +575,11 @@ function sideboardDecisionEvidence(group: ObservedSideboardCandidate[]) {
       })),
     medianCopiesMoved: median(copySamples),
   };
+}
+
+function isPublicSideboardCohort(group: ObservedSideboardCandidate[]): boolean {
+  return group.length >= 8 &&
+    new Set(group.map((candidate) => candidate.contributorKey)).size >= 4;
 }
 
 function sideboardNextInitiative(

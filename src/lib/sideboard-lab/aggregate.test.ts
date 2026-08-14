@@ -194,6 +194,51 @@ describe("Sideboard Lab aggregate", () => {
     expect(JSON.stringify(pack)).not.toContain("pack-player");
   });
 
+  it.each([
+    {
+      label: "fewer than eight decisions",
+      decisions: 7,
+      contributorKey: (index: number) => `sparse-decision-${index}`,
+    },
+    {
+      label: "fewer than four contributors",
+      decisions: 8,
+      contributorKey: (index: number) => `sparse-player-${index % 3}`,
+    },
+  ])("withholds a broad-pack result subgroup with $label", ({ decisions, contributorKey }) => {
+    const publishable = Array.from({ length: 8 }, (_, index) => {
+      const value = candidate(index + 1_100, {
+        contributorKey: `public-player-${index % 4}`,
+        selectedIn: index % 2 === 0,
+      });
+      value.observation.priorGameWon = true;
+      return value;
+    });
+    const privateSubgroup = Array.from({ length: decisions }, (_, index) => {
+      const value = candidate(index + 1_200, {
+        contributorKey: contributorKey(index),
+        selectedIn: index % 2 === 0,
+      });
+      value.observation.priorGameWon = false;
+      return value;
+    });
+
+    const pack = buildSideboardLabPack([...publishable, ...privateSubgroup], {
+      playerLegendIdentityCode: "UNL-191",
+      opponentLegendIdentityCode: "VEN-145",
+    }, {
+      generatedAt: new Date("2026-08-13T06:00:00.000Z"),
+      maxDrills: 4,
+    });
+
+    expect(SideboardLabPackResponseSchema.safeParse(pack).success).toBe(true);
+    expect(pack?.drills.length).toBeGreaterThan(0);
+    expect(pack?.drills.every((drill) => drill.priorGameResult === "win")).toBe(true);
+    expect(pack?.drills.every((drill) => (
+      drill.decisionEvidence.decisions === 8 && drill.decisionEvidence.players === 4
+    ))).toBe(true);
+  });
+
   it("keeps sparse evidence visible but refuses to grade it", () => {
     const result = buildSideboardLabSnapshot([
       candidate(1, { contributorKey: "one", selectedIn: true }),
