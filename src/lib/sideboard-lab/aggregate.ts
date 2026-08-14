@@ -255,6 +255,10 @@ export function buildSideboardLabPack(
       opponentLegendKey(candidate) === cardIdentity(drill.matchup.opponentLegend.cardCode) &&
       priorResultKey(candidate) === drill.priorGameResult
     ));
+    const playerLegendGroup = balanced.filter((candidate) => (
+      playerLegendIdentityCode(candidate) === cardIdentity(drill.matchup.playerLegend.cardCode) &&
+      priorResultKey(candidate) === drill.priorGameResult
+    ));
     // A broad pack can contain both Game 1 result strata. Keep each stratum
     // behind the same public cohort gate as an explicitly requested result
     // shard; otherwise the broad response could disclose a subgroup that the
@@ -271,32 +275,39 @@ export function buildSideboardLabPack(
       },
       decisionEvidence: sideboardDecisionEvidence(group),
       packages: sideboardPackages(group, minimumDecisions, minimumPlayers),
-      cardEvidence: drill.cardEvidence.map((entry) => ({
-        ...entry,
-        quantity: sideboardQuantityEvidence(
-          group,
-          entry.direction,
-          entry.identityCode,
-          minimumDecisions,
-          minimumPlayers,
-        ),
-        periods: {
-          preseason: sideboardEvidenceSlice(
-            group.filter((candidate) => candidate.observation.observedOn < CURRENT_SEASON_STARTED_ON),
+      cardEvidence: drill.cardEvidence.map((entry) => {
+        // v1 evidence can fall back card-by-card from the matchup cohort to the
+        // broader player-Legend cohort. Quantity and period evidence must use
+        // that same cohort so their raw counts retain the published card's
+        // opportunity-wide denominator.
+        const evidenceGroup = entry.scope === "player-legend" ? playerLegendGroup : group;
+        return {
+          ...entry,
+          quantity: sideboardQuantityEvidence(
+            evidenceGroup,
             entry.direction,
             entry.identityCode,
             minimumDecisions,
             minimumPlayers,
           ),
-          currentSeason: sideboardEvidenceSlice(
-            group.filter((candidate) => candidate.observation.observedOn >= CURRENT_SEASON_STARTED_ON),
-            entry.direction,
-            entry.identityCode,
-            minimumDecisions,
-            minimumPlayers,
-          ),
-        },
-      })),
+          periods: {
+            preseason: sideboardEvidenceSlice(
+              evidenceGroup.filter((candidate) => candidate.observation.observedOn < CURRENT_SEASON_STARTED_ON),
+              entry.direction,
+              entry.identityCode,
+              minimumDecisions,
+              minimumPlayers,
+            ),
+            currentSeason: sideboardEvidenceSlice(
+              evidenceGroup.filter((candidate) => candidate.observation.observedOn >= CURRENT_SEASON_STARTED_ON),
+              entry.direction,
+              entry.identityCode,
+              minimumDecisions,
+              minimumPlayers,
+            ),
+          },
+        };
+      }),
     }];
   });
   if (!drills.length) return null;

@@ -316,7 +316,33 @@ const SideboardLabPackQuerySchema = z.object({
 const SideboardLabPackCardEvidenceSchema = SideboardLabCardEvidenceSchema.safeExtend({
   quantity: SideboardLabQuantitySchema,
   periods: SideboardLabPeriodSlicesSchema,
-}).strict();
+}).strict().superRefine((evidence, context) => {
+  const decisions = evidence.quantity.histogram.reduce((sum, bucket) => sum + bucket.decisions, 0);
+  const selected = evidence.quantity.histogram
+    .filter((bucket) => bucket.copies > 0)
+    .reduce((sum, bucket) => sum + bucket.decisions, 0);
+  const selectedCopies = evidence.quantity.histogram.reduce((sum, bucket) => (
+    sum + bucket.copies * bucket.decisions
+  ), 0);
+  if (
+    decisions !== evidence.opportunities ||
+    selected !== evidence.selected ||
+    selectedCopies !== evidence.selectedCopies
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["quantity", "histogram"],
+      message: "quantity histogram must reproduce the card opportunity and selection counts",
+    });
+  }
+  if ((evidence.selected === 0) !== (evidence.quantity.selectedMedianCopies === null)) {
+    context.addIssue({
+      code: "custom",
+      path: ["quantity", "selectedMedianCopies"],
+      message: "selectedMedianCopies must be null exactly when no decision selected the card",
+    });
+  }
+});
 
 const SideboardLabPackDrillSchema = SideboardLabDrillSchema.safeExtend({
   cardEvidence: z.array(SideboardLabPackCardEvidenceSchema).min(1).max(80),
