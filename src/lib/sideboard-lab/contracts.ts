@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import registryData from "@/lib/mulligan-lab/card-registry-v1.json";
 
-type RegistryCard = { basePrintId: string; name: string };
+type RegistryCard = { basePrintId: string; name: string; type: string };
 
 const REGISTRY = registryData.cards as Record<string, RegistryCard>;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -62,12 +62,80 @@ export const SideboardLabObservationSchema = z.object({
   eventKey: z.string().regex(/^se1_[a-f0-9]{32}$/),
   observedOn: z.iso.date(),
   priorGameWon: z.boolean(),
+  nextInitiative: z.enum(["first", "second", "unknown"]).optional(),
 }).strict();
 
 export const SideboardLabSwapCardSchema = z.object({
   ...CARD_FIELDS,
   count: z.number().int().min(1).max(3),
 }).strict().superRefine(requireCanonicalCardName);
+
+export const SideboardLabEvidenceSliceSchema = z.object({
+  opportunities: z.number().int().positive(),
+  players: z.number().int().positive(),
+  selected: z.number().int().nonnegative(),
+  selectedCopies: z.number().int().nonnegative(),
+  guidancePlayers: z.number().int().positive(),
+  guidanceSelected: z.number().int().nonnegative(),
+  guidanceSelectionRate: RATE,
+  guidance: z.enum(["strong_select", "select", "mixed", "avoid", "strong_avoid", "unclear"]),
+  evidenceStatus: z.enum(["robust", "developing", "limited"]),
+}).strict().superRefine((slice, context) => {
+  if (
+    slice.selected > slice.opportunities ||
+    slice.players > slice.opportunities ||
+    slice.guidancePlayers > slice.players ||
+    slice.guidanceSelected > slice.guidancePlayers ||
+    Math.abs(slice.guidanceSelectionRate - slice.guidanceSelected / slice.guidancePlayers) > Number.EPSILON
+  ) {
+    context.addIssue({ code: "custom", message: "sideboard slice rates must equal their privacy-gated counts" });
+  }
+});
+
+const SideboardLabQuantitySchema = z.object({
+  histogram: z.array(z.object({
+    copies: z.number().int().min(0).max(3),
+    decisions: z.number().int().positive(),
+    players: z.number().int().positive(),
+  }).strict()).min(1).max(4),
+  selectedMedianCopies: z.number().min(1).max(3).nullable(),
+  status: z.enum(["robust", "developing", "limited"]),
+}).strict();
+
+const SideboardLabPeriodSlicesSchema = z.object({
+  preseason: SideboardLabEvidenceSliceSchema.nullable(),
+  currentSeason: SideboardLabEvidenceSliceSchema.nullable(),
+}).strict();
+
+const SideboardLabContextSchema = z.object({
+  nextInitiative: z.enum(["first", "second", "unknown"]),
+  format: z.literal("bo3"),
+  provider: z.literal("atlas"),
+  targetGameNumber: z.literal(2),
+}).strict();
+
+const SideboardLabDecisionEvidenceSchema = z.object({
+  decisions: z.number().int().positive(),
+  players: z.number().int().positive(),
+  noChangeDecisions: z.number().int().nonnegative(),
+  noChangePlayers: z.number().int().nonnegative(),
+  noChangeRate: RATE,
+  swapCountHistogram: z.array(z.object({
+    copies: z.number().int().min(0).max(40),
+    decisions: z.number().int().positive(),
+    players: z.number().int().positive(),
+  }).strict()).min(1).max(41),
+  medianCopiesMoved: z.number().min(0).max(40).nullable(),
+}).strict();
+
+const SideboardLabPackageSchema = z.object({
+  cardsIn: z.array(SideboardLabSwapCardSchema).max(40),
+  cardsOut: z.array(SideboardLabSwapCardSchema).max(40),
+  decisions: z.number().int().positive(),
+  players: z.number().int().positive(),
+  selectionRate: RATE,
+  evidenceStatus: z.enum(["robust", "developing"]),
+}).strict();
 
 export const SideboardLabCardEvidenceSchema = SideboardLabCardSchema.extend({
   identityCode: z.string().refine((code) => REGISTRY[code]?.basePrintId === code, {
@@ -95,6 +163,8 @@ export const SideboardLabCardEvidenceSchema = SideboardLabCardSchema.extend({
   guidance: z.enum(["strong_select", "select", "mixed", "avoid", "strong_avoid", "unclear"]),
   evidenceStatus: z.enum(["robust", "developing", "limited"]),
   outcomeStatus: z.enum(["comparable", "one_sided", "sparse"]),
+  quantity: SideboardLabQuantitySchema.optional(),
+  periods: SideboardLabPeriodSlicesSchema.optional(),
 }).strict().superRefine((evidence, context) => {
   const notSelected = evidence.opportunities - evidence.selected;
   if (
@@ -158,6 +228,9 @@ export const SideboardLabDrillSchema = z.object({
     players: z.number().int().positive(),
   }).strict(),
   cardEvidence: z.array(SideboardLabCardEvidenceSchema).min(1).max(80),
+  context: SideboardLabContextSchema.optional(),
+  decisionEvidence: SideboardLabDecisionEvidenceSchema.optional(),
+  packages: z.array(SideboardLabPackageSchema).max(8).optional(),
 }).strict().superRefine((drill, context) => {
   const expected = new Set([
     ...drill.deck.mainDeck.map((card) => `out:${card.cardCode}`),
@@ -199,6 +272,87 @@ const SideboardLabSourceSchema = z.object({
   }
 });
 
+const SideboardLabPackSourceSchema = SideboardLabSourceSchema.safeExtend({
+  cardRegistryGeneratedAt: z.iso.datetime({ offset: true }),
+  cardRegistryPrints: z.number().int().positive(),
+  formatPolicy: z.object({
+    format: z.literal("bo3"),
+    observedRulesEpoch: z.literal("unknown"),
+    currentReference: z.object({
+      mainDeckCards: z.literal(40),
+      sideboardMaximum: z.literal(10),
+      swaps: z.literal("one-for-one"),
+      championChangesAllowed: z.literal(true),
+      fixedSections: z.tuple([
+        z.literal("legend"),
+        z.literal("runes"),
+        z.literal("battlefields"),
+      ]),
+    }).strict(),
+    historicalValidation: z.literal("structural-only-no-retroactive-rules"),
+  }).strict(),
+}).strict();
+
+const SideboardLabPackQuerySchema = z.object({
+  requested: z.object({
+    playerLegend: z.string().refine((code) => REGISTRY[code]?.type.toLowerCase() === "legend", { message: "player legend must be registered" }),
+    opponentLegend: z.string().refine((code) => REGISTRY[code]?.type.toLowerCase() === "legend", { message: "opponent legend must be registered" }).nullable(),
+    deckFingerprint: z.string().regex(SHA256).nullable(),
+    priorGameResult: z.enum(["win", "loss"]).nullable(),
+  }).strict(),
+  resolved: z.object({
+    scope: z.enum(["exact-deck", "matchup", "player-legend"]),
+    deckFingerprint: z.string().regex(SHA256).nullable(),
+    sharedCards: z.number().int().min(0).max(40).nullable(),
+    totalCards: z.literal(40).nullable(),
+  }).strict(),
+  fallbackReason: z.enum([
+    "deck-not-observed",
+    "insufficient-private-cohort",
+    "matchup-not-observed",
+  ]).nullable(),
+}).strict();
+
+const SideboardLabPackCardEvidenceSchema = SideboardLabCardEvidenceSchema.safeExtend({
+  quantity: SideboardLabQuantitySchema,
+  periods: SideboardLabPeriodSlicesSchema,
+}).strict();
+
+const SideboardLabPackDrillSchema = SideboardLabDrillSchema.safeExtend({
+  cardEvidence: z.array(SideboardLabPackCardEvidenceSchema).min(1).max(80),
+  context: SideboardLabContextSchema,
+  decisionEvidence: SideboardLabDecisionEvidenceSchema,
+  packages: z.array(SideboardLabPackageSchema).max(8),
+}).strict();
+
+export const SideboardLabPackReadyResponseSchema = z.object({
+  schema: z.literal("riftlite-sideboard-lab-pack"),
+  version: z.literal(1),
+  status: z.literal("ready"),
+  generatedAt: z.iso.datetime({ offset: true }),
+  expiresAt: z.iso.datetime({ offset: true }),
+  query: SideboardLabPackQuerySchema,
+  source: SideboardLabPackSourceSchema,
+  drills: z.array(SideboardLabPackDrillSchema).min(1).max(24),
+}).strict();
+
+export const SideboardLabPackUnavailableResponseSchema = z.object({
+  schema: z.literal("riftlite-sideboard-lab-pack"),
+  version: z.literal(1),
+  status: z.literal("unavailable"),
+  generatedAt: z.null(),
+  expiresAt: z.null(),
+  query: SideboardLabPackQuerySchema,
+  source: SideboardLabPackSourceSchema.nullable(),
+  drills: z.tuple([]),
+  reason: z.enum(["snapshot_not_configured", "snapshot_invalid", "snapshot_expired", "data_unavailable", "matchup_not_observed"]),
+}).strict();
+
+export const SideboardLabPackResponseSchema = z.union([
+  SideboardLabPackReadyResponseSchema,
+  SideboardLabPackUnavailableResponseSchema,
+]);
+
 export const SideboardLabReadyResponseSchema = z.object({
   schema: z.literal("riftlite-sideboard-lab"),
   version: z.literal(1),
@@ -231,10 +385,13 @@ export type SideboardLabDeck = z.infer<typeof SideboardLabDeckSchema>;
 export type SideboardLabObservation = z.infer<typeof SideboardLabObservationSchema>;
 export type SideboardLabSwapCard = z.infer<typeof SideboardLabSwapCardSchema>;
 export type SideboardLabCardEvidence = z.infer<typeof SideboardLabCardEvidenceSchema>;
+export type SideboardLabEvidenceSlice = z.infer<typeof SideboardLabEvidenceSliceSchema>;
 export type SideboardLabDrill = z.infer<typeof SideboardLabDrillSchema>;
 export type SideboardLabReadyResponse = z.infer<typeof SideboardLabReadyResponseSchema>;
 export type SideboardLabUnavailableReason = z.infer<typeof SideboardLabUnavailableResponseSchema>["reason"];
 export type SideboardLabResponse = z.infer<typeof SideboardLabResponseSchema>;
+export type SideboardLabPackReadyResponse = z.infer<typeof SideboardLabPackReadyResponseSchema>;
+export type SideboardLabPackResponse = z.infer<typeof SideboardLabPackResponseSchema>;
 
 export const DEFAULT_SIDEBOARD_LAB_MINIMUM_DECISIONS = 25;
 export const DEFAULT_SIDEBOARD_LAB_MINIMUM_PLAYERS = 10;

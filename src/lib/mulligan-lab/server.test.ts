@@ -15,7 +15,11 @@ vi.mock("@/lib/replay-v2-server/artifacts", () => ({
   readImmutableArtifact: vi.fn(),
 }));
 
-import { refreshMulliganLabAggregate } from "@/lib/mulligan-lab/server";
+import {
+  mulliganPackDocumentId,
+  readMulliganLabPack,
+  refreshMulliganLabAggregate,
+} from "@/lib/mulligan-lab/server";
 
 describe("Mulligan Lab fact backfill", () => {
   beforeEach(() => {
@@ -131,6 +135,37 @@ describe("Mulligan Lab fact backfill", () => {
     expect(fake.factQuery.get).toHaveBeenCalledTimes(3);
     expect(fake.factQuery.startAfter).toHaveBeenNthCalledWith(1, documents[499]);
     expect(fake.factQuery.startAfter).toHaveBeenNthCalledWith(2, documents[999]);
+  });
+
+  it("only reads privacy-gated initiative shards for an initiative selector", async () => {
+    const readIds: string[] = [];
+    const db = {
+      collection: vi.fn(() => ({
+        doc: (id: string) => {
+          readIds.push(id);
+          return { get: vi.fn().mockResolvedValue({ exists: false }) };
+        },
+      })),
+    };
+    getFirestoreAdminMock.mockReturnValue(db);
+    const fingerprint = "a".repeat(64);
+
+    await readMulliganLabPack({
+      playerLegendIdentityCode: "UNL-191",
+      opponentLegendIdentityCode: "VEN-145",
+      deckFingerprint: fingerprint,
+      initiative: "first",
+    });
+
+    expect(readIds).toEqual([
+      mulliganPackDocumentId("UNL-191", "VEN-145", fingerprint, "first"),
+      mulliganPackDocumentId("UNL-191", "VEN-145", undefined, "first"),
+      mulliganPackDocumentId("UNL-191", undefined, undefined, "first"),
+    ]);
+    expect(readIds).not.toContain(
+      mulliganPackDocumentId("UNL-191", "VEN-145", fingerprint),
+    );
+    expect(readIds).not.toContain(mulliganPackDocumentId("UNL-191"));
   });
 });
 

@@ -1,14 +1,29 @@
 import registryData from "@/lib/mulligan-lab/card-registry-v1.json";
 import type { ObservedMulliganCandidate } from "@/lib/mulligan-lab/aggregate";
 
-type RegistryCard = { basePrintId: string; name: string; type: string };
+export type MulliganRegistryCard = {
+  basePrintId: string;
+  name: string;
+  type: string;
+  costEnergy: number | null;
+  costPower: number | null;
+};
 
-const registry = registryData.cards as Record<string, RegistryCard>;
+const registry = registryData.cards as Record<string, MulliganRegistryCard>;
 const FORBIDDEN_DECK_TYPES = new Set(["legend", "battlefield", "rune"]);
 
 export function mulliganCardIdentity(cardCode: string): string | null {
   return registry[cardCode]?.basePrintId ?? null;
 }
+
+export function mulliganCardMetadata(cardCode: string): MulliganRegistryCard | null {
+  return registry[cardCode] ?? null;
+}
+
+export const MULLIGAN_CARD_REGISTRY_METADATA = Object.freeze({
+  generatedAt: registryData.generatedAt,
+  prints: registryData.sourceRegistryPrints,
+});
 
 /**
  * Resolves observed card codes to the same canonical identities shipped in the

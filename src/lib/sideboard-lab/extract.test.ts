@@ -42,6 +42,20 @@ describe("Sideboard Lab strict Atlas extraction", () => {
     expect(candidate.cardsOut.map(({ cardCode }) => cardCode)).toEqual(["OGN-001"]);
   });
 
+  it("captures proven Game 2 initiative and otherwise leaves it unknown", () => {
+    const unknown = extractObservedSideboardDecisions(observedSideboardReplay(), "owner")[0];
+    expect(unknown.observation.nextInitiative).toBe("unknown");
+
+    const replay = observedSideboardReplay();
+    sideboardAction(replay).patch.operations.push({
+      id: "game-2-first-player",
+      op: "set_room_fields",
+      fields: { firstPlayerId: "self" },
+    });
+    expect(extractObservedSideboardDecisions(replay, "owner")[0].observation.nextInitiative)
+      .toBe("first");
+  });
+
   it("deduplicates identical complete patch deck aliases but rejects conflicts", () => {
     const aliases = observedSideboardReplay();
     const action = sideboardAction(aliases);

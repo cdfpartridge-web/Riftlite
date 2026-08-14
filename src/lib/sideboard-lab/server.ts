@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 
 import {
@@ -10,12 +11,14 @@ import {
 } from "firebase-admin/firestore";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
-import { buildSideboardLabSnapshot } from "@/lib/sideboard-lab/aggregate";
+import { buildSideboardLabPack, buildSideboardLabSnapshot } from "@/lib/sideboard-lab/aggregate";
 import {
   DEFAULT_SIDEBOARD_LAB_MINIMUM_DECISIONS,
   DEFAULT_SIDEBOARD_LAB_MINIMUM_PLAYERS,
+  SideboardLabPackResponseSchema,
   SideboardLabResponseSchema,
   unavailableSideboardLabResponse,
+  type SideboardLabPackResponse,
   type SideboardLabResponse,
 } from "@/lib/sideboard-lab/contracts";
 import {
@@ -26,6 +29,7 @@ import {
   SIDEBOARD_LAB_FACT_VERSION,
   storedSideboardFactCandidates,
 } from "@/lib/sideboard-lab/facts";
+import { mulliganCardIdentity } from "@/lib/mulligan-lab/registry";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 import { readImmutableArtifact } from "@/lib/replay-v2-server/artifacts";
 import { MAX_CANONICAL_JSON_BYTES, REPLAY_COLLECTION } from "@/lib/replay-v2-server/constants";
@@ -33,6 +37,7 @@ import type { ReplayArtifactPointer } from "@/lib/replay-v2-server/model";
 
 const AGGREGATE_COLLECTION = "aggregates";
 const AGGREGATE_DOCUMENT = "sideboard-lab-v1";
+const PACK_DOCUMENT_PREFIX = "sideboard-lab-pack-v1";
 const DEFAULT_CORPUS_LIMIT = 1_500;
 const MAX_CORPUS_LIMIT = 5_000;
 
@@ -51,6 +56,15 @@ export type SideboardLabRefreshResult = {
   drills: number;
   rejected: number;
   failed: number;
+  packs: number;
+};
+
+export type SideboardLabPackReadQuery = {
+  playerLegendIdentityCode: string;
+  opponentLegendIdentityCode?: string;
+  deckFingerprint?: string;
+  priorGameResult?: "win" | "loss";
+  limit?: number;
 };
 
 export async function readSideboardLabResponse(): Promise<SideboardLabResponse> {
@@ -68,6 +82,108 @@ export async function readSideboardLabResponse(): Promise<SideboardLabResponse> 
   } catch (error) {
     console.error("[sideboard-lab] Failed to read aggregate:", safeError(error));
     return unavailableSideboardLabResponse("data_unavailable");
+  }
+}
+
+export async function readSideboardLabPack(
+  query: SideboardLabPackReadQuery,
+): Promise<SideboardLabPackResponse> {
+  const db = getFirestoreAdmin();
+  if (!db) return unavailableSideboardPack(query, "snapshot_not_configured");
+  // Result-specific shards are privacy-gated before they are written. Never
+  // answer a result selector from a broader shard filtered at request time,
+  // because its matching result stratum may be smaller than the public gate.
+  const candidates = query.priorGameResult
+    ? [
+      ...(query.deckFingerprint && query.opponentLegendIdentityCode
+        ? [sideboardPackDocumentId(
+          query.playerLegendIdentityCode,
+          query.opponentLegendIdentityCode,
+          query.deckFingerprint,
+          query.priorGameResult,
+        )]
+        : []),
+      ...(query.opponentLegendIdentityCode
+        ? [sideboardPackDocumentId(
+          query.playerLegendIdentityCode,
+          query.opponentLegendIdentityCode,
+          undefined,
+          query.priorGameResult,
+        )]
+        : []),
+      sideboardPackDocumentId(
+        query.playerLegendIdentityCode,
+        undefined,
+        undefined,
+        query.priorGameResult,
+      ),
+    ]
+    : [
+      ...(query.deckFingerprint && query.opponentLegendIdentityCode
+        ? [sideboardPackDocumentId(
+          query.playerLegendIdentityCode,
+          query.opponentLegendIdentityCode,
+          query.deckFingerprint,
+        )]
+        : []),
+      ...(query.opponentLegendIdentityCode
+        ? [sideboardPackDocumentId(
+          query.playerLegendIdentityCode,
+          query.opponentLegendIdentityCode,
+        )]
+        : []),
+      sideboardPackDocumentId(query.playerLegendIdentityCode),
+    ];
+  let sawExpired = false;
+  try {
+    for (const documentId of [...new Set(candidates)]) {
+      const snapshot = await db.collection(AGGREGATE_COLLECTION).doc(documentId).get();
+      if (!snapshot.exists) continue;
+      const parsed = SideboardLabPackResponseSchema.safeParse(snapshot.data()?.payload);
+      if (!parsed.success || parsed.data.status !== "ready") continue;
+      if (Date.parse(parsed.data.expiresAt) <= Date.now()) {
+        sawExpired = true;
+        continue;
+      }
+      const priorDrills = query.priorGameResult
+        ? parsed.data.drills.filter((drill) => drill.priorGameResult === query.priorGameResult)
+        : parsed.data.drills;
+      if (query.priorGameResult && priorDrills.length === 0) continue;
+      const drills = priorDrills
+        .slice(0, Math.max(1, Math.min(24, Math.trunc(query.limit ?? 12))));
+      const exactDeck = query.deckFingerprint && parsed.data.query.resolved.scope === "exact-deck" && drills.some((drill) => (
+        drill.deck.fingerprint === query.deckFingerprint
+      ));
+      const exactMatchup = query.opponentLegendIdentityCode &&
+        parsed.data.query.resolved.scope !== "player-legend" && drills.some((drill) => (
+        cardIdentity(drill.matchup.opponentLegend.cardCode) === query.opponentLegendIdentityCode
+      ));
+      return SideboardLabPackResponseSchema.parse({
+        ...parsed.data,
+        query: {
+          requested: {
+            playerLegend: query.playerLegendIdentityCode,
+            opponentLegend: query.opponentLegendIdentityCode ?? null,
+            deckFingerprint: query.deckFingerprint ?? null,
+            priorGameResult: query.priorGameResult ?? null,
+          },
+          resolved: {
+            scope: exactDeck ? "exact-deck" : exactMatchup ? "matchup" : "player-legend",
+            deckFingerprint: exactDeck ? query.deckFingerprint! : null,
+            sharedCards: exactDeck ? 40 : null,
+            totalCards: exactDeck ? 40 : null,
+          },
+          fallbackReason: query.deckFingerprint && !exactDeck
+            ? "deck-not-observed"
+            : query.opponentLegendIdentityCode && !exactMatchup ? "matchup-not-observed" : null,
+        },
+        drills,
+      });
+    }
+    return unavailableSideboardPack(query, sawExpired ? "snapshot_expired" : "matchup_not_observed");
+  } catch (error) {
+    console.error("[sideboard-lab] Failed to read targeted pack:", safeError(error));
+    return unavailableSideboardPack(query, "data_unavailable");
   }
 }
 
@@ -144,13 +260,17 @@ export async function refreshSideboardLabAggregate(
     ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_DECISIONS;
   const minimumPlayers = envPositiveInteger("SIDEBOARD_LAB_MINIMUM_PLAYERS")
     ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_PLAYERS;
-  const payload = buildSideboardLabSnapshot(factCorpus.candidates, {
+  const generatedAt = new Date();
+  const aggregateOptions = {
     minimumDecisions,
     minimumPlayers,
     maxDrills: envPositiveInteger("SIDEBOARD_LAB_MAX_DRILLS") ?? 48,
     coverageTruncated: false,
     backfillComplete: nextBackfill.complete,
-  });
+    generatedAt,
+  };
+  const payload = buildSideboardLabSnapshot(factCorpus.candidates, aggregateOptions);
+  const packs = payload ? buildSideboardPackDocuments(factCorpus.candidates, aggregateOptions) : [];
   const result: SideboardLabRefreshResult = {
     published: Boolean(payload),
     scanned: replayDocuments.length,
@@ -164,6 +284,7 @@ export async function refreshSideboardLabAggregate(
     drills: payload?.drills.length ?? 0,
     rejected,
     failed,
+    packs: packs.length,
   };
   await aggregateRef.set({
     ...(payload ? { payload } : {}),
@@ -171,7 +292,227 @@ export async function refreshSideboardLabAggregate(
     lastAttempt: result,
     backfill: nextBackfill,
   }, { merge: true });
+  if (payload) await writeSideboardPackDocuments(db, packs);
   return result;
+}
+
+function buildSideboardPackDocuments(
+  candidates: ReturnType<typeof storedSideboardFactCandidates>,
+  options: Parameters<typeof buildSideboardLabPack>[2],
+): Array<{ id: string; payload: Exclude<SideboardLabPackResponse, { status: "unavailable" }> }> {
+  const pairs = new Map<string, {
+    player: string;
+    opponent: string;
+    decisions: number;
+    players: Set<string>;
+  }>();
+  const pairResults = new Map<string, {
+    player: string;
+    opponent: string;
+    result: "win" | "loss";
+    decisions: number;
+    players: Set<string>;
+  }>();
+  const legends = new Map<string, { decisions: number; players: Set<string> }>();
+  const legendResults = new Map<string, {
+    player: string;
+    result: "win" | "loss";
+    decisions: number;
+    players: Set<string>;
+  }>();
+  const decks = new Map<string, {
+    player: string;
+    opponent: string;
+    fingerprint: string;
+    result: "win" | "loss";
+    decisions: number;
+    players: Set<string>;
+  }>();
+  const allResultDecks = new Map<string, {
+    player: string;
+    opponent: string;
+    fingerprint: string;
+    decisions: number;
+    players: Set<string>;
+  }>();
+  const candidatesByPlayer = new Map<string, ReturnType<typeof storedSideboardFactCandidates>>();
+  for (const candidate of candidates) {
+    const player = cardIdentity(candidate.matchup.playerLegend.cardCode);
+    const opponent = cardIdentity(candidate.matchup.opponentLegend.cardCode);
+    const result = candidate.observation.priorGameWon ? "win" as const : "loss" as const;
+    candidatesByPlayer.set(player, [...(candidatesByPlayer.get(player) ?? []), candidate]);
+    const legend = legends.get(player) ?? { decisions: 0, players: new Set<string>() };
+    legend.decisions += 1;
+    legend.players.add(candidate.contributorKey);
+    legends.set(player, legend);
+    const pair = pairs.get(`${player}|${opponent}`) ?? {
+      player,
+      opponent,
+      decisions: 0,
+      players: new Set<string>(),
+    };
+    pair.decisions += 1;
+    pair.players.add(candidate.contributorKey);
+    pairs.set(`${player}|${opponent}`, pair);
+    const pairResult = pairResults.get(`${player}|${opponent}|${result}`) ?? {
+      player,
+      opponent,
+      result,
+      decisions: 0,
+      players: new Set<string>(),
+    };
+    pairResult.decisions += 1;
+    pairResult.players.add(candidate.contributorKey);
+    pairResults.set(`${player}|${opponent}|${result}`, pairResult);
+    const legendResult = legendResults.get(`${player}|${result}`) ?? {
+      player,
+      result,
+      decisions: 0,
+      players: new Set<string>(),
+    };
+    legendResult.decisions += 1;
+    legendResult.players.add(candidate.contributorKey);
+    legendResults.set(`${player}|${result}`, legendResult);
+    const key = `${player}|${opponent}|${candidate.deck.fingerprint}|${result}`;
+    const cohort = decks.get(key) ?? {
+      player,
+      opponent,
+      fingerprint: candidate.deck.fingerprint,
+      result,
+      decisions: 0,
+      players: new Set<string>(),
+    };
+    cohort.decisions += 1;
+    cohort.players.add(candidate.contributorKey);
+    decks.set(key, cohort);
+    const allKey = `${player}|${opponent}|${candidate.deck.fingerprint}`;
+    const allCohort = allResultDecks.get(allKey) ?? {
+      player,
+      opponent,
+      fingerprint: candidate.deck.fingerprint,
+      decisions: 0,
+      players: new Set<string>(),
+    };
+    allCohort.decisions += 1;
+    allCohort.players.add(candidate.contributorKey);
+    allResultDecks.set(allKey, allCohort);
+  }
+  const output = new Map<string, Exclude<SideboardLabPackResponse, { status: "unavailable" }>>();
+  const add = (id: string, payload: Exclude<SideboardLabPackResponse, { status: "unavailable" }> | null) => {
+    if (payload) output.set(id, payload);
+  };
+  for (const { player, opponent, decisions, players } of pairs.values()) {
+    if (decisions < 8 || players.size < 4) continue;
+    add(sideboardPackDocumentId(player, opponent), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
+      playerLegendIdentityCode: player,
+      opponentLegendIdentityCode: opponent,
+    }, { ...options, maxDrills: 12 }));
+  }
+  for (const { player, opponent, result, decisions, players } of pairResults.values()) {
+    if (decisions < 8 || players.size < 4) continue;
+    add(sideboardPackDocumentId(player, opponent, undefined, result), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
+      playerLegendIdentityCode: player,
+      opponentLegendIdentityCode: opponent,
+      priorGameResult: result,
+    }, { ...options, maxDrills: 12 }));
+  }
+  for (const [player, cohort] of legends) {
+    if (cohort.decisions < 8 || cohort.players.size < 4) continue;
+    add(sideboardPackDocumentId(player), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
+      playerLegendIdentityCode: player,
+    }, { ...options, maxDrills: 12 }));
+  }
+  for (const { player, result, decisions, players } of legendResults.values()) {
+    if (decisions < 8 || players.size < 4) continue;
+    add(sideboardPackDocumentId(player, undefined, undefined, result), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
+      playerLegendIdentityCode: player,
+      priorGameResult: result,
+    }, { ...options, maxDrills: 12 }));
+  }
+  for (const cohort of decks.values()) {
+    if (cohort.decisions < 8 || cohort.players.size < 4) continue;
+    add(
+      sideboardPackDocumentId(cohort.player, cohort.opponent, cohort.fingerprint, cohort.result),
+      buildSideboardLabPack(candidatesByPlayer.get(cohort.player) ?? [], {
+        playerLegendIdentityCode: cohort.player,
+        opponentLegendIdentityCode: cohort.opponent,
+        deckFingerprint: cohort.fingerprint,
+        priorGameResult: cohort.result,
+      }, { ...options, maxDrills: 12 }),
+    );
+  }
+  for (const cohort of allResultDecks.values()) {
+    if (cohort.decisions < 8 || cohort.players.size < 4) continue;
+    add(
+      sideboardPackDocumentId(cohort.player, cohort.opponent, cohort.fingerprint),
+      buildSideboardLabPack(candidatesByPlayer.get(cohort.player) ?? [], {
+        playerLegendIdentityCode: cohort.player,
+        opponentLegendIdentityCode: cohort.opponent,
+        deckFingerprint: cohort.fingerprint,
+      }, { ...options, maxDrills: 12 }),
+    );
+  }
+  return [...output].map(([id, payload]) => ({ id, payload }));
+}
+
+async function writeSideboardPackDocuments(
+  db: Firestore,
+  packs: Array<{ id: string; payload: Exclude<SideboardLabPackResponse, { status: "unavailable" }> }>,
+): Promise<void> {
+  for (let offset = 0; offset < packs.length; offset += 12) {
+    await Promise.all(packs.slice(offset, offset + 12).map(({ id, payload }) => (
+      db.collection(AGGREGATE_COLLECTION).doc(id).set({ payload, updatedAt: new Date() }, { merge: true })
+    )));
+  }
+}
+
+export function sideboardPackDocumentId(
+  playerLegendIdentityCode: string,
+  opponentLegendIdentityCode?: string,
+  deckFingerprint?: string,
+  priorGameResult?: "win" | "loss",
+): string {
+  return `${PACK_DOCUMENT_PREFIX}-${createHash("sha256").update(JSON.stringify([
+    playerLegendIdentityCode,
+    opponentLegendIdentityCode ?? null,
+    deckFingerprint ?? null,
+    priorGameResult ?? null,
+  ])).digest("hex").slice(0, 32)}`;
+}
+
+function unavailableSideboardPack(
+  query: SideboardLabPackReadQuery,
+  reason: Extract<SideboardLabPackResponse, { status: "unavailable" }>["reason"],
+): SideboardLabPackResponse {
+  return {
+    schema: "riftlite-sideboard-lab-pack",
+    version: 1,
+    status: "unavailable",
+    generatedAt: null,
+    expiresAt: null,
+    query: {
+      requested: {
+        playerLegend: query.playerLegendIdentityCode,
+        opponentLegend: query.opponentLegendIdentityCode ?? null,
+        deckFingerprint: query.deckFingerprint ?? null,
+        priorGameResult: query.priorGameResult ?? null,
+      },
+      resolved: {
+        scope: query.opponentLegendIdentityCode ? "matchup" : "player-legend",
+        deckFingerprint: null,
+        sharedCards: null,
+        totalCards: null,
+      },
+      fallbackReason: reason === "matchup_not_observed" ? "matchup-not-observed" : null,
+    },
+    source: null,
+    drills: [],
+    reason,
+  };
+}
+
+function cardIdentity(cardCode: string): string {
+  return mulliganCardIdentity(cardCode) ?? cardCode;
 }
 
 async function readCanonicalReplayPageWindow(

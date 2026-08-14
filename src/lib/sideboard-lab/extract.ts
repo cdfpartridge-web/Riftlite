@@ -10,6 +10,7 @@ import type {
   ReplaySnapshot,
   ReplaySnapshotEvent,
 } from "@/lib/replay-v2";
+import { seekReplayByEventIndex } from "@/lib/replay-v2";
 
 const CARD_CODE = /^[A-Z]{3}-\d{3}(?:[A-Z]|\*)?$/;
 const MAIN_DECK_SIZE = 40;
@@ -43,6 +44,7 @@ export type ObservedSideboardCandidate = {
     eventKey: string;
     observedOn: string;
     priorGameWon: boolean;
+    nextInitiative?: "first" | "second" | "unknown";
   };
   matchup: {
     playerLegend: SideboardLabCard;
@@ -211,6 +213,10 @@ export function auditObservedSideboardDecisions(
   if (!playerLegend) return reject("missing_player_legend");
   if (!opponentLegend) return reject("missing_opponent_legend");
   if (observedAt === null) return reject("invalid_observation_time");
+  const firstPlayerId = seekReplayByEventIndex(replay, targetGame.eventEndIndex).state.room.firstPlayerId;
+  const nextInitiative = firstPlayerId === perspectivePlayerId
+    ? "first" as const
+    : firstPlayerId === opponent.id ? "second" as const : "unknown" as const;
 
   return { candidates: [{
     observedDecisionId: `sd1_${digest([
@@ -228,6 +234,7 @@ export function auditObservedSideboardDecisions(
       eventKey: `se1_${digest([replay.id, action.id, action.sourceMessageId]).slice(0, 32)}`,
       observedOn: new Date(observedAt).toISOString().slice(0, 10),
       priorGameWon,
+      nextInitiative,
     },
     matchup: { playerLegend, opponentLegend },
     deck,
@@ -261,6 +268,8 @@ export function isValidObservedSideboardCandidate(candidate: ObservedSideboardCa
       !/^se1_[a-f0-9]{32}$/.test(candidate.observation.eventKey) ||
       !isIsoDay(candidate.observation.observedOn) ||
       typeof candidate.observation.priorGameWon !== "boolean" ||
+      (candidate.observation.nextInitiative !== undefined &&
+        !["first", "second", "unknown"].includes(candidate.observation.nextInitiative)) ||
       typeof candidate.wonGame !== "boolean" ||
       !sameCanonicalCard(candidate.matchup.playerLegend, canonicalCard(candidate.matchup.playerLegend.cardCode, "legend")) ||
       !sameCanonicalCard(candidate.matchup.opponentLegend, canonicalCard(candidate.matchup.opponentLegend.cardCode, "legend")) ||

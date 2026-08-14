@@ -5,7 +5,11 @@ const { getFirestoreAdminMock } = vi.hoisted(() => ({ getFirestoreAdminMock: vi.
 vi.mock("@/lib/firebase/admin", () => ({ getFirestoreAdmin: getFirestoreAdminMock }));
 vi.mock("@/lib/replay-v2-server/artifacts", () => ({ readImmutableArtifact: vi.fn() }));
 
-import { refreshSideboardLabAggregate } from "@/lib/sideboard-lab/server";
+import {
+  readSideboardLabPack,
+  refreshSideboardLabAggregate,
+  sideboardPackDocumentId,
+} from "@/lib/sideboard-lab/server";
 
 describe("Sideboard Lab all-history fact refresh", () => {
   beforeEach(() => getFirestoreAdminMock.mockReset());
@@ -24,7 +28,7 @@ describe("Sideboard Lab all-history fact refresh", () => {
     expect(fake.factQuery.where).not.toHaveBeenCalled();
     expect(fake.aggregateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        backfill: { factVersion: 1, complete: true, cursor: null },
+        backfill: { factVersion: 2, complete: true, cursor: null },
       }),
       { merge: true },
     );
@@ -32,7 +36,7 @@ describe("Sideboard Lab all-history fact refresh", () => {
 
   it("resumes the index-free replay walk from the saved cursor", async () => {
     const fake = fakeSideboardDb({
-      factVersion: 1,
+      factVersion: 2,
       complete: false,
       cursor: { replayId: "rl2_previous" },
     });
@@ -40,6 +44,20 @@ describe("Sideboard Lab all-history fact refresh", () => {
 
     await refreshSideboardLabAggregate(25);
     expect(fake.replayQuery.startAfter).toHaveBeenCalledWith("rl2_previous");
+  });
+
+  it("restarts the v1 walk so initiative context can be backfilled", async () => {
+    const fake = fakeSideboardDb({ factVersion: 1, complete: true, cursor: null });
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await refreshSideboardLabAggregate(25);
+    expect(fake.replayQuery.startAfter).not.toHaveBeenCalled();
+    expect(fake.aggregateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backfill: { factVersion: 2, complete: true, cursor: null },
+      }),
+      { merge: true },
+    );
   });
 
   it("reads every fact document page and filters eligibility in the strict adapter", async () => {
@@ -64,6 +82,37 @@ describe("Sideboard Lab all-history fact refresh", () => {
     expect(fake.factQuery.get).toHaveBeenCalledTimes(3);
     expect(fake.factQuery.startAfter).toHaveBeenNthCalledWith(1, documents[499]);
     expect(fake.factQuery.startAfter).toHaveBeenNthCalledWith(2, documents[999]);
+  });
+
+  it("only reads privacy-gated result shards for a prior-result selector", async () => {
+    const readIds: string[] = [];
+    const db = {
+      collection: vi.fn(() => ({
+        doc: (id: string) => {
+          readIds.push(id);
+          return { get: vi.fn().mockResolvedValue({ exists: false }) };
+        },
+      })),
+    };
+    getFirestoreAdminMock.mockReturnValue(db);
+    const fingerprint = "a".repeat(64);
+
+    await readSideboardLabPack({
+      playerLegendIdentityCode: "UNL-191",
+      opponentLegendIdentityCode: "VEN-145",
+      deckFingerprint: fingerprint,
+      priorGameResult: "loss",
+    });
+
+    expect(readIds).toEqual([
+      sideboardPackDocumentId("UNL-191", "VEN-145", fingerprint, "loss"),
+      sideboardPackDocumentId("UNL-191", "VEN-145", undefined, "loss"),
+      sideboardPackDocumentId("UNL-191", undefined, undefined, "loss"),
+    ]);
+    expect(readIds).not.toContain(
+      sideboardPackDocumentId("UNL-191", "VEN-145", fingerprint),
+    );
+    expect(readIds).not.toContain(sideboardPackDocumentId("UNL-191"));
   });
 });
 

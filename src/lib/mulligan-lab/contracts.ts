@@ -34,6 +34,47 @@ export const MulliganLabObservationSchema = z.object({
   observedOn: z.iso.date(),
 }).strict();
 
+export const MulliganLabEvidenceSliceSchema = z.object({
+  offered: z.number().int().positive(),
+  players: z.number().int().positive(),
+  kept: z.number().int().nonnegative(),
+  redrawn: z.number().int().nonnegative(),
+  guidancePlayers: z.number().int().positive(),
+  guidanceKept: z.number().int().nonnegative(),
+  guidanceKeepRate: RATE,
+  guidance: z.enum(["strong_keep", "keep", "mixed", "redraw", "strong_redraw", "unclear"]),
+  evidenceStatus: z.enum(["robust", "developing", "limited"]),
+}).strict().superRefine((slice, context) => {
+  if (
+    slice.kept + slice.redrawn !== slice.offered ||
+    slice.players > slice.offered ||
+    slice.guidancePlayers > slice.players ||
+    slice.guidanceKept > slice.guidancePlayers ||
+    Math.abs(slice.guidanceKeepRate - slice.guidanceKept / slice.guidancePlayers) > Number.EPSILON
+  ) {
+    context.addIssue({ code: "custom", message: "mulligan slice rates must equal their privacy-gated counts" });
+  }
+});
+
+const MulliganLabEvidenceSlicesSchema = z.object({
+  matchingCurve: MulliganLabEvidenceSliceSchema.nullable(),
+  matchingInitiative: MulliganLabEvidenceSliceSchema.nullable(),
+  preseason: MulliganLabEvidenceSliceSchema.nullable(),
+  currentSeason: MulliganLabEvidenceSliceSchema.nullable(),
+}).strict();
+
+const MulliganLabContextSchema = z.object({
+  curve: z.object({
+    classification: z.enum(["two-drop-present", "two-drop-missing", "unknown"]),
+    twoDropCount: z.number().int().min(0).max(4).nullable(),
+    earlyUnitCount: z.number().int().min(0).max(4).nullable(),
+  }).strict(),
+  battlefields: z.object({
+    player: MulliganLabCardSchema.nullable(),
+    opponent: MulliganLabCardSchema.nullable(),
+  }).strict(),
+}).strict();
+
 /**
  * Descriptive community evidence for one base card identity. `offered`,
  * `kept`, and `redrawn` count observed game-hand opportunities; player fields count
@@ -64,6 +105,9 @@ export const MulliganLabCardEvidenceSchema = MulliganLabCardSchema.extend({
   guidance: z.enum(["strong_keep", "keep", "mixed", "redraw", "strong_redraw", "unclear"]),
   evidenceStatus: z.enum(["robust", "developing", "limited"]),
   outcomeStatus: z.enum(["comparable", "one_sided", "sparse"]),
+  // Additive v2-pack context. The daily v2 endpoint deliberately omits it so
+  // older desktop clients continue to receive the exact established shape.
+  slices: MulliganLabEvidenceSlicesSchema.optional(),
 }).strict().superRefine((evidence, context) => {
   if (evidence.kept + evidence.redrawn !== evidence.offered) {
     context.addIssue({ code: "custom", message: "kept plus redrawn must equal offered" });
@@ -136,6 +180,7 @@ export const MulliganLabDrillSchema = z.object({
     players: z.number().int().positive(),
   }).strict(),
   cardEvidence: z.array(MulliganLabCardEvidenceSchema).min(1).max(4),
+  context: MulliganLabContextSchema.optional(),
 }).strict().superRefine((drill, context) => {
   const evidenceCodes = new Set(drill.cardEvidence.map((entry) => entry.cardCode));
   const handCodes = new Set(drill.hand.map((entry) => entry.cardCode));
@@ -187,6 +232,68 @@ const MulliganLabSourceSchema = PreviousMulliganLabSourceSchema.extend({
     context.addIssue({ code: "custom", message: "includedPeriods must match non-empty season counts" });
   }
 });
+
+const MulliganLabPackSourceSchema = MulliganLabSourceSchema.safeExtend({
+  cardRegistryGeneratedAt: z.iso.datetime({ offset: true }),
+  cardRegistryPrints: z.number().int().positive(),
+}).strict();
+
+const MulliganLabPackQuerySchema = z.object({
+  requested: z.object({
+    playerLegend: z.string().regex(CARD_CODE),
+    opponentLegend: z.string().regex(CARD_CODE).nullable(),
+    deckFingerprint: z.string().regex(SHA256).nullable(),
+    initiative: z.enum(["first", "second"]).nullable(),
+  }).strict(),
+  resolved: z.object({
+    scope: z.enum(["exact-deck", "matchup", "player-legend"]),
+    deckFingerprint: z.string().regex(SHA256).nullable(),
+    sharedCards: z.number().int().min(0).max(40).nullable(),
+    totalCards: z.literal(40).nullable(),
+  }).strict(),
+  fallbackReason: z.enum([
+    "deck-not-observed",
+    "insufficient-private-cohort",
+    "matchup-not-observed",
+  ]).nullable(),
+}).strict();
+
+const MulliganLabPackCardEvidenceSchema = MulliganLabCardEvidenceSchema.safeExtend({
+  slices: MulliganLabEvidenceSlicesSchema,
+}).strict();
+
+const MulliganLabPackDrillSchema = MulliganLabDrillSchema.safeExtend({
+  cardEvidence: z.array(MulliganLabPackCardEvidenceSchema).min(1).max(4),
+  context: MulliganLabContextSchema,
+}).strict();
+
+export const MulliganLabPackReadyResponseSchema = z.object({
+  schema: z.literal("riftlite-mulligan-lab-pack"),
+  version: z.literal(1),
+  status: z.literal("ready"),
+  generatedAt: z.iso.datetime({ offset: true }),
+  expiresAt: z.iso.datetime({ offset: true }),
+  query: MulliganLabPackQuerySchema,
+  source: MulliganLabPackSourceSchema,
+  drills: z.array(MulliganLabPackDrillSchema).min(1).max(24),
+}).strict();
+
+export const MulliganLabPackUnavailableResponseSchema = z.object({
+  schema: z.literal("riftlite-mulligan-lab-pack"),
+  version: z.literal(1),
+  status: z.literal("unavailable"),
+  generatedAt: z.null(),
+  expiresAt: z.null(),
+  query: MulliganLabPackQuerySchema,
+  source: MulliganLabPackSourceSchema.nullable(),
+  drills: z.tuple([]),
+  reason: z.enum(["snapshot_not_configured", "snapshot_invalid", "snapshot_expired", "data_unavailable", "matchup_not_observed"]),
+}).strict();
+
+export const MulliganLabPackResponseSchema = z.union([
+  MulliganLabPackReadyResponseSchema,
+  MulliganLabPackUnavailableResponseSchema,
+]);
 
 const LegacyMulliganLabSourceSchema = PreviousMulliganLabSourceSchema.omit({
   observedFrom: true,
@@ -291,10 +398,13 @@ export type MulliganLabCard = z.infer<typeof MulliganLabCardSchema>;
 export type MulliganLabDeck = z.infer<typeof MulliganLabDeckSchema>;
 export type MulliganLabObservation = z.infer<typeof MulliganLabObservationSchema>;
 export type MulliganLabCardEvidence = z.infer<typeof MulliganLabCardEvidenceSchema>;
+export type MulliganLabEvidenceSlice = z.infer<typeof MulliganLabEvidenceSliceSchema>;
 export type MulliganLabDrill = z.infer<typeof MulliganLabDrillSchema>;
 export type MulliganLabReadyResponse = z.infer<typeof MulliganLabReadyResponseSchema>;
 export type MulliganLabUnavailableReason = z.infer<typeof MulliganLabUnavailableResponseSchema>["reason"];
 export type MulliganLabResponse = z.infer<typeof MulliganLabResponseSchema>;
+export type MulliganLabPackReadyResponse = z.infer<typeof MulliganLabPackReadyResponseSchema>;
+export type MulliganLabPackResponse = z.infer<typeof MulliganLabPackResponseSchema>;
 
 export const DEFAULT_MULLIGAN_LAB_MINIMUM_HANDS = 25;
 export const DEFAULT_MULLIGAN_LAB_MINIMUM_PLAYERS = 10;
