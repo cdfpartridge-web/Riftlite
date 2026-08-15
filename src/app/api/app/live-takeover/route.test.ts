@@ -27,13 +27,13 @@ describe("public desktop live takeover", () => {
     mocks.get.mockResolvedValue({ exists: false, data: () => undefined });
   });
 
-  it("returns a CORS-enabled, short-cached disabled default without calling Twitch", async () => {
+  it("returns a CORS-enabled, shared-cached disabled default without calling Twitch", async () => {
     const response = await GET();
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
-    expect(response.headers.get("cache-control")).toContain("s-maxage=15");
+    expect(response.headers.get("cache-control")).toContain("s-maxage=60");
     expect(payload.liveTakeover).toEqual({
       enabled: false,
       active: false,
