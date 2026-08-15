@@ -9,6 +9,7 @@ vi.mock("@/lib/firebase/admin", () => ({
 
 import {
   PrivateHubAggregateEventError,
+  readPrivateHubAggregateDuplicate,
   recordPrivateHubAggregateEvent,
 } from "@/lib/community/data";
 
@@ -37,6 +38,47 @@ describe("private-hub aggregate ownership", () => {
       uid: "account-canonical",
       matchCount: 1,
     });
+  });
+
+  it("reads only the deterministic index and counter for a proven duplicate", async () => {
+    fake.seed(indexPath(), {
+      hubId: "hub-a",
+      matchId: "match-a",
+      uid: "desktop-alias",
+    });
+    fake.seed("aggregates/community-private-counters", {
+      privateMatchCount: 23,
+      privatePlayerCount: 5,
+    });
+
+    await expect(readPrivateHubAggregateDuplicate({
+      hubId: "hub-a",
+      matchId: "match-a",
+      identityUids: ["account-canonical", "desktop-alias"],
+    }, fake.asFirestore())).resolves.toEqual({
+      privateMatchCount: 23,
+      privatePlayerCount: 5,
+      alreadyPresent: true,
+    });
+    expect(fake.readPaths).toEqual([
+      indexPath(),
+      "aggregates/community-private-counters",
+    ]);
+  });
+
+  it("does not fast-path a foreign or malformed index row", async () => {
+    fake.seed(indexPath(), {
+      hubId: "hub-a",
+      matchId: "match-a",
+      uid: "another-account",
+    });
+
+    await expect(readPrivateHubAggregateDuplicate({
+      hubId: "hub-a",
+      matchId: "match-a",
+      identityUids: ["account-canonical", "desktop-alias"],
+    }, fake.asFirestore())).resolves.toBeNull();
+    expect(fake.readPaths).toEqual([indexPath()]);
   });
 
   it("rejects an upsert when the stored match belongs to another hub member", async () => {
@@ -102,6 +144,7 @@ function indexPath(): string {
 type Row = Record<string, unknown>;
 type FakeReference = {
   path: string;
+  get: () => Promise<ReturnType<FakeFirestore["snapshot"]>>;
   collection: (name: string) => FakeCollection;
 };
 type FakeCollection = {
@@ -110,6 +153,7 @@ type FakeCollection = {
 
 class FakeFirestore {
   private readonly rows = new Map<string, Row>();
+  readonly readPaths: string[] = [];
 
   constructor(seed: Record<string, Row>) {
     for (const [path, row] of Object.entries(seed)) this.seed(path, row);
@@ -157,11 +201,15 @@ class FakeFirestore {
   private reference(path: string): FakeReference {
     return {
       path,
+      get: async () => {
+        this.readPaths.push(path);
+        return this.snapshot(this.reference(path));
+      },
       collection: (name: string) => this.collection(`${path}/${name}`),
     };
   }
 
-  private snapshot(ref: FakeReference) {
+  snapshot(ref: FakeReference) {
     const row = this.rows.get(ref.path);
     return {
       exists: Boolean(row),

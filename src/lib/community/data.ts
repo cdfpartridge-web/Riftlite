@@ -1511,6 +1511,73 @@ function privateHubMatchDocId(hubId: string, matchId: string): string {
   return encodeURIComponent(`${hubId.trim()}::${matchId.trim()}`);
 }
 
+export type PrivateHubAggregateEventResult = {
+  privateMatchCount: number;
+  privatePlayerCount: number;
+  alreadyPresent?: boolean;
+  missing?: boolean;
+};
+
+/**
+ * Fast path for an idempotent private-hub upsert that has already been counted.
+ *
+ * The index is server-owned and keyed by both hub and match, so returning an
+ * existing row cannot mutate aggregate state or grant hub/replay access. The
+ * stored owner must still be one of the caller's proven immutable identities;
+ * malformed or foreign rows fall through to the authoritative transaction.
+ *
+ * This deliberately reads the counter only after confirming the index hit.
+ * New events therefore pay one extra lookup, while duplicate retries avoid the
+ * hub, membership, source-match, player, and six-document counter transaction.
+ */
+export async function readPrivateHubAggregateDuplicate(
+  event: {
+    hubId: string;
+    matchId: string;
+    identityUids: readonly string[];
+  },
+  providedDb?: Firestore,
+): Promise<PrivateHubAggregateEventResult | null> {
+  const hubId = event.hubId.trim();
+  const matchId = event.matchId.trim();
+  const identityUids = new Set(
+    event.identityUids.map((candidate) => String(candidate ?? "").trim()).filter(Boolean),
+  );
+  if (!hubId || !matchId || !identityUids.size) return null;
+
+  const db = providedDb ?? getFirestoreAdmin();
+  if (!db) throw new Error("Firestore admin is not configured");
+  const indexSnap = await db
+    .collection(PRIVATE_MATCH_INDEX_COLLECTION)
+    .doc(privateHubMatchDocId(hubId, matchId))
+    .get();
+  if (!indexSnap.exists) return null;
+
+  const index = indexSnap.data() ?? {};
+  const indexedUid = String(index.uid ?? "").trim();
+  if (
+    String(index.hubId ?? "").trim() !== hubId ||
+    String(index.matchId ?? "").trim() !== matchId ||
+    !indexedUid ||
+    !identityUids.has(indexedUid)
+  ) {
+    return null;
+  }
+
+  const countersSnap = await db
+    .collection(AGGREGATE_COLLECTION)
+    .doc(PRIVATE_COUNTER_DOC_ID)
+    .get();
+  const counterData = countersSnap.data() ?? (
+    await db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID).get()
+  ).data() ?? {};
+  return {
+    privateMatchCount: toNonNegativeInteger(counterData.privateMatchCount) ?? 0,
+    privatePlayerCount: toNonNegativeInteger(counterData.privatePlayerCount) ?? 0,
+    alreadyPresent: true,
+  };
+}
+
 export class PrivateHubAggregateEventError extends Error {
   constructor(
     message: string,
@@ -1529,12 +1596,7 @@ export async function recordPrivateHubAggregateEvent(event: {
   uid: string;
   identityUids: readonly string[];
   username?: string;
-}): Promise<{
-  privateMatchCount: number;
-  privatePlayerCount: number;
-  alreadyPresent?: boolean;
-  missing?: boolean;
-}> {
+}): Promise<PrivateHubAggregateEventResult> {
   const db = getFirestoreAdmin();
   if (!db) {
     throw new Error("Firestore admin is not configured");

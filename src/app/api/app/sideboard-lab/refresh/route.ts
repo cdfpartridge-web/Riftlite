@@ -13,8 +13,10 @@ export async function POST(request: NextRequest) {
   }
   try {
     const requested = Number(new URL(request.url).searchParams.get("limit") ?? "");
+    const force = isTrue(new URL(request.url).searchParams.get("force"));
     const result = await refreshSideboardLabAggregate(
       Number.isInteger(requested) && requested > 0 ? requested : undefined,
+      { force },
     );
     if (result.published) revalidatePath("/api/app/sideboard-lab");
     return NextResponse.json({ ok: true, ...result });
@@ -23,6 +25,10 @@ export async function POST(request: NextRequest) {
     console.error("[api/app/sideboard-lab/refresh] Failed:", message);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
+}
+
+function isTrue(value: string | null): boolean {
+  return value === "1" || value?.toLowerCase() === "true";
 }
 
 function isAuthorized(request: NextRequest): boolean {

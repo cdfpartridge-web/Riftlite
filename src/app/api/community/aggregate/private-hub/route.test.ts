@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertHubCapability: vi.fn(),
+  hubGet: vi.fn(),
   identityUidsFor: vi.fn(),
+  readPrivateHubAggregateDuplicate: vi.fn(),
   recordPrivateHubAggregateEvent: vi.fn(),
   requireUser: vi.fn(),
   revalidateTag: vi.fn(),
@@ -21,6 +23,7 @@ vi.mock("@/lib/community/data", () => ({
       super(message);
     }
   },
+  readPrivateHubAggregateDuplicate: mocks.readPrivateHubAggregateDuplicate,
   recordPrivateHubAggregateEvent: mocks.recordPrivateHubAggregateEvent,
 }));
 
@@ -41,13 +44,15 @@ describe("private-hub aggregate route identity", () => {
       db: {
         collection: () => ({
           doc: () => ({
-            get: async () => ({ exists: true, data: () => ({ role_mode: "account" }) }),
+            get: mocks.hubGet,
           }),
         }),
       },
     });
+    mocks.hubGet.mockResolvedValue({ exists: true, data: () => ({ role_mode: "account" }) });
     mocks.identityUidsFor.mockResolvedValue(["account-canonical", "desktop-alias"]);
     mocks.assertHubCapability.mockResolvedValue("member");
+    mocks.readPrivateHubAggregateDuplicate.mockResolvedValue(null);
     mocks.recordPrivateHubAggregateEvent.mockResolvedValue({
       privateMatchCount: 1,
       privatePlayerCount: 1,
@@ -72,6 +77,39 @@ describe("private-hub aggregate route identity", () => {
     }));
   });
 
+  it("acknowledges a proven duplicate before repeating hub authorization or counter writes", async () => {
+    mocks.readPrivateHubAggregateDuplicate.mockResolvedValue({
+      privateMatchCount: 42,
+      privatePlayerCount: 7,
+      alreadyPresent: true,
+    });
+
+    const response = await POST(request({
+      action: "upsert",
+      hubId: "hub-a",
+      matchId: "match-a",
+      uid: "desktop-alias",
+    }));
+
+    if (!response) throw new Error("Expected a private-hub aggregate response.");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      privateMatchCount: 42,
+      privatePlayerCount: 7,
+      alreadyPresent: true,
+    });
+    expect(mocks.readPrivateHubAggregateDuplicate).toHaveBeenCalledWith({
+      hubId: "hub-a",
+      matchId: "match-a",
+      identityUids: ["account-canonical", "desktop-alias"],
+    }, expect.anything());
+    expect(mocks.hubGet).not.toHaveBeenCalled();
+    expect(mocks.assertHubCapability).not.toHaveBeenCalled();
+    expect(mocks.recordPrivateHubAggregateEvent).not.toHaveBeenCalled();
+    expect(mocks.revalidateTag).not.toHaveBeenCalled();
+  });
+
   it("rejects an unrelated body uid before touching aggregate state", async () => {
     const response = await POST(request({
       action: "delete",
@@ -82,6 +120,7 @@ describe("private-hub aggregate route identity", () => {
 
     if (!response) throw new Error("Expected a private-hub aggregate response.");
     expect(response.status).toBe(403);
+    expect(mocks.readPrivateHubAggregateDuplicate).not.toHaveBeenCalled();
     expect(mocks.recordPrivateHubAggregateEvent).not.toHaveBeenCalled();
   });
 
