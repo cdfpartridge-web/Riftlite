@@ -5,6 +5,7 @@ import {
   metaStudioJson,
   requireMetaStudioSession,
 } from "@/lib/community/meta-studio-auth";
+import { HOME_CONFIG_CACHE_TAG } from "@/lib/home-config";
 import {
   liveTakeoverStorageFromConfig,
   normalizeLiveTakeoverConfig,
@@ -121,6 +122,7 @@ export async function PUT(request: NextRequest) {
       }, { merge: true });
 
     revalidateTag(TWITCH_STATUS_CACHE_TAG, "max");
+    revalidateTag(HOME_CONFIG_CACHE_TAG, "max");
     revalidatePath("/api/app/home");
     revalidatePath("/api/app/live-takeover");
 

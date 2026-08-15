@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import { getCachedHomeConfig } from "@/lib/home-config";
 import { resolvePublicLiveTakeover } from "@/lib/live-takeover-status";
 import { normalizeCreatorVideoCarouselConfig } from "@/lib/youtube/creator-video-config";
 import {
@@ -71,18 +72,7 @@ type HomeConfigRead = {
 
 async function readHomeConfig(): Promise<HomeConfigRead> {
   const db = getFirestoreAdmin();
-  if (!db) return { db: null, data: null };
-  try {
-    const snapshot = await db.collection("app_config").doc("home").get();
-    return {
-      db,
-      data: snapshot.exists ? snapshot.data() ?? null : null,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[api/app/home] Failed to read home config:", message);
-    return { db, data: null };
-  }
+  return { db, data: await getCachedHomeConfig() };
 }
 
 function readFeaturedVideos(data: Record<string, unknown> | null): HomeFeaturedVideo[] {

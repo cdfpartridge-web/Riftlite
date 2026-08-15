@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
   revalidateTag: mocks.revalidateTag,
+  unstable_cache: (callback: (...args: unknown[]) => unknown) => callback,
 }));
 
 vi.mock("@/lib/community/meta-studio-auth", async (importOriginal) => {
@@ -147,6 +148,7 @@ describe("Meta Studio live takeover route", () => {
       liveTakeoverUpdatedBy: "canonical-bmu",
     }, { merge: true });
     expect(mocks.revalidateTag).toHaveBeenCalledWith("twitch-status", "max");
+    expect(mocks.revalidateTag).toHaveBeenCalledWith("app-home-config-v1", "max");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/api/app/home");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/api/app/live-takeover");
     expect(payload.message).toMatch(/is on/i);
