@@ -2,6 +2,7 @@ import { revalidateTag } from "next/cache";
 import { type NextRequest, NextResponse } from "next/server";
 
 import {
+  communityAggregateSourceWatermark,
   invalidateCommunityMatchMemoryCache,
   refreshCommunityAggregate,
 } from "@/lib/community/data";
@@ -11,18 +12,20 @@ import { getFirestoreAdmin } from "@/lib/firebase/admin";
 // actually execute the refresh.
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 const AGGREGATE_COLLECTION = "aggregates";
 const AGGREGATE_DOCUMENT = "community-v1";
 const REFRESH_STATE_DOCUMENT = "community-refresh-state-v1";
-const REFRESH_STATE_VERSION = 1;
+const REFRESH_STATE_VERSION = 2;
 
 /**
- * Read the public match window from Firestore, normalize it, count the
- * lifetime public matches via Firestore aggregation, repair the
- * lifetime public player index if needed, and write the result to the
- * `aggregates/community-v1` doc. Triggered daily by GitHub Actions
- * (see .github/workflows/refresh-aggregates.yml).
+ * Apply the append-maintained Community change journal to the compact rolling
+ * source cache, then write the unchanged `aggregates/community-v1` contract.
+ * A raw reconciliation runs automatically every seven days and can be forced
+ * with `force=true` or `reconcile=true`. `incremental=true` bypasses only the
+ * same-day guard, which is useful for a bounded operational verification.
+ * Triggered daily by GitHub Actions.
  *
  * Secret-gated via COMMUNITY_AGGREGATE_SECRET. Accepts either:
  *   Authorization: Bearer <secret>
@@ -40,8 +43,11 @@ function isAuthorized(req: NextRequest): boolean {
 
 async function runRefresh(request: NextRequest) {
   try {
-    const force = isTrue(new URL(request.url).searchParams.get("force"));
-    if (!force) {
+    const searchParams = new URL(request.url).searchParams;
+    const force = isTrue(searchParams.get("force"));
+    const reconcile = force || isTrue(searchParams.get("reconcile"));
+    const incremental = isTrue(searchParams.get("incremental"));
+    if (!reconcile && !incremental) {
       const skipped = await communityRefreshAlreadyCompletedToday();
       if (skipped) {
         return NextResponse.json({
@@ -54,9 +60,15 @@ async function runRefresh(request: NextRequest) {
       }
     }
 
-    const result = await refreshCommunityAggregate();
+    const result = await refreshCommunityAggregate({
+      forceFullReconcile: reconcile,
+    });
     invalidateCommunityMatchMemoryCache();
-    await recordCommunityRefresh(result.publicLifetimeMatchCount);
+    await recordCommunityRefresh({
+      publicLifetimeMatchCount: result.publicLifetimeMatchCount,
+      cursorChangedAtMs: result.cursorChangedAtMs,
+      cursorDocumentId: result.cursorDocumentId,
+    });
 
     // Invalidate the cached match window so user-facing pages pick up
     // the new data on their next request instead of waiting out the
@@ -104,21 +116,31 @@ async function communityRefreshAlreadyCompletedToday(): Promise<{
   const db = getFirestoreAdmin();
   if (!db) return null;
   try {
-    const [stateSnapshot, aggregateSnapshot] = await Promise.all([
+    const [stateSnapshot, aggregateSnapshot, sourceWatermark] = await Promise.all([
       db.collection(AGGREGATE_COLLECTION).doc(REFRESH_STATE_DOCUMENT).get(),
       db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOCUMENT).get(),
+      communityAggregateSourceWatermark(),
     ]);
     const state = stateSnapshot.data() ?? {};
     const aggregate = aggregateSnapshot.data() ?? {};
     const completedOn = typeof state.completedOn === "string" ? state.completedOn : "";
     const stateCount = nonNegativeInteger(state.publicLifetimeMatchCount);
     const aggregateCount = nonNegativeInteger(aggregate.publicLifetimeMatchCount);
+    const stateCursorChangedAtMs = nonNegativeInteger(state.cursorChangedAtMs);
+    const stateCursorDocumentId = typeof state.cursorDocumentId === "string"
+      ? state.cursorDocumentId
+      : "";
     if (
       state.version !== REFRESH_STATE_VERSION ||
       completedOn !== new Date().toISOString().slice(0, 10) ||
       stateCount === null ||
       aggregateCount === null ||
-      stateCount !== aggregateCount
+      stateCount !== aggregateCount ||
+      stateCursorChangedAtMs === null ||
+      !sourceWatermark?.cacheReady ||
+      sourceWatermark.pending ||
+      stateCursorChangedAtMs !== sourceWatermark.current.changedAtMs ||
+      stateCursorDocumentId !== sourceWatermark.current.documentId
     ) return null;
     return { completedOn, publicLifetimeMatchCount: aggregateCount };
   } catch (error) {
@@ -129,7 +151,11 @@ async function communityRefreshAlreadyCompletedToday(): Promise<{
   }
 }
 
-async function recordCommunityRefresh(publicLifetimeMatchCount: number): Promise<void> {
+async function recordCommunityRefresh(input: {
+  publicLifetimeMatchCount: number;
+  cursorChangedAtMs: number;
+  cursorDocumentId: string;
+}): Promise<void> {
   const db = getFirestoreAdmin();
   if (!db) return;
   const completedAt = new Date();
@@ -138,7 +164,9 @@ async function recordCommunityRefresh(publicLifetimeMatchCount: number): Promise
       version: REFRESH_STATE_VERSION,
       completedOn: completedAt.toISOString().slice(0, 10),
       completedAt,
-      publicLifetimeMatchCount,
+      publicLifetimeMatchCount: input.publicLifetimeMatchCount,
+      cursorChangedAtMs: input.cursorChangedAtMs,
+      cursorDocumentId: input.cursorDocumentId,
     });
   } catch (error) {
     // The aggregate itself is already repaired. A failed optimization marker

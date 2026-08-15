@@ -24,8 +24,9 @@ export const runtime = "nodejs";
  * their game appear on the site within seconds instead of waiting for
  * the next scheduled full refresh.
  *
- * Cost per call: 1 Firestore read (current aggregate) + 1 write. Massive
- * win over the 500-read full refresh when only one new match has arrived.
+ * The append keeps the latest public window fresh immediately and records one
+ * idempotent change-journal row. The scheduled refresh consumes that journal
+ * instead of rescanning every match in the rolling 30-day statistics window.
  *
  * Auth: requires a valid Firebase ID token for the user whose match is
  * being appended. No shared bearer secret — the desktop app ships to
