@@ -4,11 +4,10 @@
 # allows a single daily cron, and keeping this job here lets us manually
 # repair/prime the aggregate without changing site code.
 #
-# What the webhook does: reads COMMUNITY_WINDOW_SIZE public matches from
-# Firestore, writes the normalized latest window into chunked aggregate
-# docs, refreshes range docs, and invalidates the `community-matches`
-# cache tag. Desktop appends handle normal freshness; this is the repair
-# safety net so hot page loads do not scan raw matches.
+# What the webhook does: applies the append-maintained change journal to a
+# compact 30-day source cache, writes the unchanged public aggregate contract,
+# and invalidates the `community-matches` cache tag. It automatically performs
+# a full raw reconciliation every seven days as a correctness safety net.
 #
 # See: src/app/api/community/aggregate/refresh/route.ts
 #      src/lib/community/data.ts
@@ -21,9 +20,9 @@ on:
     # The desktop client triggers /api/community/aggregate/append after
     # each match save for near-instant freshness; this cron only exists
     # to catch edits, deletions, and anything the append path missed.
-    # 1 run/day reads the latest 7,000 public matches. The 7/14/30 day
-    # range caches use a one-time raw backfill, then daily chunk-level
-    # merge/prune repair so they do not triple the daily read cost.
+    # Normal runs read compact source shards plus only changed matches. A
+    # bounded weekly reconciliation catches any append call an old/offline
+    # client failed to deliver without paying the full scan cost every day.
     - cron: "17 3 * * *"
   # Manual repairs are lane-scoped. This matters while a fact backfill needs
   # several invocations: advancing Sideboard must not rescan Community and
@@ -46,7 +45,7 @@ on:
         default: "1500"
         type: string
       force:
-        description: Bypass the same-day unchanged-source guard
+        description: Force a full raw reconciliation instead of the incremental path
         required: true
         default: false
         type: boolean
@@ -63,7 +62,7 @@ jobs:
       github.event.inputs.lane == 'community' ||
       github.event.inputs.lane == 'all'
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 6
     steps:
       - name: Refresh community aggregate
         env:
@@ -82,7 +81,7 @@ jobs:
             --fail \
             --silent \
             --show-error \
-            --max-time 60 \
+            --max-time 300 \
             -X POST \
             -H "Authorization: Bearer $REFRESH_SECRET" \
             -w "\nHTTP %{http_code} in %{time_total}s\n" \

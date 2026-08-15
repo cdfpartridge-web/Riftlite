@@ -2,7 +2,7 @@ import "server-only";
 
 import { gzipSync, gunzipSync } from "node:zlib";
 
-import type { Firestore } from "firebase-admin/firestore";
+import { FieldPath, type Firestore } from "firebase-admin/firestore";
 import { unstable_cache } from "next/cache";
 
 import { canonicalChoice } from "@/lib/canonical";
@@ -11,6 +11,29 @@ import {
   buildMatrix,
   ensureSymmetricMatrix,
 } from "@/lib/community/aggregate";
+import {
+  applyCommunitySourceChanges,
+  buildCommunitySourceShards,
+  communitySourceChangeDocId,
+  communitySourceNeedsFullReconcile,
+  communitySourceNeedsLegacyAudit,
+  compareCommunitySourceCursor,
+  decodeCommunitySourceChange,
+  decodeCommunitySourceShard,
+  emptyCommunitySourceCursor,
+  encodeCommunitySourceChange,
+  encodeCommunitySourceManifest,
+  encodeCommunitySourceShard,
+  materializeCommunitySourceMatches,
+  nextCommunitySourceChangeTimestamp,
+  parseCommunitySourceManifest,
+  COMMUNITY_SOURCE_CACHE_SCHEMA_VERSION,
+  COMMUNITY_SOURCE_CHANGE_COLLECTION,
+  COMMUNITY_SOURCE_MANIFEST_ID,
+  type CommunitySourceChange,
+  type CommunitySourceCursor,
+  type CommunitySourceManifest,
+} from "@/lib/community/source-cache";
 import {
   BATTLEFIELD_ALIASES,
   BATTLEFIELDS,
@@ -74,6 +97,8 @@ const PRIVATE_COUNTER_DOC_ID = "community-private-counters";
 const PRIVATE_MATCH_INDEX_COLLECTION = "privateHubMatchIndex";
 const PRIVATE_PLAYER_INDEX_COLLECTION = "privateHubPlayers";
 const PUBLIC_PLAYERS_COLLECTION = "publicPlayers";
+const COMMUNITY_SOURCE_CHANGE_PAGE_SIZE = 500;
+const COMMUNITY_SOURCE_BATCH_SIZE = 400;
 const COMMUNITY_RANGE_DAYS = [7, 14, 30] as const;
 type CommunityRangeDays = (typeof COMMUNITY_RANGE_DAYS)[number];
 type CommunityRangeWindow = {
@@ -536,7 +561,9 @@ async function fetchPrivateHubStats(): Promise<{
  * Used by (a) the cron refresh route, (b) the fallback path when the
  * aggregate doc is missing or stale.
  */
-async function fetchMatchesFromCollection(): Promise<CommunityMatch[] | null> {
+async function fetchMatchesFromCollection(
+  options: { includeLegacy?: boolean } = {},
+): Promise<CommunityMatch[] | null> {
   const db = getFirestoreAdmin();
   if (!db) {
     return null;
@@ -548,15 +575,17 @@ async function fetchMatchesFromCollection(): Promise<CommunityMatch[] | null> {
       .orderBy("created_at", "desc")
       .limit(COMMUNITY_WINDOW_SIZE)
       .get(),
-    db
-      .collection("matches")
-      .orderBy("createdAt", "desc")
-      .limit(COMMUNITY_WINDOW_SIZE)
-      .get()
-      .catch((error) => {
-        console.error("[community/data] Legacy createdAt latest query failed", error);
-        return null;
-      }),
+    options.includeLegacy === false
+      ? Promise.resolve(null)
+      : db
+          .collection("matches")
+          .orderBy("createdAt", "desc")
+          .limit(COMMUNITY_WINDOW_SIZE)
+          .get()
+          .catch((error) => {
+            console.error("[community/data] Legacy createdAt latest query failed", error);
+            return null;
+          }),
   ]);
 
   return mergeCommunityMatches(
@@ -609,14 +638,17 @@ async function fetchPublicLifetimePlayerCount(): Promise<number | null> {
 
 async function fetchRangeMatchesFromCollection(
   days: CommunityRangeDays,
-  options: { limitToDetailWindow?: boolean } = { limitToDetailWindow: true },
+  options: { limitToDetailWindow?: boolean; includeLegacy?: boolean; now?: number } = {
+    limitToDetailWindow: true,
+  },
 ): Promise<CommunityMatch[] | null> {
   const db = getFirestoreAdmin();
   if (!db) {
     return null;
   }
 
-  const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+  const rangeNow = options.now ?? Date.now();
+  const cutoffMs = rangeNow - days * 24 * 60 * 60 * 1000;
   // Public match docs have historically stored created_at as Unix seconds.
   // Query with seconds, then post-filter through matchCreatedAtMs so mixed
   // second/ms docs still produce an exact range.
@@ -634,12 +666,14 @@ async function fetchRangeMatchesFromCollection(
 
   const [modernSnapshot, legacySnapshot] = await Promise.all([
     buildQuery("created_at").get(),
-    buildQuery("createdAt")
-      .get()
-      .catch((error) => {
-        console.error(`[community/data] Legacy createdAt ${days}d query failed`, error);
-        return null;
-      }),
+    options.includeLegacy === false
+      ? Promise.resolve(null)
+      : buildQuery("createdAt")
+          .get()
+          .catch((error) => {
+            console.error(`[community/data] Legacy createdAt ${days}d query failed`, error);
+            return null;
+          }),
   ]);
 
   const matches = filterCommunityMatchesByDays(
@@ -648,6 +682,7 @@ async function fetchRangeMatchesFromCollection(
       legacySnapshot ? docsToCommunityMatches(legacySnapshot.docs) : [],
     ),
     days,
+    rangeNow,
   );
 
   return options.limitToDetailWindow === false
@@ -672,6 +707,242 @@ function mergeCommunityMatches(...batches: CommunityMatch[][]): CommunityMatch[]
     }
   }
   return sortedByCreatedAtDesc([...byId.values()]);
+}
+
+type CommunitySourceChangeRead = {
+  changes: CommunitySourceChange[];
+  cursor: CommunitySourceCursor;
+  reads: number;
+  invalid: number;
+};
+
+async function readCommunitySourceManifest(
+  db: Firestore,
+): Promise<CommunitySourceManifest | null> {
+  const snapshot = await db
+    .collection(AGGREGATE_COLLECTION)
+    .doc(COMMUNITY_SOURCE_MANIFEST_ID)
+    .get();
+  return snapshot.exists
+    ? parseCommunitySourceManifest(snapshot.data() ?? {})
+    : null;
+}
+
+async function readCommunitySourceCache(
+  db: Firestore,
+  manifest: CommunitySourceManifest,
+  now: number,
+): Promise<{ matches: CommunityMatch[]; reads: number } | null> {
+  if (!manifest.shardIds.length) {
+    return manifest.sourceMatchCount === 0 ? { matches: [], reads: 0 } : null;
+  }
+  const snapshots = await Promise.all(
+    manifest.shardIds.map((id) => (
+      db.collection(AGGREGATE_COLLECTION).doc(id).get()
+    )),
+  );
+  const shards = snapshots.map((snapshot, index) => (
+    snapshot.exists
+      ? decodeCommunitySourceShard(
+          manifest.shardIds[index],
+          snapshot.data() ?? {},
+        )
+      : null
+  ));
+  if (shards.some((shard) => shard === null)) return null;
+  const matches = materializeCommunitySourceMatches(
+    manifest,
+    shards.filter((shard) => shard !== null),
+    now,
+  );
+  return matches ? { matches, reads: snapshots.length } : null;
+}
+
+async function readCommunitySourceChanges(
+  db: Firestore,
+  after: CommunitySourceCursor,
+): Promise<CommunitySourceChangeRead> {
+  const changes: CommunitySourceChange[] = [];
+  let cursor = { ...after };
+  let reads = 0;
+  let invalid = 0;
+  let pageAfter: CommunitySourceCursor | null = after.changedAtMs > 0 || after.documentId
+    ? { ...after }
+    : null;
+
+  while (true) {
+    let query = db
+      .collection(COMMUNITY_SOURCE_CHANGE_COLLECTION)
+      .orderBy("changedAtMs", "asc")
+      .orderBy(FieldPath.documentId(), "asc")
+      .limit(COMMUNITY_SOURCE_CHANGE_PAGE_SIZE);
+    if (pageAfter) {
+      query = query.startAfter(pageAfter.changedAtMs, pageAfter.documentId);
+    }
+    const snapshot = await query.get();
+    reads += snapshot.size;
+    if (snapshot.empty) break;
+
+    for (const document of snapshot.docs) {
+      const raw = document.data() ?? {};
+      const changedAtMs = toNonNegativeInteger(raw.changedAtMs) ?? 0;
+      const scannedCursor = { changedAtMs, documentId: document.id };
+      if (compareCommunitySourceCursor(scannedCursor, cursor) > 0) {
+        cursor = scannedCursor;
+      }
+      const decoded = decodeCommunitySourceChange(document.id, raw);
+      if (decoded) {
+        changes.push(decoded);
+      } else {
+        invalid += 1;
+      }
+    }
+
+    const last = snapshot.docs[snapshot.docs.length - 1];
+    pageAfter = {
+      changedAtMs: toNonNegativeInteger(last.get("changedAtMs")) ?? 0,
+      documentId: last.id,
+    };
+    if (snapshot.size < COMMUNITY_SOURCE_CHANGE_PAGE_SIZE) break;
+  }
+
+  return { changes, cursor, reads, invalid };
+}
+
+async function latestCommunitySourceChangeCursor(
+  db: Firestore,
+): Promise<CommunitySourceCursor> {
+  const snapshot = await db
+    .collection(COMMUNITY_SOURCE_CHANGE_COLLECTION)
+    .orderBy("changedAtMs", "desc")
+    .orderBy(FieldPath.documentId(), "desc")
+    .limit(1)
+    .get();
+  const document = snapshot.docs[0];
+  return document
+    ? {
+        changedAtMs: toNonNegativeInteger(document.get("changedAtMs")) ?? 0,
+        documentId: document.id,
+      }
+    : emptyCommunitySourceCursor();
+}
+
+export async function communityAggregateSourceWatermark(): Promise<{
+  cacheReady: boolean;
+  current: CommunitySourceCursor;
+  latest: CommunitySourceCursor;
+  pending: boolean;
+} | null> {
+  const db = getFirestoreAdmin();
+  if (!db) return null;
+  const [manifest, latest] = await Promise.all([
+    readCommunitySourceManifest(db),
+    latestCommunitySourceChangeCursor(db),
+  ]);
+  const current = manifest?.cursor ?? emptyCommunitySourceCursor();
+  return {
+    cacheReady: manifest !== null,
+    current,
+    latest,
+    pending: !manifest || compareCommunitySourceCursor(latest, current) > 0,
+  };
+}
+
+async function migrateRecentLegacyCreatedAt(
+  db: Firestore,
+  now: number,
+): Promise<{ complete: boolean; auditedAt: number; migrated: number }> {
+  const cutoffSeconds = Math.floor(
+    (now - 30 * 24 * 60 * 60 * 1000) / 1000,
+  );
+  try {
+    const snapshot = await db
+      .collection("matches")
+      .where("createdAt", ">=", cutoffSeconds)
+      .orderBy("createdAt", "desc")
+      .get();
+    const updates = snapshot.docs.flatMap((document) => {
+      if (toNonNegativeInteger(document.get("created_at")) !== undefined) return [];
+      const raw = Number(document.get("createdAt"));
+      if (!Number.isFinite(raw) || raw <= 0) return [];
+      const createdAt = raw < 10_000_000_000
+        ? Math.floor(raw)
+        : Math.floor(raw / 1000);
+      return [{ ref: document.ref, createdAt }];
+    });
+    for (let offset = 0; offset < updates.length; offset += COMMUNITY_SOURCE_BATCH_SIZE) {
+      const batch = db.batch();
+      for (const update of updates.slice(offset, offset + COMMUNITY_SOURCE_BATCH_SIZE)) {
+        batch.update(update.ref, { created_at: update.createdAt });
+      }
+      await batch.commit();
+    }
+    return { complete: true, auditedAt: now, migrated: updates.length };
+  } catch (error) {
+    console.error("[community/data] Legacy createdAt migration failed", error);
+    return { complete: false, auditedAt: 0, migrated: 0 };
+  }
+}
+
+async function writeCommunitySourceCache(
+  db: Firestore,
+  matches: CommunityMatch[],
+  cursor: CommunitySourceCursor,
+  previous: CommunitySourceManifest | null,
+  options: {
+    now: number;
+    fullReconciledAt: number;
+    legacyTimestampComplete: boolean;
+    legacyAuditedAt: number;
+  },
+): Promise<CommunitySourceManifest> {
+  const shards = buildCommunitySourceShards(matches, options.now);
+  const previousIds = new Set(previous?.shardIds ?? []);
+  const nextIds = new Set(shards.map((shard) => shard.id));
+  const newShards = shards.filter((shard) => !previousIds.has(shard.id));
+
+  for (let offset = 0; offset < newShards.length; offset += COMMUNITY_SOURCE_BATCH_SIZE) {
+    const batch = db.batch();
+    for (const shard of newShards.slice(offset, offset + COMMUNITY_SOURCE_BATCH_SIZE)) {
+      batch.set(
+        db.collection(AGGREGATE_COLLECTION).doc(shard.id),
+        encodeCommunitySourceShard(shard, options.now),
+      );
+    }
+    await batch.commit();
+  }
+
+  const manifest: CommunitySourceManifest = {
+    schemaVersion: COMMUNITY_SOURCE_CACHE_SCHEMA_VERSION,
+    cursor,
+    shardIds: [...nextIds].sort(),
+    sourceMatchCount: matches.length,
+    fullReconciledAt: options.fullReconciledAt,
+    legacyTimestampComplete: options.legacyTimestampComplete,
+    legacyAuditedAt: options.legacyAuditedAt,
+    updatedAt: options.now,
+  };
+  await db
+    .collection(AGGREGATE_COLLECTION)
+    .doc(COMMUNITY_SOURCE_MANIFEST_ID)
+    .set(encodeCommunitySourceManifest(manifest));
+
+  const obsolete = [...previousIds].filter((id) => !nextIds.has(id));
+  try {
+    for (let offset = 0; offset < obsolete.length; offset += COMMUNITY_SOURCE_BATCH_SIZE) {
+      const batch = db.batch();
+      for (const id of obsolete.slice(offset, offset + COMMUNITY_SOURCE_BATCH_SIZE)) {
+        batch.delete(db.collection(AGGREGATE_COLLECTION).doc(id));
+      }
+      await batch.commit();
+    }
+  } catch (error) {
+    // Content-addressed source shards are immutable. A failed cleanup only
+    // leaves an unreferenced document; it cannot corrupt the active manifest.
+    console.error("[community/data] Obsolete source shard cleanup failed", error);
+  }
+
+  return manifest;
 }
 
 /**
@@ -949,52 +1220,6 @@ async function fetchStatsFromRangeAggregate(
         matrix: ensureSymmetricMatrix(payload.stats.matrix),
       }
     : buildRangeStats(days, payload.matches, payload.matches.length, payload.updatedAt);
-}
-
-async function fetchRangeMatchesForRefresh(
-  days: CommunityRangeDays,
-  latestMatches: CommunityMatch[],
-  rangeSourceMatches?: CommunityMatch[] | null,
-): Promise<CommunityRangeWindow | null> {
-  if (rangeSourceMatches) {
-    const statsMatches = filterCommunityMatchesByDays(rangeSourceMatches, days);
-    return {
-      statsMatches,
-      detailMatches: sortedByCreatedAtDesc(statsMatches).slice(0, COMMUNITY_WINDOW_SIZE),
-    };
-  }
-
-  const existing = await fetchRangeAggregatePayload(days);
-  if (existing?.collectionBacked) {
-    const byId = new Map<string, CommunityMatch>();
-    const existingStats = existing.stats?.matchCount
-      ? existing.matches
-      : existing.matches;
-    for (const match of [...latestMatches, ...existingStats]) {
-      if (!match.id || byId.has(match.id)) continue;
-      byId.set(match.id, match);
-    }
-    const statsMatches = sortedByCreatedAtDesc(
-      filterCommunityMatchesByDays([...byId.values()], days),
-    );
-    return {
-      statsMatches,
-      detailMatches: statsMatches.slice(0, COMMUNITY_WINDOW_SIZE),
-    };
-  }
-
-  const statsMatches = await fetchRangeMatchesFromCollection(days, {
-    limitToDetailWindow: false,
-  });
-  return statsMatches
-    ? {
-        statsMatches,
-        detailMatches: sortedByCreatedAtDesc(statsMatches).slice(
-          0,
-          COMMUNITY_WINDOW_SIZE,
-        ),
-      }
-    : null;
 }
 
 /**
@@ -1350,6 +1575,9 @@ export async function appendMatchToAggregate(
   }
 
   const ref = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID);
+  const changeRef = db
+    .collection(COMMUNITY_SOURCE_CHANGE_COLLECTION)
+    .doc(communitySourceChangeDocId(match.id));
 
   // Wrapped in a transaction so concurrent appends don't stomp each
   // other. Without this, two matches finishing at the same moment
@@ -1359,7 +1587,10 @@ export async function appendMatchToAggregate(
   // automatically on contention, so the happy path stays one aggregate
   // read/write plus one tiny public-player lookup for a new match.
   return db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
+    const [snap, changeSnap] = await Promise.all([
+      tx.get(ref),
+      tx.get(changeRef),
+    ]);
 
     let existing: CommunityMatch[] = [];
     // Preserve private-hub counts across appends; the full-refresh cron
@@ -1494,6 +1725,19 @@ export async function appendMatchToAggregate(
         },
         { merge: true },
       );
+    }
+
+    const existingChange = changeSnap.data() ?? {};
+    const candidateChange = encodeCommunitySourceChange(match, 1);
+    if (
+      existingChange.schemaVersion !== COMMUNITY_SOURCE_CACHE_SCHEMA_VERSION ||
+      existingChange.matchGz !== candidateChange.matchGz
+    ) {
+      const changedAtMs = nextCommunitySourceChangeTimestamp(
+        existingChange.changedAtMs,
+        Date.now(),
+      );
+      tx.set(changeRef, encodeCommunitySourceChange(match, changedAtMs));
     }
 
     return {
@@ -1834,12 +2078,16 @@ export async function deletePrivateHubAggregateRecords(
 }
 
 /**
- * Force-refresh the aggregate doc from the live matches collection.
- * Entry point for the scheduled cron. Intentionally bypasses the
- * unstable_cache wrapper so every cron run reads fresh from Firestore.
- * Returns a summary for the API response + logs.
+ * Refresh the public aggregate from the compact rolling source cache.
+ *
+ * Normal daily runs read immutable day shards plus journal rows changed since
+ * the prior cursor. A full raw 30-day reconciliation is automatic every seven
+ * days (or explicit via forceFullReconcile) so a missed client append can never
+ * become permanent. Both paths publish the exact same aggregate documents.
  */
-export async function refreshCommunityAggregate(): Promise<{
+export async function refreshCommunityAggregate(
+  options: { forceFullReconcile?: boolean; now?: number } = {},
+): Promise<{
   matchCount: number;
   publicLifetimeMatchCount: number;
   publicLifetimePlayerCount?: number;
@@ -1848,36 +2096,115 @@ export async function refreshCommunityAggregate(): Promise<{
   privatePlayerCount: number;
   updatedAt: number;
   source: "firestore" | "fixtures";
+  refreshMode: "incremental" | "reconcile";
+  sourceMatchCount: number;
+  sourceShardReads: number;
+  sourceChangeReads: number;
+  changesApplied: number;
+  invalidChanges: number;
+  cursorChangedAtMs: number;
+  cursorDocumentId: string;
+  legacyTimestampComplete: boolean;
+  legacyMatchesMigrated: number;
 }> {
-  const fullThirtyDayWindow = await fetchRangeMatchesFromCollection(30, {
-    limitToDetailWindow: false,
-  });
-  const live = latestCommunityWindowFromThirtyDayRange(fullThirtyDayWindow) ??
-    await fetchMatchesFromCollection();
-
-  if (live === null) {
+  const db = getFirestoreAdmin();
+  if (!db) {
     throw new Error(
       "Firestore admin is not configured — cannot refresh aggregate",
     );
   }
+  const now = options.now ?? Date.now();
+  const previousManifest = await readCommunitySourceManifest(db);
+  let refreshMode: "incremental" | "reconcile" = "incremental";
+  let sourceMatches: CommunityMatch[] | null = null;
+  let sourceShardReads = 0;
+  let sourceChangeReads = 0;
+  let changesApplied = 0;
+  let invalidChanges = 0;
+  let cursor = previousManifest?.cursor ?? emptyCommunitySourceCursor();
+  let fullReconciledAt = previousManifest?.fullReconciledAt ?? 0;
+  let legacyTimestampComplete = previousManifest?.legacyTimestampComplete ?? false;
+  let legacyAuditedAt = previousManifest?.legacyAuditedAt ?? 0;
+  let legacyMatchesMigrated = 0;
+
+  if (
+    !options.forceFullReconcile &&
+    !communitySourceNeedsFullReconcile(previousManifest, now) &&
+    previousManifest
+  ) {
+    const cached = await readCommunitySourceCache(db, previousManifest, now);
+    if (cached) {
+      const changes = await readCommunitySourceChanges(db, previousManifest.cursor);
+      sourceShardReads = cached.reads;
+      sourceChangeReads = changes.reads;
+      changesApplied = changes.changes.length;
+      invalidChanges = changes.invalid;
+      if (changes.invalid === 0) {
+        sourceMatches = applyCommunitySourceChanges(cached.matches, changes.changes, now);
+        cursor = changes.cursor;
+      }
+    }
+  }
+
+  if (!sourceMatches) {
+    refreshMode = "reconcile";
+    if (communitySourceNeedsLegacyAudit(previousManifest, now)) {
+      const migration = await migrateRecentLegacyCreatedAt(db, now);
+      legacyTimestampComplete = migration.complete;
+      legacyMatchesMigrated = migration.migrated;
+      if (migration.complete) {
+        legacyAuditedAt = migration.auditedAt;
+      }
+    }
+
+    // Capture the latest journal entry before the raw scan. Every journal
+    // write happens in the append transaction after the authoritative match
+    // already exists, so the scan contains everything up to this cursor.
+    // Replaying only later entries closes the race without rereading the full
+    // historical journal during a bootstrap or repair.
+    const baselineCursor = await latestCommunitySourceChangeCursor(db);
+    const fullThirtyDayWindow = await fetchRangeMatchesFromCollection(30, {
+      limitToDetailWindow: false,
+      includeLegacy: !legacyTimestampComplete,
+      now,
+    });
+    if (fullThirtyDayWindow === null) {
+      throw new Error(
+        "Firestore admin is not configured — cannot refresh aggregate",
+      );
+    }
+    const changes = await readCommunitySourceChanges(db, baselineCursor);
+    sourceChangeReads += changes.reads;
+    changesApplied += changes.changes.length;
+    invalidChanges += changes.invalid;
+    sourceMatches = applyCommunitySourceChanges(
+      fullThirtyDayWindow,
+      changes.changes,
+      now,
+    );
+    cursor = changes.cursor;
+    fullReconciledAt = now;
+  }
+
+  const live = latestCommunityWindowFromThirtyDayRange(sourceMatches) ??
+    // When activity falls below 7,000 matches in 30 days, preserve the existing
+    // historical detail window exactly, including older legacy-only rows. This
+    // fallback is dormant at current volume and deliberately favors parity over
+    // optimization for smaller future/community datasets.
+    await fetchMatchesFromCollection({ includeLegacy: true });
+
+  if (live === null) {
+    throw new Error("Unable to build the latest Community match window");
+  }
 
   const rangeWindows: CommunityRangeWindows = {};
-  await Promise.all(
-    COMMUNITY_RANGE_DAYS.map(async (days) => {
-      try {
-        const window = await fetchRangeMatchesForRefresh(
-          days,
-          live,
-          fullThirtyDayWindow,
-        );
-        if (window) {
-          rangeWindows[days] = window;
-        }
-      } catch (error) {
-        console.error(`[community/data] ${days}d range refresh failed`, error);
-      }
-    }),
-  );
+  for (const days of COMMUNITY_RANGE_DAYS) {
+    const statsMatches = filterCommunityMatchesByDays(sourceMatches, days, now);
+    rangeWindows[days] = {
+      statsMatches,
+      detailMatches: sortedByCreatedAtDesc(statsMatches).slice(0, COMMUNITY_WINDOW_SIZE),
+    };
+  }
 
   // Compute private-hub counts in parallel-safe fashion; failures
   // shouldn't block the public refresh — we just record zeros.
@@ -1889,9 +2216,8 @@ export async function refreshCommunityAggregate(): Promise<{
   }
 
   const publicLifetimeMatchCount = await fetchPublicLifetimeMatchCount();
-  const db = getFirestoreAdmin();
   const aggregateData =
-    (await db?.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID).get())
+    (await db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID).get())
       ?.data() ?? {};
   const existingPublicLifetimePlayerCount = toNonNegativeInteger(
     aggregateData.publicLifetimePlayerCount,
@@ -1914,6 +2240,18 @@ export async function refreshCommunityAggregate(): Promise<{
     publicPlayerStats,
     rangeWindows,
   );
+  const sourceManifest = await writeCommunitySourceCache(
+    db,
+    sourceMatches,
+    cursor,
+    previousManifest,
+    {
+      now,
+      fullReconciledAt,
+      legacyTimestampComplete,
+      legacyAuditedAt,
+    },
+  );
 
   return {
     matchCount: live.length,
@@ -1922,7 +2260,17 @@ export async function refreshCommunityAggregate(): Promise<{
     publicPlayerIndexReady: writeResult.publicPlayerIndexReady,
     privateMatchCount: privateBoost.privateMatchCount,
     privatePlayerCount: privateBoost.privatePlayerCount,
-    updatedAt: Date.now(),
+    updatedAt: now,
     source: "firestore",
+    refreshMode,
+    sourceMatchCount: sourceManifest.sourceMatchCount,
+    sourceShardReads,
+    sourceChangeReads,
+    changesApplied,
+    invalidChanges,
+    cursorChangedAtMs: sourceManifest.cursor.changedAtMs,
+    cursorDocumentId: sourceManifest.cursor.documentId,
+    legacyTimestampComplete,
+    legacyMatchesMigrated,
   };
 }

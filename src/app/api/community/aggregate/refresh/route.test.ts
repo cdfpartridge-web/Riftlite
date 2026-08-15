@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  communityAggregateSourceWatermark: vi.fn(),
   getFirestoreAdmin: vi.fn(),
   invalidateCommunityMatchMemoryCache: vi.fn(),
   refreshCommunityAggregate: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/cache", () => ({ revalidateTag: mocks.revalidateTag }));
 vi.mock("@/lib/firebase/admin", () => ({ getFirestoreAdmin: mocks.getFirestoreAdmin }));
 vi.mock("@/lib/community/data", () => ({
+  communityAggregateSourceWatermark: mocks.communityAggregateSourceWatermark,
   invalidateCommunityMatchMemoryCache: mocks.invalidateCommunityMatchMemoryCache,
   refreshCommunityAggregate: mocks.refreshCommunityAggregate,
 }));
@@ -23,6 +25,12 @@ describe("Community aggregate refresh endpoint", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("COMMUNITY_AGGREGATE_SECRET", SECRET);
+    mocks.communityAggregateSourceWatermark.mockResolvedValue({
+      cacheReady: true,
+      current: { changedAtMs: 42, documentId: "change-42" },
+      latest: { changedAtMs: 42, documentId: "change-42" },
+      pending: false,
+    });
   });
 
   afterEach(() => vi.unstubAllEnvs());
@@ -30,9 +38,11 @@ describe("Community aggregate refresh endpoint", () => {
   it("skips a duplicate same-day repair when the public source count is unchanged", async () => {
     const fake = fakeDb({
       "community-refresh-state-v1": {
-        version: 1,
+        version: 2,
         completedOn: new Date().toISOString().slice(0, 10),
         publicLifetimeMatchCount: 7_000,
+        cursorChangedAtMs: 42,
+        cursorDocumentId: "change-42",
       },
       "community-v1": { publicLifetimeMatchCount: 7_000 },
     });
@@ -53,9 +63,11 @@ describe("Community aggregate refresh endpoint", () => {
   it("repairs when the append-maintained public count changed and records the guard", async () => {
     const fake = fakeDb({
       "community-refresh-state-v1": {
-        version: 1,
+        version: 2,
         completedOn: new Date().toISOString().slice(0, 10),
         publicLifetimeMatchCount: 6_999,
+        cursorChangedAtMs: 42,
+        cursorDocumentId: "change-42",
       },
       "community-v1": { publicLifetimeMatchCount: 7_000 },
     });
@@ -67,8 +79,10 @@ describe("Community aggregate refresh endpoint", () => {
     expect(response.status).toBe(200);
     expect(mocks.refreshCommunityAggregate).toHaveBeenCalledOnce();
     expect(fake.stateSet).toHaveBeenCalledWith(expect.objectContaining({
-      version: 1,
+      version: 2,
       publicLifetimeMatchCount: 7_000,
+      cursorChangedAtMs: 42,
+      cursorDocumentId: "change-42",
     }));
     expect(mocks.invalidateCommunityMatchMemoryCache).toHaveBeenCalledOnce();
   });
@@ -76,9 +90,11 @@ describe("Community aggregate refresh endpoint", () => {
   it("honors force=true even after a same-day repair", async () => {
     const fake = fakeDb({
       "community-refresh-state-v1": {
-        version: 1,
+        version: 2,
         completedOn: new Date().toISOString().slice(0, 10),
         publicLifetimeMatchCount: 7_000,
+        cursorChangedAtMs: 42,
+        cursorDocumentId: "change-42",
       },
       "community-v1": { publicLifetimeMatchCount: 7_000 },
     });
@@ -87,7 +103,59 @@ describe("Community aggregate refresh endpoint", () => {
 
     await POST(request("?force=true"));
 
-    expect(mocks.refreshCommunityAggregate).toHaveBeenCalledOnce();
+    expect(mocks.refreshCommunityAggregate).toHaveBeenCalledWith({
+      forceFullReconcile: true,
+    });
+  });
+
+  it("can bypass the same-day guard without forcing a full reconciliation", async () => {
+    const fake = fakeDb({
+      "community-refresh-state-v1": {
+        version: 2,
+        completedOn: new Date().toISOString().slice(0, 10),
+        publicLifetimeMatchCount: 7_000,
+        cursorChangedAtMs: 42,
+        cursorDocumentId: "change-42",
+      },
+      "community-v1": { publicLifetimeMatchCount: 7_000 },
+    });
+    mocks.getFirestoreAdmin.mockReturnValue(fake.db);
+    mocks.refreshCommunityAggregate.mockResolvedValue(refreshResult(7_000));
+
+    await POST(request("?incremental=true"));
+
+    expect(mocks.communityAggregateSourceWatermark).not.toHaveBeenCalled();
+    expect(mocks.refreshCommunityAggregate).toHaveBeenCalledWith({
+      forceFullReconcile: false,
+    });
+  });
+
+  it("repairs again when a corrected match is newer than the source cursor", async () => {
+    const fake = fakeDb({
+      "community-refresh-state-v1": {
+        version: 2,
+        completedOn: new Date().toISOString().slice(0, 10),
+        publicLifetimeMatchCount: 7_000,
+        cursorChangedAtMs: 42,
+        cursorDocumentId: "change-42",
+      },
+      "community-v1": { publicLifetimeMatchCount: 7_000 },
+    });
+    mocks.getFirestoreAdmin.mockReturnValue(fake.db);
+    mocks.communityAggregateSourceWatermark.mockResolvedValue({
+      cacheReady: true,
+      current: { changedAtMs: 42, documentId: "change-42" },
+      latest: { changedAtMs: 43, documentId: "change-43" },
+      pending: true,
+    });
+    mocks.refreshCommunityAggregate.mockResolvedValue(refreshResult(7_000));
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.refreshCommunityAggregate).toHaveBeenCalledWith({
+      forceFullReconcile: false,
+    });
   });
 
   it("rejects an unauthorized caller before any Firestore work", async () => {
@@ -119,6 +187,16 @@ function refreshResult(publicLifetimeMatchCount: number) {
     privatePlayerCount: 20,
     updatedAt: Date.now(),
     source: "firestore" as const,
+    refreshMode: "incremental" as const,
+    sourceMatchCount: 7_000,
+    sourceShardReads: 56,
+    sourceChangeReads: 3,
+    changesApplied: 3,
+    invalidChanges: 0,
+    cursorChangedAtMs: 42,
+    cursorDocumentId: "change-42",
+    legacyTimestampComplete: true,
+    legacyMatchesMigrated: 0,
   };
 }
 
