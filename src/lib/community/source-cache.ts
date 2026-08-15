@@ -31,6 +31,7 @@ export type CommunitySourceManifest = {
   cursor: CommunitySourceCursor;
   shardIds: string[];
   sourceMatchCount: number;
+  publicLifetimeMatchCount: number | null;
   fullReconciledAt: number;
   legacyTimestampComplete: boolean;
   legacyAuditedAt: number;
@@ -291,12 +292,19 @@ export function parseCommunitySourceManifest(
       ))
     : [];
   const sourceMatchCount = nonNegativeSafeInteger(raw.sourceMatchCount);
+  const publicLifetimeMatchCount = raw.publicLifetimeMatchCount === null ||
+    raw.publicLifetimeMatchCount === undefined
+    ? null
+    : nonNegativeSafeInteger(raw.publicLifetimeMatchCount);
   const fullReconciledAt = nonNegativeSafeInteger(raw.fullReconciledAt);
   const legacyAuditedAt = nonNegativeSafeInteger(raw.legacyAuditedAt);
   const updatedAt = nonNegativeSafeInteger(raw.updatedAt);
   if (
     cursorChangedAtMs === null ||
     sourceMatchCount === null ||
+    (raw.publicLifetimeMatchCount !== null &&
+      raw.publicLifetimeMatchCount !== undefined &&
+      publicLifetimeMatchCount === null) ||
     fullReconciledAt === null ||
     legacyAuditedAt === null ||
     updatedAt === null ||
@@ -313,6 +321,7 @@ export function parseCommunitySourceManifest(
     },
     shardIds,
     sourceMatchCount,
+    publicLifetimeMatchCount,
     fullReconciledAt,
     legacyTimestampComplete: raw.legacyTimestampComplete === true,
     legacyAuditedAt,
@@ -329,6 +338,7 @@ export function encodeCommunitySourceManifest(
     cursorDocumentId: input.cursor.documentId,
     shardIds: [...input.shardIds].sort(),
     sourceMatchCount: input.sourceMatchCount,
+    publicLifetimeMatchCount: input.publicLifetimeMatchCount,
     fullReconciledAt: input.fullReconciledAt,
     legacyTimestampComplete: input.legacyTimestampComplete,
     legacyAuditedAt: input.legacyAuditedAt,

@@ -892,6 +892,7 @@ async function writeCommunitySourceCache(
   options: {
     now: number;
     fullReconciledAt: number;
+    publicLifetimeMatchCount: number | null;
     legacyTimestampComplete: boolean;
     legacyAuditedAt: number;
   },
@@ -917,6 +918,7 @@ async function writeCommunitySourceCache(
     cursor,
     shardIds: [...nextIds].sort(),
     sourceMatchCount: matches.length,
+    publicLifetimeMatchCount: options.publicLifetimeMatchCount,
     fullReconciledAt: options.fullReconciledAt,
     legacyTimestampComplete: options.legacyTimestampComplete,
     legacyAuditedAt: options.legacyAuditedAt,
@@ -2126,6 +2128,8 @@ export async function refreshCommunityAggregate(
   let legacyTimestampComplete = previousManifest?.legacyTimestampComplete ?? false;
   let legacyAuditedAt = previousManifest?.legacyAuditedAt ?? 0;
   let legacyMatchesMigrated = 0;
+  let publicLifetimeMatchCount: number | null = null;
+  let journalNewMatches = 0;
 
   if (
     !options.forceFullReconcile &&
@@ -2135,14 +2139,37 @@ export async function refreshCommunityAggregate(
     const cached = await readCommunitySourceCache(db, previousManifest, now);
     if (cached) {
       const changes = await readCommunitySourceChanges(db, previousManifest.cursor);
+      const cachedIds = new Set(cached.matches.map((match) => match.id));
       sourceShardReads = cached.reads;
       sourceChangeReads = changes.reads;
       changesApplied = changes.changes.length;
       invalidChanges = changes.invalid;
+      journalNewMatches = changes.changes.filter((change) => (
+        !cachedIds.has(change.matchId)
+      )).length;
       if (changes.invalid === 0) {
         sourceMatches = applyCommunitySourceChanges(cached.matches, changes.changes, now);
         cursor = changes.cursor;
       }
+    }
+  }
+
+  if (sourceMatches) {
+    publicLifetimeMatchCount = await fetchPublicLifetimeMatchCount();
+    const previousLifetimeCount = previousManifest?.publicLifetimeMatchCount ?? null;
+    if (
+      previousLifetimeCount !== null &&
+      publicLifetimeMatchCount !== null &&
+      (
+        publicLifetimeMatchCount < previousLifetimeCount ||
+        publicLifetimeMatchCount - previousLifetimeCount > journalNewMatches
+      )
+    ) {
+      // A raw insert/delete reached Firestore without a matching append event.
+      // Preserve the old daily repair guarantee by escalating this run to the
+      // authoritative scan. Corrections still remain covered by the journal
+      // and the independent weekly reconciliation.
+      sourceMatches = null;
     }
   }
 
@@ -2184,6 +2211,7 @@ export async function refreshCommunityAggregate(
     );
     cursor = changes.cursor;
     fullReconciledAt = now;
+    publicLifetimeMatchCount = await fetchPublicLifetimeMatchCount();
   }
 
   const live = latestCommunityWindowFromThirtyDayRange(sourceMatches) ??
@@ -2215,7 +2243,9 @@ export async function refreshCommunityAggregate(
     console.error("[community/data] Private hub stats failed", error);
   }
 
-  const publicLifetimeMatchCount = await fetchPublicLifetimeMatchCount();
+  if (publicLifetimeMatchCount === null) {
+    publicLifetimeMatchCount = await fetchPublicLifetimeMatchCount();
+  }
   const aggregateData =
     (await db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOC_ID).get())
       ?.data() ?? {};
@@ -2248,6 +2278,7 @@ export async function refreshCommunityAggregate(
     {
       now,
       fullReconciledAt,
+      publicLifetimeMatchCount,
       legacyTimestampComplete,
       legacyAuditedAt,
     },

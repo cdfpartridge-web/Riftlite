@@ -66,6 +66,8 @@ describe("incremental Community aggregate refresh", () => {
       legacyMatchesMigrated: 1,
     });
     expect(fake.get("aggregates", COMMUNITY_SOURCE_MANIFEST_ID)).toBeTruthy();
+    expect(fake.get("aggregates", COMMUNITY_SOURCE_MANIFEST_ID)?.publicLifetimeMatchCount)
+      .toBe(7_000);
     const readsAfterBootstrap = fake.rawMatchDocumentReads;
     expect(readsAfterBootstrap).toBe(7_001);
 
@@ -115,6 +117,18 @@ describe("incremental Community aggregate refresh", () => {
       invalidChanges: 1,
     });
     expect(fake.rawMatchDocumentReads).toBe(readsBeforeRepair + 7_000);
+
+    fake.put("matches", "missed-append", rawMatch("missed-append", "Win"));
+    const readsBeforeCountRepair = fake.rawMatchDocumentReads;
+    const countRepaired = await refreshCommunityAggregate({
+      now: NOW + 3 * 24 * 60 * 60 * 1000,
+    });
+    expect(countRepaired).toMatchObject({
+      refreshMode: "reconcile",
+      publicLifetimeMatchCount: 7_001,
+      sourceMatchCount: 7_001,
+    });
+    expect(fake.rawMatchDocumentReads).toBe(readsBeforeCountRepair + 7_001);
   }, 30_000);
 
   it("records an idempotent journal row in the append transaction", async () => {
