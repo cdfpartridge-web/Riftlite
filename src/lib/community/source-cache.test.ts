@@ -66,6 +66,7 @@ describe("community aggregate source cache", () => {
       cursor: { changedAtMs: 42, documentId: "a" },
       shardIds: shards.map((shard) => shard.id),
       sourceMatchCount: 3,
+      publicLifetimeMatchCount: 300,
       fullReconciledAt: NOW,
       legacyTimestampComplete: true,
       legacyAuditedAt: NOW,
@@ -73,6 +74,10 @@ describe("community aggregate source cache", () => {
     });
     const manifest = parseCommunitySourceManifest(rawManifest);
     expect(manifest?.schemaVersion).toBe(COMMUNITY_SOURCE_CACHE_SCHEMA_VERSION);
+    expect(manifest?.publicLifetimeMatchCount).toBe(300);
+    const legacyManifest = { ...rawManifest };
+    delete legacyManifest.publicLifetimeMatchCount;
+    expect(parseCommunitySourceManifest(legacyManifest)?.publicLifetimeMatchCount).toBeNull();
     expect(materializeCommunitySourceMatches(
       manifest!,
       decoded.filter((value) => value !== null),
@@ -140,6 +145,7 @@ describe("community aggregate source cache", () => {
       cursor: emptyCommunitySourceCursor(),
       shardIds: shards.map((shard) => shard.id),
       sourceMatchCount: 2,
+      publicLifetimeMatchCount: 2,
       fullReconciledAt: NOW,
       legacyTimestampComplete: true,
       legacyAuditedAt: NOW,
@@ -162,6 +168,7 @@ describe("community aggregate source cache", () => {
       cursor: emptyCommunitySourceCursor(),
       shardIds: [],
       sourceMatchCount: 0,
+      publicLifetimeMatchCount: 0,
       fullReconciledAt: NOW,
       legacyTimestampComplete: true,
       legacyAuditedAt: NOW,
