@@ -14,16 +14,25 @@ export type LiveTakeoverConfig = {
   provider: LiveTakeoverProvider;
   channelLogin: string;
   title: string;
+  /** Server-owned identifier for one armed takeover run. */
+  analyticsRunId?: string;
 };
 
-export type PublicLiveTakeover = LiveTakeoverConfig & {
+export type LiveTakeoverAnalyticsAccess = {
+  runId: string;
+  token: string;
+};
+
+export type PublicLiveTakeover = Omit<LiveTakeoverConfig, "analyticsRunId"> & {
   active: boolean;
   status: StreamStatus["state"] | "disabled";
   channelUrl: string;
   updatedAt?: number;
+  analytics?: LiveTakeoverAnalyticsAccess;
 };
 
 const TWITCH_LOGIN_PATTERN = /^[a-z0-9_]{4,25}$/;
+const ANALYTICS_RUN_ID_PATTERN = /^[a-zA-Z0-9_-]{16,80}$/;
 const MAX_TITLE_LENGTH = 120;
 
 function recordFrom(value: unknown): Record<string, unknown> {
@@ -54,12 +63,17 @@ export function normalizeLiveTakeoverConfig(value: unknown): LiveTakeoverConfig 
   const normalizedChannel = normalizeTwitchChannelLogin(data.channelLogin);
   const providerSupported = data.provider === undefined || data.provider === "twitch";
   const channelSupported = data.channelLogin === undefined || Boolean(normalizedChannel);
+  const analyticsRunId = typeof data.analyticsRunId === "string"
+    && ANALYTICS_RUN_ID_PATTERN.test(data.analyticsRunId.trim())
+    ? data.analyticsRunId.trim()
+    : "";
   return {
     enabled: data.enabled === true && providerSupported && channelSupported,
     provider: "twitch",
     channelLogin: normalizedChannel
       || DEFAULT_LIVE_TAKEOVER_CONFIG.channelLogin,
     title: normalizeTitle(data.title),
+    ...(analyticsRunId ? { analyticsRunId } : {}),
   };
 }
 
@@ -72,6 +86,7 @@ export function liveTakeoverStorageFromConfig(
     provider: config.provider,
     channelLogin: config.channelLogin,
     title: config.title,
+    ...(config.analyticsRunId ? { analyticsRunId: config.analyticsRunId } : {}),
   };
 }
 
@@ -81,6 +96,12 @@ export function publicLiveTakeoverFromStatus(
   updatedAt?: unknown,
 ): PublicLiveTakeover {
   const config = normalizeLiveTakeoverConfig(value);
+  const publicConfig = {
+    enabled: config.enabled,
+    provider: config.provider,
+    channelLogin: config.channelLogin,
+    title: config.title,
+  };
   const isConfiguredChannel = streamStatus.channelLogin === config.channelLogin;
   const isLive = isConfiguredChannel && streamStatus.state === "live" && streamStatus.isLive;
   const normalizedUpdatedAt = typeof updatedAt === "number"
@@ -89,7 +110,7 @@ export function publicLiveTakeoverFromStatus(
     ? Math.trunc(updatedAt)
     : undefined;
   return {
-    ...config,
+    ...publicConfig,
     active: config.enabled && isLive,
     status: config.enabled
       ? isConfiguredChannel ? streamStatus.state : "unavailable"

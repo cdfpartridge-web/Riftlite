@@ -1,11 +1,16 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { type NextRequest } from "next/server";
+import { FieldValue } from "firebase-admin/firestore";
 
 import {
   metaStudioJson,
   requireMetaStudioSession,
 } from "@/lib/community/meta-studio-auth";
 import { HOME_CONFIG_CACHE_TAG } from "@/lib/home-config";
+import {
+  createLiveTakeoverAnalyticsRunId,
+  LIVE_TAKEOVER_ANALYTICS_RUN_COLLECTION,
+} from "@/lib/live-takeover-analytics";
 import {
   liveTakeoverStorageFromConfig,
   normalizeLiveTakeoverConfig,
@@ -109,17 +114,54 @@ export async function PUT(request: NextRequest) {
     return metaStudioJson({ error: invalidMessage }, 400);
   }
 
-  const config = liveTakeoverStorageFromConfig(candidate);
+  const submittedConfig = liveTakeoverStorageFromConfig(candidate);
   const updatedAt = Date.now();
   try {
-    await auth.db
+    const homeConfigRef = auth.db
       .collection(HOME_CONFIG_COLLECTION)
-      .doc(HOME_CONFIG_DOCUMENT)
-      .set({
+      .doc(HOME_CONFIG_DOCUMENT);
+    const existingSnapshot = await homeConfigRef.get();
+    const existingConfig = normalizeLiveTakeoverConfig(
+      existingSnapshot.exists ? existingSnapshot.data()?.liveTakeover : null,
+    );
+    const startsNewRun = submittedConfig.enabled && (
+      !existingConfig.enabled
+      || existingConfig.channelLogin !== submittedConfig.channelLogin
+      || !existingConfig.analyticsRunId
+    );
+    const analyticsRunId = startsNewRun
+      ? createLiveTakeoverAnalyticsRunId()
+      : existingConfig.analyticsRunId;
+    const config = {
+      ...submittedConfig,
+      ...(analyticsRunId ? { analyticsRunId } : {}),
+    };
+
+    const batch = auth.db.batch();
+    batch.set(homeConfigRef, {
         liveTakeover: config,
         liveTakeoverUpdatedAt: updatedAt,
         liveTakeoverUpdatedBy: auth.uid,
       }, { merge: true });
+    if (analyticsRunId) {
+      const runRef = auth.db.collection(LIVE_TAKEOVER_ANALYTICS_RUN_COLLECTION)
+        .doc(analyticsRunId);
+      batch.set(runRef, {
+          channelLogin: config.channelLogin,
+          title: config.title,
+          enabled: config.enabled,
+          updatedAt: FieldValue.serverTimestamp(),
+          ...(startsNewRun ? {
+            startedAt: FieldValue.serverTimestamp(),
+            endedAt: null,
+          } : config.enabled ? {
+            endedAt: null,
+          } : {
+            endedAt: FieldValue.serverTimestamp(),
+          }),
+        }, { merge: true });
+    }
+    await batch.commit();
 
     revalidateTag(TWITCH_STATUS_CACHE_TAG, "max");
     revalidateTag(HOME_CONFIG_CACHE_TAG, "max");

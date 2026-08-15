@@ -17,6 +17,7 @@ import {
   type LiveTakeoverConfig,
   type PublicLiveTakeover,
 } from "@/lib/live-takeover";
+import type { LiveTakeoverAnalyticsReport } from "@/lib/live-takeover-analytics";
 import type { StreamStatus } from "@/lib/types";
 import {
   DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG,
@@ -110,6 +111,10 @@ type LiveTakeoverResponse = {
   message?: string;
 };
 
+type LiveTakeoverAnalyticsResponse = {
+  report: LiveTakeoverAnalyticsReport;
+};
+
 type LiveTakeoverPanelProps = {
   onClose: () => void;
 };
@@ -124,6 +129,9 @@ export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
+  const [analyticsReport, setAnalyticsReport] = useState<LiveTakeoverAnalyticsReport | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState("");
 
   const applyResponse = useCallback((payload: LiveTakeoverResponse) => {
     setConfig({ ...payload.config });
@@ -142,6 +150,19 @@ export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
       throw new Error(payload.error ?? "Live takeover settings could not be loaded.");
     }
     return payload as LiveTakeoverResponse;
+  }, []);
+
+  const requestAnalytics = useCallback(async (runId?: string) => {
+    const query = runId ? `?runId=${encodeURIComponent(runId)}` : "";
+    const response = await fetch(`/api/meta-studio/live-takeover/analytics${query}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const payload = await response.json() as Partial<LiveTakeoverAnalyticsResponse> & { error?: string };
+    if (!response.ok || !payload.report) {
+      throw new Error(payload.error ?? "Live takeover analytics could not be loaded.");
+    }
+    return payload.report;
   }, []);
 
   useEffect(() => {
@@ -165,6 +186,41 @@ export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
     };
   }, [applyResponse, requestConfig]);
 
+  const refreshAnalytics = useCallback(async (runId?: string) => {
+    setAnalyticsLoading(true);
+    setAnalyticsError("");
+    try {
+      setAnalyticsReport(await requestAnalytics(runId));
+    } catch (reason) {
+      setAnalyticsError(reason instanceof Error
+        ? reason.message
+        : "Live takeover analytics could not be loaded.");
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [requestAnalytics]);
+
+  useEffect(() => {
+    let mounted = true;
+    void requestAnalytics()
+      .then((report) => {
+        if (mounted) setAnalyticsReport(report);
+      })
+      .catch((reason: unknown) => {
+        if (mounted) {
+          setAnalyticsError(reason instanceof Error
+            ? reason.message
+            : "Live takeover analytics could not be loaded.");
+        }
+      })
+      .finally(() => {
+        if (mounted) setAnalyticsLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [requestAnalytics]);
+
   const refreshConfig = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -172,6 +228,7 @@ export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
     try {
       const payload = await requestConfig();
       applyResponse(payload);
+      void refreshAnalytics();
       setFeedback("Live takeover settings and Twitch status refreshed.");
     } catch (reason) {
       setError(reason instanceof Error
@@ -180,7 +237,7 @@ export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
     } finally {
       setLoading(false);
     }
-  }, [applyResponse, requestConfig]);
+  }, [applyResponse, refreshAnalytics, requestConfig]);
 
   async function saveConfig(nextConfig: LiveTakeoverConfig = config) {
     setSaving(true);
@@ -201,6 +258,7 @@ export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
         throw new Error(payload.error ?? "Live takeover settings could not be saved.");
       }
       applyResponse(payload as LiveTakeoverResponse);
+      void refreshAnalytics(payload.config.analyticsRunId);
     } catch (reason) {
       setFeedback("");
       setError(reason instanceof Error
@@ -232,6 +290,7 @@ export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
       : state === "unavailable"
         ? "The carousel remains visible until Twitch can safely confirm the channel is live."
         : "Desktop Home continues to show the normal creator video carousel.";
+  const analyticsSummary = analyticsReport?.summary;
 
   return (
     <div aria-labelledby="live-takeover-panel-title" aria-modal="true" className={styles.creatorConfigBackdrop} role="dialog">
@@ -349,6 +408,59 @@ export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
               </a>
             </div>
 
+            <section aria-label="Private live takeover analytics" className={styles.liveTakeoverAnalytics}>
+              <div className={styles.liveTakeoverAnalyticsHeader}>
+                <div>
+                  <span>PRIVATE ANALYTICS</span>
+                  <h3>RiftLite viewers and watch time</h3>
+                  <p>Anonymous, run-scoped playback data from desktops with diagnostics enabled.</p>
+                </div>
+                <div className={styles.liveTakeoverAnalyticsActions}>
+                  {analyticsReport?.runs.length ? (
+                    <label>
+                      <span>Takeover</span>
+                      <select
+                        aria-label="Analytics takeover run"
+                        onChange={(event) => void refreshAnalytics(event.target.value)}
+                        value={analyticsReport.selectedRunId ?? ""}
+                      >
+                        {analyticsReport.runs.map((run) => (
+                          <option key={run.id} value={run.id}>
+                            {run.title} · {run.startedAt ? new Date(run.startedAt).toLocaleDateString() : run.channelLogin}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  <button
+                    disabled={analyticsLoading}
+                    onClick={() => void refreshAnalytics(analyticsReport?.selectedRunId ?? undefined)}
+                    type="button"
+                  >
+                    <RefreshCw aria-hidden="true" className={analyticsLoading ? styles.spinning : ""} size={15} />
+                    Refresh stats
+                  </button>
+                </div>
+              </div>
+              {analyticsError ? (
+                <p className={styles.creatorConfigError}>{analyticsError}</p>
+              ) : analyticsLoading && !analyticsSummary ? (
+                <p className={styles.creatorConfigLoading}>Loading private viewer analytics...</p>
+              ) : (
+                <div className={styles.liveTakeoverAnalyticsGrid}>
+                  <div><strong>{analyticsSummary?.currentViewers ?? 0}</strong><span>Watching now</span></div>
+                  <div><strong>{analyticsSummary?.uniqueViewers ?? 0}</strong><span>Unique viewers</span></div>
+                  <div><strong>{formatTakeoverWatchTime(analyticsSummary?.totalWatchSeconds ?? 0)}</strong><span>Total watch time</span></div>
+                  <div><strong>{formatTakeoverWatchTime(analyticsSummary?.averageWatchSeconds ?? 0)}</strong><span>Average viewer</span></div>
+                  <div><strong>{analyticsSummary?.peakConcurrent ?? 0}</strong><span>Peak viewers</span></div>
+                  <div><strong>{analyticsSummary?.playbackStarts ?? 0}</strong><span>Playback starts</span></div>
+                </div>
+              )}
+              <p className={styles.liveTakeoverAnalyticsPrivacy}>
+                No IP addresses, accounts, usernames, Twitch identities, decks, or match data are stored. Current viewers use a 12-minute activity window.
+              </p>
+            </section>
+
             <div className={styles.liveTakeoverSaveRow}>
               <p>Saved changes usually reach active desktop clients within 30 seconds; allow up to about a minute if an edge cache is refreshing.</p>
               <button className={styles.creatorPrimaryButton} disabled={busy} onClick={() => void saveConfig()} type="button">
@@ -368,6 +480,14 @@ export function LiveTakeoverPanel({ onClose }: LiveTakeoverPanelProps) {
       </section>
     </div>
   );
+}
+
+function formatTakeoverWatchTime(seconds: number): string {
+  const minutes = Math.max(0, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining ? `${hours}h ${remaining}m` : `${hours}h`;
 }
 
 type CreatorVideoCarouselPanelProps = {
