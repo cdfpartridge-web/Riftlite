@@ -45,6 +45,14 @@ describe("Mulligan Lab refresh endpoint", () => {
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
+  it("forwards a lane-specific backfill limit and explicit force override", async () => {
+    mocks.refreshMulliganLabAggregate.mockResolvedValue(refreshResult(false));
+
+    await POST(request("?limit=250&force=true"));
+
+    expect(mocks.refreshMulliganLabAggregate).toHaveBeenCalledWith(250, { force: true });
+  });
+
   it("does not run or invalidate when authorization fails", async () => {
     const response = await POST(new NextRequest(
       "https://www.riftlite.com/api/app/mulligan-lab/refresh",
@@ -57,8 +65,8 @@ describe("Mulligan Lab refresh endpoint", () => {
   });
 });
 
-function request(): NextRequest {
-  return new NextRequest("https://www.riftlite.com/api/app/mulligan-lab/refresh", {
+function request(query = ""): NextRequest {
+  return new NextRequest(`https://www.riftlite.com/api/app/mulligan-lab/refresh${query}`, {
     method: "POST",
     headers: { authorization: `Bearer ${SECRET}` },
   });

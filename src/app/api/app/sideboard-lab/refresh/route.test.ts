@@ -29,10 +29,18 @@ describe("Sideboard Lab refresh endpoint", () => {
     expect(response.status).toBe(401);
     expect(mocks.refreshSideboardLabAggregate).not.toHaveBeenCalled();
   });
+
+  it("forwards a lane-specific backfill limit and explicit force override", async () => {
+    mocks.refreshSideboardLabAggregate.mockResolvedValue({ published: false });
+
+    await POST(request("test-secret", "?limit=250&force=1"));
+
+    expect(mocks.refreshSideboardLabAggregate).toHaveBeenCalledWith(250, { force: true });
+  });
 });
 
-function request(secret: string) {
-  return new NextRequest("https://www.riftlite.com/api/app/sideboard-lab/refresh", {
+function request(secret: string, query = "") {
+  return new NextRequest(`https://www.riftlite.com/api/app/sideboard-lab/refresh${query}`, {
     method: "POST",
     headers: { authorization: `Bearer ${secret}` },
   });

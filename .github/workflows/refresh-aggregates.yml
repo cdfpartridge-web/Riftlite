@@ -25,9 +25,31 @@ on:
     # range caches use a one-time raw backfill, then daily chunk-level
     # merge/prune repair so they do not triple the daily read cost.
     - cron: "17 3 * * *"
-  # Manual trigger so we can prime the aggregate doc on first deploy
-  # and recover quickly if something gets wedged.
+  # Manual repairs are lane-scoped. This matters while a fact backfill needs
+  # several invocations: advancing Sideboard must not rescan Community and
+  # Mulligan on every click (and vice versa).
   workflow_dispatch:
+    inputs:
+      lane:
+        description: Aggregate lane to repair/backfill
+        required: true
+        default: community
+        type: choice
+        options:
+          - community
+          - mulligan
+          - sideboard
+          - all
+      limit:
+        description: Replay documents per Mulligan/Sideboard backfill page
+        required: true
+        default: "1500"
+        type: string
+      force:
+        description: Bypass the same-day unchanged-source guard
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   # If a previous run is still going, skip this one instead of piling up.
@@ -35,16 +57,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  community:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event.inputs.lane == 'community' ||
+      github.event.inputs.lane == 'all'
     runs-on: ubuntu-latest
-    # The initial Mulligan and Sideboard Lab fact backfills may each use
-    # their full five-minute webhook budget. Normal daily fact-only
-    # refreshes finish much sooner.
-    timeout-minutes: 15
+    timeout-minutes: 3
     steps:
-      - name: Hit refresh webhook
+      - name: Refresh community aggregate
         env:
           REFRESH_SECRET: ${{ secrets.COMMUNITY_AGGREGATE_SECRET }}
+          FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
         run: |
           if [ -z "$REFRESH_SECRET" ]; then
             echo "::error::COMMUNITY_AGGREGATE_SECRET is not set in repo secrets"
@@ -62,16 +86,30 @@ jobs:
             -X POST \
             -H "Authorization: Bearer $REFRESH_SECRET" \
             -w "\nHTTP %{http_code} in %{time_total}s\n" \
-            "https://riftlite.vercel.app/api/community/aggregate/refresh")
+            "https://riftlite.vercel.app/api/community/aggregate/refresh?force=$FORCE_REFRESH")
 
           echo "$response"
 
+  mulligan:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event.inputs.lane == 'mulligan' ||
+      github.event.inputs.lane == 'all'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
       - name: Refresh Mulligan Lab snapshot
         env:
           REFRESH_SECRET: ${{ secrets.COMMUNITY_AGGREGATE_SECRET }}
+          BACKFILL_LIMIT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.limit || '1500' }}
+          FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
         run: |
           if [ -z "$REFRESH_SECRET" ]; then
             echo "::error::COMMUNITY_AGGREGATE_SECRET is not set in repo secrets"
+            exit 1
+          fi
+          if ! [[ "$BACKFILL_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::limit must be a positive integer"
             exit 1
           fi
 
@@ -83,16 +121,30 @@ jobs:
             -X POST \
             -H "Authorization: Bearer $REFRESH_SECRET" \
             -w "\nHTTP %{http_code} in %{time_total}s\n" \
-            "https://riftlite.vercel.app/api/app/mulligan-lab/refresh")
+            "https://riftlite.vercel.app/api/app/mulligan-lab/refresh?limit=$BACKFILL_LIMIT&force=$FORCE_REFRESH")
 
           echo "$response"
 
+  sideboard:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event.inputs.lane == 'sideboard' ||
+      github.event.inputs.lane == 'all'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
       - name: Refresh Sideboard Lab snapshot
         env:
           REFRESH_SECRET: ${{ secrets.COMMUNITY_AGGREGATE_SECRET }}
+          BACKFILL_LIMIT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.limit || '1500' }}
+          FORCE_REFRESH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
         run: |
           if [ -z "$REFRESH_SECRET" ]; then
             echo "::error::COMMUNITY_AGGREGATE_SECRET is not set in repo secrets"
+            exit 1
+          fi
+          if ! [[ "$BACKFILL_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::limit must be a positive integer"
             exit 1
           fi
 
@@ -104,6 +156,6 @@ jobs:
             -X POST \
             -H "Authorization: Bearer $REFRESH_SECRET" \
             -w "\nHTTP %{http_code} in %{time_total}s\n" \
-            "https://riftlite.vercel.app/api/app/sideboard-lab/refresh")
+            "https://riftlite.vercel.app/api/app/sideboard-lab/refresh?limit=$BACKFILL_LIMIT&force=$FORCE_REFRESH")
 
           echo "$response"

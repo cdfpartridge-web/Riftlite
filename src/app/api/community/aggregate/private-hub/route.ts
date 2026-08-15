@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import {
   PrivateHubAggregateEventError,
+  readPrivateHubAggregateDuplicate,
   recordPrivateHubAggregateEvent,
 } from "@/lib/community/data";
 import { assertHubCapability, identityUidsFor, requireUser } from "@/lib/social/server";
@@ -48,6 +49,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Token uid does not match body.uid" }, { status: 403 });
   }
   const username = typeof body.username === "string" ? body.username.trim() : "";
+
+  // Old desktop builds retry the whole hub upload whenever the optional Web
+  // Replay attachment fails. A server-owned index hit proves this aggregate
+  // upsert already completed, so acknowledge it before repeating hub/profile
+  // authorization and the six-document counter transaction. This is a
+  // read-only fast path: it neither restores membership nor grants replay
+  // access, and foreign/malformed index rows fall through to the full checks.
+  if (action === "upsert") {
+    const duplicate = await readPrivateHubAggregateDuplicate({
+      hubId,
+      matchId,
+      identityUids,
+    }, auth.db);
+    if (duplicate) {
+      return NextResponse.json({ ok: true, ...duplicate });
+    }
+  }
 
   const hubSnap = await auth.db.collection("hubs").doc(hubId).get();
   const hub = hubSnap?.data() ?? {};

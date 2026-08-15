@@ -97,7 +97,30 @@ describe("private-hub Web Replay grants", () => {
         actorUid: "owner",
         identityUids: ["owner"],
       })).rejects.toMatchObject({ code: expectedCode });
+      expect(fake.transactionWriteCount).toBe(0);
+      expect(fake.get("hubs/hub-a/matches/match-a")?.web_replay_id).toBeUndefined();
+      expect(fake.has(`replayHubGrants/${replayHubGrantDocumentId("hub-a", "match-a")}`)).toBe(false);
     }
+  });
+
+  it("does not create a pointer or grant when the replay belongs to another match", async () => {
+    const fake = new FakeFirestore({
+      "hubs/hub-a": accountHub("hub-owner"),
+      "hubs/hub-a/members/owner": { uid: "owner", role: "member" },
+      "hubs/hub-a/matches/match-a": { uid: "owner" },
+      [`replayV2/${REPLAY_ID}`]: replayRecord("owner", "match-b"),
+    });
+
+    await expect(putHubWebReplay(fake.asFirestore(), {
+      hubId: "hub-a",
+      matchId: "match-a",
+      replayId: REPLAY_ID,
+      actorUid: "owner",
+      identityUids: ["owner"],
+    })).rejects.toMatchObject({ code: "replay_match_mismatch", status: 409 });
+    expect(fake.transactionWriteCount).toBe(0);
+    expect(fake.get("hubs/hub-a/matches/match-a")?.web_replay_id).toBeUndefined();
+    expect(fake.has(`replayHubGrants/${replayHubGrantDocumentId("hub-a", "match-a")}`)).toBe(false);
   });
 
   it("authorizes a current member alias and immediately revokes stale grants", async () => {

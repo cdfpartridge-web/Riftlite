@@ -11,6 +11,12 @@ import {
 } from "firebase-admin/firestore";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import {
+  canSkipLabRefresh,
+  labRefreshState,
+  readLabFactCorpusWatermark,
+  type LabFactCorpusWatermark,
+} from "@/lib/lab-refresh-state";
 import { buildSideboardLabPack, buildSideboardLabSnapshot } from "@/lib/sideboard-lab/aggregate";
 import {
   DEFAULT_SIDEBOARD_LAB_MINIMUM_DECISIONS,
@@ -43,6 +49,8 @@ const PACK_QUERY_PAGE_SIZE = 250;
 const PACK_DELETE_BATCH_SIZE = 50;
 const DEFAULT_CORPUS_LIMIT = 1_500;
 const MAX_CORPUS_LIMIT = 5_000;
+const FACT_REFRESH_STATE_FIELD = "factRefreshState";
+const REFRESH_ALGORITHM_VERSION = 1;
 
 type BackfillCursor = { replayId: string };
 
@@ -53,6 +61,8 @@ type SideboardPackDocument = {
 
 export type SideboardLabRefreshResult = {
   published: boolean;
+  skipped: boolean;
+  skipReason?: "source-unchanged-today";
   scanned: number;
   canonicalLoaded: number;
   artifactsOpened: number;
@@ -65,6 +75,10 @@ export type SideboardLabRefreshResult = {
   rejected: number;
   failed: number;
   packs: number;
+};
+
+export type SideboardLabRefreshOptions = {
+  force?: boolean;
 };
 
 export type SideboardLabPackReadQuery = {
@@ -203,13 +217,44 @@ export async function readSideboardLabPack(
  */
 export async function refreshSideboardLabAggregate(
   requestedLimit = DEFAULT_CORPUS_LIMIT,
+  options: SideboardLabRefreshOptions = {},
 ): Promise<SideboardLabRefreshResult> {
   const db = getFirestoreAdmin();
   if (!db) throw new Error("Firebase Admin is not configured.");
   const limit = Math.max(1, Math.min(MAX_CORPUS_LIMIT, Math.trunc(requestedLimit)));
   const aggregateRef = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOCUMENT);
   const aggregateSnapshot = await aggregateRef.get();
-  const backfill = readBackfillState(aggregateSnapshot.data()?.backfill);
+  const aggregateData = aggregateSnapshot.data() ?? {};
+  const backfill = readBackfillState(aggregateData.backfill);
+  const minimumDecisions = envPositiveInteger("SIDEBOARD_LAB_MINIMUM_DECISIONS")
+    ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_DECISIONS;
+  const minimumPlayers = envPositiveInteger("SIDEBOARD_LAB_MINIMUM_PLAYERS")
+    ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_PLAYERS;
+  const maxDrills = envPositiveInteger("SIDEBOARD_LAB_MAX_DRILLS") ?? 48;
+  const configFingerprint = createHash("sha256").update(JSON.stringify({
+    refreshAlgorithmVersion: REFRESH_ALGORITHM_VERSION,
+    factVersion: SIDEBOARD_LAB_FACT_VERSION,
+    minimumDecisions,
+    minimumPlayers,
+    maxDrills,
+  })).digest("hex");
+  const attemptedAt = new Date();
+  let factWatermark = backfill.complete
+    ? await readSideboardFactWatermark(db)
+    : null;
+  if (
+    !options.force &&
+    backfill.complete &&
+    factWatermark &&
+    canSkipLabRefresh(
+      aggregateData[FACT_REFRESH_STATE_FIELD],
+      attemptedAt,
+      configFingerprint,
+      factWatermark,
+    )
+  ) {
+    return skippedSideboardRefreshResult(aggregateData);
+  }
   const replayDocuments = backfill.complete
     ? []
     : await readCanonicalReplayPageWindow(db, limit, backfill.cursor);
@@ -263,16 +308,13 @@ export async function refreshSideboardLabAggregate(
   }
 
   const nextBackfill = buildNextBackfillState(backfill, replayDocuments, limit, failed);
+  factWatermark ??= await readSideboardFactWatermark(db);
   const factCorpus = await readEligibleFactCandidates(db);
-  const minimumDecisions = envPositiveInteger("SIDEBOARD_LAB_MINIMUM_DECISIONS")
-    ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_DECISIONS;
-  const minimumPlayers = envPositiveInteger("SIDEBOARD_LAB_MINIMUM_PLAYERS")
-    ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_PLAYERS;
   const generatedAt = new Date();
   const aggregateOptions = {
     minimumDecisions,
     minimumPlayers,
-    maxDrills: envPositiveInteger("SIDEBOARD_LAB_MAX_DRILLS") ?? 48,
+    maxDrills,
     coverageTruncated: false,
     backfillComplete: nextBackfill.complete,
     generatedAt,
@@ -281,6 +323,7 @@ export async function refreshSideboardLabAggregate(
   const packs = payload ? buildSideboardPackDocuments(factCorpus.candidates, aggregateOptions) : [];
   const result: SideboardLabRefreshResult = {
     published: Boolean(payload),
+    skipped: false,
     scanned: replayDocuments.length,
     canonicalLoaded,
     artifactsOpened,
@@ -294,13 +337,32 @@ export async function refreshSideboardLabAggregate(
     failed,
     packs: packs.length,
   };
-  await aggregateRef.set({
-    ...(payload ? { payload } : {}),
-    lastAttemptAt: Timestamp.now(),
-    lastAttempt: result,
-    backfill: nextBackfill,
-  }, { merge: true });
-  if (payload) await syncSideboardPackDocuments(db, packs);
+  if (payload) {
+    await aggregateRef.set({
+      payload,
+      lastAttemptAt: Timestamp.now(),
+      lastAttempt: result,
+      backfill: nextBackfill,
+      // See Mulligan: an old equal watermark must not survive a forced pack
+      // rebuild, otherwise a partial sync failure can make its retry skip.
+      [FACT_REFRESH_STATE_FIELD]: null,
+    }, { merge: true });
+    await syncSideboardPackDocuments(db, packs);
+    if (factWatermark) {
+      await aggregateRef.set({
+        [FACT_REFRESH_STATE_FIELD]: labRefreshState(generatedAt, configFingerprint, factWatermark),
+      }, { merge: true });
+    }
+  } else {
+    await aggregateRef.set({
+      lastAttemptAt: Timestamp.now(),
+      lastAttempt: result,
+      backfill: nextBackfill,
+      ...(factWatermark
+        ? { [FACT_REFRESH_STATE_FIELD]: labRefreshState(generatedAt, configFingerprint, factWatermark) }
+        : {}),
+    }, { merge: true });
+  }
   return result;
 }
 
@@ -552,6 +614,54 @@ function unavailableSideboardPack(
 
 function cardIdentity(cardCode: string): string {
   return mulliganCardIdentity(cardCode) ?? cardCode;
+}
+
+function skippedSideboardRefreshResult(
+  aggregateData: Record<string, unknown>,
+): SideboardLabRefreshResult {
+  const lastAttempt = objectRecord(aggregateData.lastAttempt);
+  const payload = objectRecord(aggregateData.payload);
+  return {
+    published: false,
+    skipped: true,
+    skipReason: "source-unchanged-today",
+    scanned: 0,
+    canonicalLoaded: 0,
+    artifactsOpened: 0,
+    factsCreated: 0,
+    factsRead: 0,
+    factCoverageTruncated: lastAttempt?.factCoverageTruncated === true,
+    backfillComplete: true,
+    strictCandidates: nonNegativeInteger(lastAttempt?.strictCandidates),
+    drills: Array.isArray(payload?.drills)
+      ? payload.drills.length
+      : nonNegativeInteger(lastAttempt?.drills),
+    rejected: 0,
+    failed: 0,
+    packs: nonNegativeInteger(lastAttempt?.packs),
+  };
+}
+
+async function readSideboardFactWatermark(
+  db: Firestore,
+): Promise<LabFactCorpusWatermark | null> {
+  try {
+    return await readLabFactCorpusWatermark(db, SIDEBOARD_LAB_FACT_COLLECTION);
+  } catch (error) {
+    console.error("[sideboard-lab] Fact watermark failed:", safeError(error));
+    return null;
+  }
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nonNegativeInteger(value: unknown): number {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 ? number : 0;
 }
 
 async function readCanonicalReplayPageWindow(

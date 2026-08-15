@@ -13,6 +13,12 @@ import {
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import {
+  canSkipLabRefresh,
+  labRefreshState,
+  readLabFactCorpusWatermark,
+  type LabFactCorpusWatermark,
+} from "@/lib/lab-refresh-state";
+import {
   buildMulliganLabSnapshot,
   buildMulliganLabPack,
   type ObservedMulliganCandidate,
@@ -48,6 +54,8 @@ const AGGREGATE_DOCUMENT = "mulligan-lab-v1";
 const PACK_DOCUMENT_PREFIX = "mulligan-lab-pack-v1";
 const DEFAULT_CORPUS_LIMIT = 1_500;
 const MAX_CORPUS_LIMIT = 5_000;
+const FACT_REFRESH_STATE_FIELD = "factRefreshState";
+const REFRESH_ALGORITHM_VERSION = 1;
 
 type BackfillCursor = {
   replayId: string;
@@ -55,6 +63,8 @@ type BackfillCursor = {
 
 export type MulliganLabRefreshResult = {
   published: boolean;
+  skipped: boolean;
+  skipReason?: "source-unchanged-today";
   scanned: number;
   canonicalLoaded: number;
   artifactsOpened: number;
@@ -67,6 +77,10 @@ export type MulliganLabRefreshResult = {
   rejected: number;
   failed: number;
   packs: number;
+};
+
+export type MulliganLabRefreshOptions = {
+  force?: boolean;
 };
 
 export type MulliganLabPackReadQuery = {
@@ -184,13 +198,44 @@ export async function readMulliganLabPack(
  */
 export async function refreshMulliganLabAggregate(
   requestedLimit = DEFAULT_CORPUS_LIMIT,
+  options: MulliganLabRefreshOptions = {},
 ): Promise<MulliganLabRefreshResult> {
   const db = getFirestoreAdmin();
   if (!db) throw new Error("Firebase Admin is not configured.");
   const limit = Math.max(1, Math.min(MAX_CORPUS_LIMIT, Math.trunc(requestedLimit)));
   const aggregateRef = db.collection(AGGREGATE_COLLECTION).doc(AGGREGATE_DOCUMENT);
   const aggregateSnapshot = await aggregateRef.get();
-  const backfill = readBackfillState(aggregateSnapshot.data()?.backfill);
+  const aggregateData = aggregateSnapshot.data() ?? {};
+  const backfill = readBackfillState(aggregateData.backfill);
+  const minimumHands = envPositiveInteger("MULLIGAN_LAB_MINIMUM_HANDS")
+    ?? DEFAULT_MULLIGAN_LAB_MINIMUM_HANDS;
+  const minimumPlayers = envPositiveInteger("MULLIGAN_LAB_MINIMUM_PLAYERS")
+    ?? DEFAULT_MULLIGAN_LAB_MINIMUM_PLAYERS;
+  const maxDrills = envPositiveInteger("MULLIGAN_LAB_MAX_DRILLS") ?? 64;
+  const configFingerprint = createHash("sha256").update(JSON.stringify({
+    refreshAlgorithmVersion: REFRESH_ALGORITHM_VERSION,
+    factVersion: MULLIGAN_LAB_FACT_VERSION,
+    minimumHands,
+    minimumPlayers,
+    maxDrills,
+  })).digest("hex");
+  const attemptedAt = new Date();
+  let factWatermark = backfill.complete
+    ? await readMulliganFactWatermark(db)
+    : null;
+  if (
+    !options.force &&
+    backfill.complete &&
+    factWatermark &&
+    canSkipLabRefresh(
+      aggregateData[FACT_REFRESH_STATE_FIELD],
+      attemptedAt,
+      configFingerprint,
+      factWatermark,
+    )
+  ) {
+    return skippedMulliganRefreshResult(aggregateData);
+  }
   const replayDocuments = backfill.complete
     ? []
     : await readCanonicalReplayPageWindow(db, limit, backfill.cursor);
@@ -249,20 +294,20 @@ export async function refreshMulliganLabAggregate(
   }
 
   const nextBackfill = buildNextBackfillState(backfill, replayDocuments, limit, failed);
+  // Backfill writes happen above, so take the watermark afterwards. If a fact
+  // changes during the following all-history scan, this older marker is kept;
+  // the next invocation will see the mismatch and rebuild again.
+  factWatermark ??= await readMulliganFactWatermark(db);
   // Read every eligible fact. The corpus intentionally spans all available
   // history; document-id order is pagination only and never a selection cap.
   const factCorpus = await readEligibleFactCandidates(db);
   const candidates = factCorpus.candidates;
 
-  const minimumHands = envPositiveInteger("MULLIGAN_LAB_MINIMUM_HANDS")
-    ?? DEFAULT_MULLIGAN_LAB_MINIMUM_HANDS;
-  const minimumPlayers = envPositiveInteger("MULLIGAN_LAB_MINIMUM_PLAYERS")
-    ?? DEFAULT_MULLIGAN_LAB_MINIMUM_PLAYERS;
   const generatedAt = new Date();
   const aggregateOptions = {
     minimumHands,
     minimumPlayers,
-    maxDrills: envPositiveInteger("MULLIGAN_LAB_MAX_DRILLS") ?? 64,
+    maxDrills,
     coverageTruncated: factCorpus.truncated,
     backfillComplete: nextBackfill.complete,
     generatedAt,
@@ -273,6 +318,7 @@ export async function refreshMulliganLabAggregate(
     : [];
   const result: MulliganLabRefreshResult = {
     published: Boolean(payload),
+    skipped: false,
     scanned: replayDocuments.length,
     canonicalLoaded,
     artifactsOpened,
@@ -288,13 +334,23 @@ export async function refreshMulliganLabAggregate(
   };
 
   if (payload) {
+    // Invalidate any prior same-day marker before touching packs. A forced
+    // rebuild can have the same source watermark as the prior successful run;
+    // leaving that marker in place would let a retry skip after a partial pack
+    // failure. Publish the completion marker only after every pack write wins.
     await aggregateRef.set({
       payload,
       lastAttemptAt: new Date(),
       lastAttempt: result,
       backfill: nextBackfill,
+      [FACT_REFRESH_STATE_FIELD]: null,
     }, { merge: true });
     await writeMulliganPackDocuments(db, packs);
+    if (factWatermark) {
+      await aggregateRef.set({
+        [FACT_REFRESH_STATE_FIELD]: labRefreshState(generatedAt, configFingerprint, factWatermark),
+      }, { merge: true });
+    }
   } else {
     // Preserve a still-valid previous snapshot during a transient empty run,
     // but record the truthful coverage result for operations. A missing or
@@ -303,6 +359,9 @@ export async function refreshMulliganLabAggregate(
       lastAttemptAt: new Date(),
       lastAttempt: result,
       backfill: nextBackfill,
+      ...(factWatermark
+        ? { [FACT_REFRESH_STATE_FIELD]: labRefreshState(generatedAt, configFingerprint, factWatermark) }
+        : {}),
     }, { merge: true });
   }
   return result;
@@ -543,6 +602,56 @@ function unavailableMulliganPack(
 
 function cardIdentity(cardCode: string): string {
   return mulliganCardIdentity(cardCode) ?? cardCode;
+}
+
+function skippedMulliganRefreshResult(
+  aggregateData: Record<string, unknown>,
+): MulliganLabRefreshResult {
+  const lastAttempt = objectRecord(aggregateData.lastAttempt);
+  const payload = objectRecord(aggregateData.payload);
+  return {
+    published: false,
+    skipped: true,
+    skipReason: "source-unchanged-today",
+    scanned: 0,
+    canonicalLoaded: 0,
+    artifactsOpened: 0,
+    factsCreated: 0,
+    factsRead: 0,
+    factCoverageTruncated: lastAttempt?.factCoverageTruncated === true,
+    backfillComplete: true,
+    strictCandidates: nonNegativeInteger(lastAttempt?.strictCandidates),
+    drills: Array.isArray(payload?.drills)
+      ? payload.drills.length
+      : nonNegativeInteger(lastAttempt?.drills),
+    rejected: 0,
+    failed: 0,
+    packs: nonNegativeInteger(lastAttempt?.packs),
+  };
+}
+
+async function readMulliganFactWatermark(
+  db: Firestore,
+): Promise<LabFactCorpusWatermark | null> {
+  try {
+    return await readLabFactCorpusWatermark(db, MULLIGAN_LAB_FACT_COLLECTION);
+  } catch (error) {
+    // Fail open: a missing index or transient aggregation failure must never
+    // prevent the proven all-history rebuild path from running.
+    console.error("[mulligan-lab] Fact watermark failed:", safeError(error));
+    return null;
+  }
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nonNegativeInteger(value: unknown): number {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 ? number : 0;
 }
 
 async function readCanonicalReplayPageWindow(

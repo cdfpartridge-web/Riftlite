@@ -1,9 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getFirestoreAdminMock } = vi.hoisted(() => ({ getFirestoreAdminMock: vi.fn() }));
+const { buildSideboardLabSnapshotMock, getFirestoreAdminMock } = vi.hoisted(() => ({
+  buildSideboardLabSnapshotMock: vi.fn(),
+  getFirestoreAdminMock: vi.fn(),
+}));
 
 vi.mock("@/lib/firebase/admin", () => ({ getFirestoreAdmin: getFirestoreAdminMock }));
 vi.mock("@/lib/replay-v2-server/artifacts", () => ({ readImmutableArtifact: vi.fn() }));
+vi.mock("@/lib/sideboard-lab/aggregate", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/sideboard-lab/aggregate")>();
+  buildSideboardLabSnapshotMock.mockImplementation(actual.buildSideboardLabSnapshot);
+  return { ...actual, buildSideboardLabSnapshot: buildSideboardLabSnapshotMock };
+});
 
 import {
   readSideboardLabPack,
@@ -13,7 +21,10 @@ import {
 } from "@/lib/sideboard-lab/server";
 
 describe("Sideboard Lab all-history fact refresh", () => {
-  beforeEach(() => getFirestoreAdminMock.mockReset());
+  beforeEach(() => {
+    getFirestoreAdminMock.mockReset();
+    buildSideboardLabSnapshotMock.mockClear();
+  });
 
   it("walks replay ids without a composite index and completes an empty backfill", async () => {
     const fake = fakeSideboardDb();
@@ -33,6 +44,62 @@ describe("Sideboard Lab all-history fact refresh", () => {
       }),
       { merge: true },
     );
+  });
+
+  it("uses a bounded watermark instead of rereading unchanged facts twice in one day", async () => {
+    const latestFact = document("fact-latest", { updatedAt: 123_456 });
+    const fake = fakeSideboardDb(
+      { factVersion: 2, complete: true, cursor: null },
+      {
+        factCount: 42,
+        watermarkPages: [page([latestFact]), page([latestFact])],
+      },
+    );
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(refreshSideboardLabAggregate(25)).resolves.toMatchObject({ skipped: false });
+    const fullFactReads = fake.factQuery.get.mock.calls.length;
+    await expect(refreshSideboardLabAggregate(25)).resolves.toMatchObject({
+      skipped: true,
+      skipReason: "source-unchanged-today",
+      factsRead: 0,
+    });
+
+    expect(fake.factQuery.get).toHaveBeenCalledTimes(fullFactReads);
+    expect(fake.watermarkQuery.get).toHaveBeenCalledTimes(2);
+    expect(fake.factCountGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("rebuilds on retry when a forced pack sync fails after clearing the completion marker", async () => {
+    const latestFact = document("fact-latest", { updatedAt: 123_456 });
+    const fake = fakeSideboardDb(
+      { factVersion: 2, complete: true, cursor: null },
+      {
+        watermarkPages: [page([latestFact]), page([latestFact]), page([latestFact])],
+        aggregatePackPages: [page([])],
+      },
+    );
+    const payload = { drills: [] } as never;
+    buildSideboardLabSnapshotMock
+      .mockReturnValueOnce(payload)
+      .mockReturnValueOnce(payload)
+      .mockReturnValueOnce(payload);
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(refreshSideboardLabAggregate(25)).resolves.toMatchObject({
+      skipped: false,
+      published: true,
+    });
+
+    fake.aggregatePackQuery.get.mockRejectedValueOnce(new Error("pack sync failed"));
+    await expect(refreshSideboardLabAggregate(25, { force: true }))
+      .rejects.toThrow("pack sync failed");
+    expect(fake.aggregateData.factRefreshState).toBeNull();
+    const factReadsAfterFailure = fake.factQuery.get.mock.calls.length;
+
+    await expect(refreshSideboardLabAggregate(25)).resolves.toMatchObject({ skipped: false });
+    expect(fake.factQuery.get.mock.calls.length).toBeGreaterThan(factReadsAfterFailure);
+    expect(fake.aggregateData.factRefreshState).toEqual(expect.objectContaining({ version: 1 }));
   });
 
   it("resumes the index-free replay walk from the saved cursor", async () => {
@@ -159,20 +226,41 @@ function fakeSideboardDb(
   options: {
     factPages?: Array<{ docs: ReturnType<typeof document>[]; empty: boolean }>;
     aggregatePackPages?: Array<{ docs: ReturnType<typeof document>[]; empty: boolean }>;
+    watermarkPages?: Array<{ docs: ReturnType<typeof document>[]; empty: boolean }>;
+    factCount?: number;
   } = {},
 ) {
-  const aggregateSet = vi.fn().mockResolvedValue(undefined);
+  const aggregateData: Record<string, unknown> = backfill ? { backfill } : {};
+  const aggregateSet = vi.fn(async (value: Record<string, unknown>) => {
+    Object.assign(aggregateData, value);
+  });
   const aggregateRef = {
     get: vi.fn().mockResolvedValue({
-      exists: Boolean(backfill),
-      data: () => backfill ? { backfill } : undefined,
+      exists: true,
+      data: () => aggregateData,
     }),
     set: aggregateSet,
   };
   const replayQuery = chainQueryPages([page([])]);
   const factQuery = chainQueryPages(options.factPages ?? [page([])]);
+  const watermarkQuery = chainQueryPages(options.watermarkPages ?? [page([])]);
+  const factCountGet = vi.fn().mockResolvedValue({
+    data: () => ({ count: options.factCount ?? 0 }),
+  });
   const aggregatePackQuery = chainQueryPages(options.aggregatePackPages ?? [page([])]);
   const packDelete = vi.fn().mockResolvedValue(undefined);
+  const factCollection = {
+    orderBy: (...args: unknown[]) => {
+      if (args[0] === "updatedAt") {
+        watermarkQuery.orderBy(...args);
+        return watermarkQuery;
+      }
+      factQuery.orderBy(...args);
+      return factQuery;
+    },
+    count: () => ({ get: factCountGet }),
+    doc: (id: string) => ({ id }),
+  };
   const db = {
     collection: vi.fn((name: string) => {
       if (name === "aggregates") return {
@@ -182,15 +270,22 @@ function fakeSideboardDb(
           : { delete: packDelete, set: vi.fn().mockResolvedValue(undefined) },
       };
       if (name === "replayV2") return replayQuery;
-      if (name === "sideboardLabFactsV1") return {
-        ...factQuery,
-        doc: (id: string) => ({ id }),
-      };
+      if (name === "sideboardLabFactsV1") return factCollection;
       throw new Error(`Unexpected collection ${name}`);
     }),
     getAll: vi.fn().mockResolvedValue([]),
   };
-  return { db, aggregateSet, replayQuery, factQuery, aggregatePackQuery, packDelete };
+  return {
+    db,
+    aggregateData,
+    aggregateSet,
+    replayQuery,
+    factQuery,
+    watermarkQuery,
+    factCountGet,
+    aggregatePackQuery,
+    packDelete,
+  };
 }
 
 function fakeAggregatePackDb(initial: Map<string, Record<string, unknown>>) {

@@ -20,6 +20,18 @@ type RouteContext = {
   params: Promise<{ hubId: string; matchId: string }>;
 };
 
+// Old desktop builds treat every non-2xx response as a failure of the entire
+// private-hub match upload, even though the match and aggregate were already
+// stored before this optional attachment is attempted. These outcomes cannot
+// become valid by repeating the same request. A 2xx compatibility
+// acknowledgement lets those clients commit the base match as synced while
+// explicitly reporting that no Web Replay link or access grant was created.
+const TERMINAL_COMPATIBILITY_SKIP_CODES = new Set([
+  "account_hub_required",
+  "hub_deleting",
+  "replay_match_mismatch",
+]);
+
 export async function PUT(request: NextRequest, context: RouteContext) {
   try {
     // Verify the untouched bearer token. `requireUser()` canonicalizes the UID
@@ -47,6 +59,18 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       playerPath: `/replays/${encodeURIComponent(result.replayId)}`,
     });
   } catch (error) {
+    if (
+      error instanceof ReplayV2Error &&
+      TERMINAL_COMPATIBILITY_SKIP_CODES.has(error.code)
+    ) {
+      return noStoreJson({
+        ok: true,
+        linked: false,
+        skipped: true,
+        reason: error.code,
+        message: error.message,
+      });
+    }
     return replayApiError(error);
   }
 }

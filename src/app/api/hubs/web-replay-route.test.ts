@@ -1,14 +1,22 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  getFirestoreAdmin: vi.fn(),
-  identityUidsFor: vi.fn(),
-  requireFirebaseBearerUser: vi.fn(),
-  readBoundedJson: vi.fn(),
-  putHubWebReplay: vi.fn(),
-  deleteHubWebReplay: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  class ReplayV2Error extends Error {
+    constructor(public status: number, public code: string, message: string) {
+      super(message);
+    }
+  }
+  return {
+    ReplayV2Error,
+    getFirestoreAdmin: vi.fn(),
+    identityUidsFor: vi.fn(),
+    requireFirebaseBearerUser: vi.fn(),
+    readBoundedJson: vi.fn(),
+    putHubWebReplay: vi.fn(),
+    deleteHubWebReplay: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/social/server", () => ({
   identityUidsFor: mocks.identityUidsFor,
@@ -20,11 +28,7 @@ vi.mock("@/lib/firebase/admin", () => ({
 
 vi.mock("@/lib/replay-v2-server", () => ({
   MAX_VISIBILITY_JSON_BYTES: 8_192,
-  ReplayV2Error: class ReplayV2Error extends Error {
-    constructor(public status: number, public code: string, message: string) {
-      super(message);
-    }
-  },
+  ReplayV2Error: mocks.ReplayV2Error,
   requireFirebaseBearerUser: mocks.requireFirebaseBearerUser,
   readBoundedJson: mocks.readBoundedJson,
   putHubWebReplay: mocks.putHubWebReplay,
@@ -137,6 +141,43 @@ describe("private-hub Web Replay route", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toMatchObject({ code: "authentication_required" });
     expect(mocks.putHubWebReplay).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "account_hub_required",
+    "hub_deleting",
+    "replay_match_mismatch",
+  ])("acknowledges terminal %s attachments without claiming a link was created", async (code) => {
+    mocks.putHubWebReplay.mockRejectedValue(new mocks.ReplayV2Error(
+      409,
+      code,
+      "This attachment cannot be created.",
+    ));
+
+    const response = (await linkWebReplay(request("PUT", { replayId: REPLAY_ID }), context()))!;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({
+      ok: true,
+      linked: false,
+      skipped: true,
+      reason: code,
+      message: "This attachment cannot be created.",
+    });
+  });
+
+  it("keeps a not-yet-ready replay retryable instead of acknowledging a false link", async () => {
+    mocks.putHubWebReplay.mockRejectedValue(new mocks.ReplayV2Error(
+      409,
+      "replay_not_ready",
+      "Web Replay processing must finish before it can be attached.",
+    ));
+
+    const response = (await linkWebReplay(request("PUT", { replayId: REPLAY_ID }), context()))!;
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "replay_not_ready" });
   });
 });
 

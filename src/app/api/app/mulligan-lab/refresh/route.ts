@@ -13,8 +13,10 @@ export async function POST(request: NextRequest) {
   }
   try {
     const requested = Number(new URL(request.url).searchParams.get("limit") ?? "");
+    const force = isTrue(new URL(request.url).searchParams.get("force"));
     const result = await refreshMulliganLabAggregate(
       Number.isInteger(requested) && requested > 0 ? requested : undefined,
+      { force },
     );
     // Only evict a still-valid public snapshot after its v2 replacement has
     // actually been persisted. A failed/empty repair keeps the prior cache.
@@ -25,6 +27,10 @@ export async function POST(request: NextRequest) {
     console.error("[api/app/mulligan-lab/refresh] Failed:", message);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
+}
+
+function isTrue(value: string | null): boolean {
+  return value === "1" || value?.toLowerCase() === "true";
 }
 
 function isAuthorized(request: NextRequest): boolean {

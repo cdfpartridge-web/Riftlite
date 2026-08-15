@@ -48,6 +48,63 @@ describe("Mulligan Lab fact backfill", () => {
     );
   });
 
+  it("uses a bounded watermark instead of rereading unchanged facts twice in one day", async () => {
+    const latestFact = document("fact-latest", { updatedAt: 123_456 });
+    const fake = fakeMulliganDb(
+      { factVersion: 2, complete: true, cursor: null },
+      {
+        factCount: 42,
+        watermarkPages: [page([latestFact]), page([latestFact])],
+      },
+    );
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(refreshMulliganLabAggregate(25)).resolves.toMatchObject({ skipped: false });
+    const fullFactReads = fake.factQuery.get.mock.calls.length;
+    await expect(refreshMulliganLabAggregate(25)).resolves.toMatchObject({
+      skipped: true,
+      skipReason: "source-unchanged-today",
+      factsRead: 0,
+    });
+
+    expect(fake.factQuery.get).toHaveBeenCalledTimes(fullFactReads);
+    expect(fake.watermarkQuery.get).toHaveBeenCalledTimes(2);
+    expect(fake.factCountGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("rebuilds on retry when a forced pack write fails after clearing the completion marker", async () => {
+    const latestFact = document("fact-latest", { updatedAt: 123_456 });
+    const facts = Array.from({ length: 8 }, (_, index) => (
+      document(`fact-${index}`, eligibleFact(index))
+    ));
+    const fake = fakeMulliganDb(
+      { factVersion: 2, complete: true, cursor: null },
+      {
+        factCount: facts.length,
+        factPages: [page(facts), page(facts), page(facts)],
+        watermarkPages: [page([latestFact]), page([latestFact]), page([latestFact])],
+      },
+    );
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(refreshMulliganLabAggregate(25)).resolves.toMatchObject({
+      skipped: false,
+      published: true,
+      packs: expect.any(Number),
+    });
+    expect(fake.packSet).toHaveBeenCalled();
+
+    fake.packSet.mockRejectedValueOnce(new Error("pack write failed"));
+    await expect(refreshMulliganLabAggregate(25, { force: true }))
+      .rejects.toThrow("pack write failed");
+    expect(fake.aggregateData.factRefreshState).toBeNull();
+    const factReadsAfterFailure = fake.factQuery.get.mock.calls.length;
+
+    await expect(refreshMulliganLabAggregate(25)).resolves.toMatchObject({ skipped: false });
+    expect(fake.factQuery.get.mock.calls.length).toBeGreaterThan(factReadsAfterFailure);
+    expect(fake.aggregateData.factRefreshState).toEqual(expect.objectContaining({ version: 1 }));
+  });
+
   it("resumes the index-free document-id walk from its persisted cursor", async () => {
     const fake = fakeMulliganDb({
       factVersion: 2,
@@ -174,31 +231,67 @@ function fakeMulliganDb(
   options: {
     replayPages?: Array<{ docs: ReturnType<typeof document>[]; empty: boolean }>;
     factPages?: Array<{ docs: ReturnType<typeof document>[]; empty: boolean }>;
+    watermarkPages?: Array<{ docs: ReturnType<typeof document>[]; empty: boolean }>;
+    factCount?: number;
   } = {},
 ) {
-  const aggregateSet = vi.fn().mockResolvedValue(undefined);
+  const aggregateData: Record<string, unknown> = backfill ? { backfill } : {};
+  const aggregateSet = vi.fn(async (value: Record<string, unknown>) => {
+    Object.assign(aggregateData, value);
+  });
+  const packSet = vi.fn().mockResolvedValue(undefined);
   const aggregateRef = {
     get: vi.fn().mockResolvedValue({
-      exists: Boolean(backfill),
-      data: () => backfill ? { backfill } : undefined,
+      exists: true,
+      data: () => aggregateData,
     }),
     set: aggregateSet,
   };
   const replayQuery = chainQueryPages(options.replayPages ?? [page([])]);
   const factQuery = chainQueryPages(options.factPages ?? [page([])]);
+  const watermarkQuery = chainQueryPages(options.watermarkPages ?? [page([])]);
+  const factCountGet = vi.fn().mockResolvedValue({
+    data: () => ({ count: options.factCount ?? 0 }),
+  });
+  const factCollection = {
+    where: (...args: unknown[]) => {
+      factQuery.where(...args);
+      return factQuery;
+    },
+    orderBy: (...args: unknown[]) => {
+      if (args[0] === "updatedAt") {
+        watermarkQuery.orderBy(...args);
+        return watermarkQuery;
+      }
+      factQuery.orderBy(...args);
+      return factQuery;
+    },
+    count: () => ({ get: factCountGet }),
+    doc: (id: string) => ({ id }),
+  };
   const db = {
     collection: vi.fn((name: string) => {
-      if (name === "aggregates") return { doc: () => aggregateRef };
-      if (name === "replayV2") return replayQuery;
-      if (name === "mulliganLabFactsV1") return {
-        ...factQuery,
-        doc: (id: string) => ({ id }),
+      if (name === "aggregates") return {
+        doc: (id: string) => id === "mulligan-lab-v1"
+          ? aggregateRef
+          : { set: packSet },
       };
+      if (name === "replayV2") return replayQuery;
+      if (name === "mulliganLabFactsV1") return factCollection;
       throw new Error(`Unexpected collection ${name}`);
     }),
     getAll: vi.fn().mockResolvedValue([]),
   };
-  return { db, aggregateSet, replayQuery, factQuery };
+  return {
+    db,
+    aggregateData,
+    aggregateSet,
+    packSet,
+    replayQuery,
+    factQuery,
+    watermarkQuery,
+    factCountGet,
+  };
 }
 
 function chainQueryPages(snapshots: Array<{ docs: unknown[]; empty: boolean }>) {
@@ -226,7 +319,7 @@ function document(id: string, value: Record<string, unknown>) {
   return { id, data: () => value };
 }
 
-function eligibleFact() {
+function eligibleFact(index = 0) {
   const playableCodes = [
     "OGN-001", "OGN-002", "OGN-003", "OGN-004", "OGN-005", "OGN-006", "OGN-008",
     "OGN-009", "OGN-010", "OGN-011", "OGN-012", "OGN-013", "OGN-014",
@@ -243,13 +336,13 @@ function eligibleFact() {
     schema: "riftlite-mulligan-fact",
     version: 2,
     status: "eligible",
-    contributorHash: "a".repeat(64),
-    observedHandId: `mh1_${"1".repeat(32)}`,
+    contributorHash: ((index % 4) + 10).toString(16).repeat(64),
+    observedHandId: `mh1_${(index + 1).toString(16).padStart(32, "0")}`,
     observation: {
       provider: "atlas",
-      matchKey: `mm1_${"2".repeat(32)}`,
+      matchKey: `mm1_${(index + 101).toString(16).padStart(32, "0")}`,
       gameNumber: 1,
-      eventKey: `me1_${"3".repeat(32)}`,
+      eventKey: `me1_${(index + 201).toString(16).padStart(32, "0")}`,
       observedOn: "2026-08-12",
     },
     matchup: {
