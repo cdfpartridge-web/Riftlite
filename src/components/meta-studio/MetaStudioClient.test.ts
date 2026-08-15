@@ -236,9 +236,34 @@ describe("Meta Studio live takeover panel", () => {
         ? "Live takeover is on and Twitch confirms the channel is live."
         : "Live takeover ended. Desktop Home will return to the video carousel.",
     });
+    const analyticsReport = {
+      generatedAt: "2026-08-15T12:00:00.000Z",
+      selectedRunId: null,
+      runs: [],
+      summary: {
+        impressions: 0,
+        uniqueViewers: 0,
+        playbackStarts: 0,
+        currentViewers: 0,
+        totalWatchSeconds: 0,
+        averageWatchSeconds: 0,
+        peakConcurrent: 0,
+        dismissals: 0,
+      },
+      timeline: [],
+      appVersions: [],
+      platforms: [],
+      truncated: false,
+      privacy: "anonymous-run-scoped",
+    };
     const fetchMock = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(jsonResponse(responses(initialConfig)))
-      .mockImplementation(async (_input, init) => {
+      .mockImplementation(async (input, init) => {
+        if (String(input).includes("/analytics")) {
+          return jsonResponse({ report: analyticsReport });
+        }
+        if (!init?.method || init.method === "GET") {
+          return jsonResponse(responses(initialConfig));
+        }
         const body = JSON.parse(String(init?.body ?? "{}")) as {
           config: LiveTakeoverConfig;
         };
@@ -254,6 +279,7 @@ describe("Meta Studio live takeover panel", () => {
       expect(view.getByRole("heading", { name: "Live stream takeover" })).toBeInTheDocument();
       expect(view.getByText("Takeover off")).toBeInTheDocument();
       expect(view.getByRole("button", { name: "Go live on RiftLite" })).toBeInTheDocument();
+      expect(view.getByRole("region", { name: "Private live takeover analytics" })).toBeInTheDocument();
     });
 
     fireEvent.change(view.getByLabelText("Twitch channel login"), {
@@ -268,9 +294,10 @@ describe("Meta Studio live takeover panel", () => {
       expect(view.getByText("Live on RiftLite")).toBeInTheDocument();
       expect(view.getByRole("button", { name: "End takeover" })).toBeInTheDocument();
     });
-    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/meta-studio/live-takeover");
-    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
-    const armed = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+    const putCalls = fetchMock.mock.calls.filter((call) => call[1]?.method === "PUT");
+    expect(putCalls[0]?.[0]).toBe("/api/meta-studio/live-takeover");
+    expect(putCalls[0]?.[1]).toMatchObject({ method: "PUT" });
+    const armed = JSON.parse(String(putCalls[0]?.[1]?.body)) as {
       config: LiveTakeoverConfig & { embedUrl?: string };
     };
     expect(armed.config).toEqual({
@@ -283,7 +310,8 @@ describe("Meta Studio live takeover panel", () => {
 
     fireEvent.click(view.getByRole("button", { name: "End takeover" }));
     await waitFor(() => expect(view.getByText("Takeover off")).toBeInTheDocument());
-    const ended = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as {
+    await waitFor(() => expect(fetchMock.mock.calls.filter((call) => call[1]?.method === "PUT")).toHaveLength(2));
+    const ended = JSON.parse(String(fetchMock.mock.calls.filter((call) => call[1]?.method === "PUT")[1]?.[1]?.body)) as {
       config: LiveTakeoverConfig;
     };
     expect(ended.config.enabled).toBe(false);

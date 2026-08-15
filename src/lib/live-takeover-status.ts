@@ -5,6 +5,7 @@ import {
   publicLiveTakeoverFromStatus,
   type PublicLiveTakeover,
 } from "@/lib/live-takeover";
+import { withLiveTakeoverAnalyticsAccess } from "@/lib/live-takeover-analytics";
 import { getStreamStatus } from "@/lib/twitch/status";
 import type { StreamStatus } from "@/lib/types";
 
@@ -30,9 +31,9 @@ export async function resolvePublicLiveTakeover(
       console.error("[live-takeover] Failed to read live stream status:", message);
     }
   }
-  return publicLiveTakeoverFromStatus(
+  return withLiveTakeoverAnalyticsAccess(publicLiveTakeoverFromStatus(
     config,
     streamStatus,
     data?.liveTakeoverUpdatedAt,
-  );
+  ), config.analyticsRunId);
 }

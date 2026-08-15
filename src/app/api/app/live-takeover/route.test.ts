@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getFirestoreAdmin: vi.fn(),
@@ -25,6 +25,11 @@ describe("public desktop live takeover", () => {
       }),
     });
     mocks.get.mockResolvedValue({ exists: false, data: () => undefined });
+    process.env.LIVE_TAKEOVER_ANALYTICS_SECRET = "route-test-secret";
+  });
+
+  afterEach(() => {
+    delete process.env.LIVE_TAKEOVER_ANALYTICS_SECRET;
   });
 
   it("returns a CORS-enabled, shared-cached disabled default without calling Twitch", async () => {
@@ -56,6 +61,7 @@ describe("public desktop live takeover", () => {
           channelLogin: "BMUCasts",
           title: "  Live   ladder ",
           embedUrl: "https://evil.example/player",
+          analyticsRunId: "run_1234567890123456",
         },
         liveTakeoverUpdatedAt: 3456,
         liveTakeoverUpdatedBy: "private-user-id",
@@ -80,6 +86,10 @@ describe("public desktop live takeover", () => {
       status: "live",
       channelUrl: "https://www.twitch.tv/bmucasts",
       updatedAt: 3456,
+      analytics: {
+        runId: "run_1234567890123456",
+        token: expect.stringMatching(/^\d+\.[A-Za-z0-9_-]+$/),
+      },
     });
     expect(payload.liveTakeover).not.toHaveProperty("embedUrl");
     expect(payload.liveTakeover).not.toHaveProperty("updatedBy");

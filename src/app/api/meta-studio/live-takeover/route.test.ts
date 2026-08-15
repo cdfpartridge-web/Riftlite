@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   set: vi.fn(),
+  batchSet: vi.fn(),
+  batchCommit: vi.fn(),
   requireMetaStudioSession: vi.fn(),
   revalidatePath: vi.fn(),
   revalidateTag: vi.fn(),
@@ -32,16 +34,23 @@ vi.mock("@/lib/twitch/status", () => ({
 import { GET, PUT } from "@/app/api/meta-studio/live-takeover/route";
 
 function authorizedDb() {
+  const homeRef = { kind: "home", get: mocks.get, set: mocks.set };
   return {
     collection: vi.fn((collection: string) => {
+      if (collection === "live_takeover_analytics_runs") {
+        return {
+          doc: vi.fn((document: string) => ({ kind: "run", id: document })),
+        };
+      }
       expect(collection).toBe("app_config");
       return {
         doc: vi.fn((document: string) => {
           expect(document).toBe("home");
-          return { get: mocks.get, set: mocks.set };
+          return homeRef;
         }),
       };
     }),
+    batch: vi.fn(() => ({ set: mocks.batchSet, commit: mocks.batchCommit })),
   };
 }
 
@@ -64,6 +73,7 @@ describe("Meta Studio live takeover route", () => {
     vi.clearAllMocks();
     mocks.get.mockResolvedValue({ exists: false, data: () => undefined });
     mocks.set.mockResolvedValue(undefined);
+    mocks.batchCommit.mockResolvedValue(undefined);
     mocks.getStreamStatus.mockImplementation(async (channelLogin: string) => ({
       state: "offline",
       isLive: false,
@@ -135,18 +145,28 @@ describe("Meta Studio live takeover route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.config).toEqual({
+    expect(payload.config).toMatchObject({
       enabled: true,
       provider: "twitch",
       channelLogin: "bmucasts",
       title: "Sunday stream",
     });
+    expect(payload.config.analyticsRunId).toMatch(/^[a-f0-9-]{36}$/);
     expect(payload.liveTakeover).toMatchObject({ active: true, status: "live" });
-    expect(mocks.set).toHaveBeenCalledWith({
+    expect(mocks.batchSet).toHaveBeenCalledWith(expect.objectContaining({ kind: "home" }), {
       liveTakeover: payload.config,
       liveTakeoverUpdatedAt: expect.any(Number),
       liveTakeoverUpdatedBy: "canonical-bmu",
     }, { merge: true });
+    expect(mocks.batchSet).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "run",
+      id: payload.config.analyticsRunId,
+    }), expect.objectContaining({
+      channelLogin: "bmucasts",
+      title: "Sunday stream",
+      enabled: true,
+      endedAt: null,
+    }), { merge: true });
     expect(mocks.revalidateTag).toHaveBeenCalledWith("twitch-status", "max");
     expect(mocks.revalidateTag).toHaveBeenCalledWith("app-home-config-v1", "max");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/api/app/home");
@@ -185,7 +205,7 @@ describe("Meta Studio live takeover route", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ error: expect.stringMatching(error) });
-    expect(mocks.set).not.toHaveBeenCalled();
+    expect(mocks.batchSet).not.toHaveBeenCalled();
   });
 
   it("rejects cross-origin writes even with an authenticated session", async () => {
@@ -203,7 +223,7 @@ describe("Meta Studio live takeover route", () => {
     ));
 
     expect(response.status).toBe(403);
-    expect(mocks.set).not.toHaveBeenCalled();
+    expect(mocks.batchSet).not.toHaveBeenCalled();
   });
 
   it("does not read or write Firestore without a Meta Studio session", async () => {
@@ -214,6 +234,6 @@ describe("Meta Studio live takeover route", () => {
     expect((await GET(request())).status).toBe(401);
     expect((await PUT(request("PUT", { config: {} }))).status).toBe(401);
     expect(mocks.get).not.toHaveBeenCalled();
-    expect(mocks.set).not.toHaveBeenCalled();
+    expect(mocks.batchSet).not.toHaveBeenCalled();
   });
 });
