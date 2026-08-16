@@ -11,6 +11,7 @@ const PENDING_RECHECK_MS = 6 * 60 * 60 * 1_000;
 
 export type ReplayDiscordRequestReceipt =
   | { status: "complete"; results: ReplayDiscordHubShareResult[] }
+  | { status: "terminal"; results: ReplayDiscordHubShareResult[] }
   | { status: "result-pending" };
 
 export async function readReplayDiscordRequestReceipt(input: {
@@ -36,18 +37,19 @@ export async function readReplayDiscordRequestReceipt(input: {
   if (value.status === "result-pending") {
     return Number(value.retryAfter ?? 0) > Date.now() ? { status: "result-pending" } : null;
   }
-  if (value.status !== "complete" || !Array.isArray(value.results)) return null;
+  if ((value.status !== "complete" && value.status !== "terminal") || !Array.isArray(value.results)) return null;
   const results = value.results.flatMap((item): ReplayDiscordHubShareResult[] => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const candidate = item as Record<string, unknown>;
     const hubId = typeof candidate.hubId === "string" ? candidate.hubId : "";
     const status = candidate.status;
-    if (!hubIds.includes(hubId) || (status !== "shared" && status !== "already-shared")) return [];
-    return [{ hubId, status }];
+    if (!hubIds.includes(hubId) || !isSettledStatus(status)) return [];
+    return [{ hubId, status: status as ReplayDiscordHubShareResult["status"] }];
   });
-  return results.length === hubIds.length && new Set(results.map((item) => item.hubId)).size === hubIds.length
-    ? { status: "complete", results }
-    : null;
+  if (results.length !== hubIds.length || new Set(results.map((item) => item.hubId)).size !== hubIds.length) return null;
+  const complete = results.every((item) => item.status === "shared" || item.status === "already-shared");
+  if ((value.status === "complete") !== complete) return null;
+  return { status: value.status, results };
 }
 
 export async function writeReplayDiscordRequestReceipt(input: {
@@ -67,7 +69,7 @@ export async function writeReplayDiscordRequestReceipt(input: {
       replayId: input.replayId,
       hubIds,
       status: input.receipt.status,
-      ...(input.receipt.status === "complete"
+      ...(input.receipt.status === "complete" || input.receipt.status === "terminal"
         ? { results: input.receipt.results, completedAt: Date.now() }
         : { retryAfter: Date.now() + PENDING_RECHECK_MS }),
       updatedAt: Date.now(),
@@ -87,4 +89,14 @@ function equalStrings(value: unknown, expected: string[]): boolean {
   return Array.isArray(value) &&
     value.length === expected.length &&
     value.every((item, index) => item === expected[index]);
+}
+
+function isSettledStatus(value: unknown): boolean {
+  return [
+    "shared",
+    "already-shared",
+    "not-member",
+    "not-configured",
+    "hub-unavailable",
+  ].includes(String(value ?? ""));
 }

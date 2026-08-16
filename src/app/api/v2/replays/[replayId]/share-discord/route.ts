@@ -49,9 +49,9 @@ export async function POST(request: Request, context: RouteContext) {
     const hubIds = Array.from(new Set(parsed.data.hubIds));
     const receiptInput = { ownerUid, replayId, hubIds };
     const receipt = await readReplayDiscordRequestReceipt(receiptInput);
-    if (receipt?.status === "complete") {
+    if (receipt?.status === "complete" || receipt?.status === "terminal") {
       return NextResponse.json({
-        ok: true,
+        ok: receipt.status === "complete",
         visibility: "unlisted",
         results: receipt.results,
       }, { headers: { "Cache-Control": "no-store" } });
@@ -114,14 +114,20 @@ export async function POST(request: Request, context: RouteContext) {
       activeDeck: parsed.data.activeDeck,
       origin: process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://www.riftlite.com",
     });
-    if (results.every((result) => result.status === "shared" || result.status === "already-shared")) {
+    const coversAllHubs = results.length === hubIds.length &&
+      new Set(results.map((result) => result.hubId)).size === hubIds.length;
+    const complete = coversAllHubs &&
+      results.every((result) => result.status === "shared" || result.status === "already-shared");
+    const settled = coversAllHubs &&
+      results.every((result) => !["failed", "in-progress"].includes(result.status));
+    if (settled) {
       await writeReplayDiscordRequestReceipt({
         ...receiptInput,
-        receipt: { status: "complete", results },
+        receipt: { status: complete ? "complete" : "terminal", results },
       });
     }
     return NextResponse.json({
-      ok: results.every((result) => result.status === "shared" || result.status === "already-shared"),
+      ok: complete,
       visibility: "unlisted",
       results,
     }, { headers: { "Cache-Control": "no-store" } });
