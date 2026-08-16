@@ -19,6 +19,7 @@ const cards = Object.fromEntries(source.cards.map((card) => {
     typeof card.basePrintId !== "string" ||
     typeof card.name !== "string" ||
     typeof card.type !== "string" ||
+    !(card.supertype == null || typeof card.supertype === "string") ||
     !(card.costEnergy == null || (Number.isInteger(card.costEnergy) && card.costEnergy >= 0)) ||
     !(card.costPower == null || (Number.isInteger(card.costPower) && card.costPower >= 0))
   ) throw new Error("Source registry contains an invalid card.");
@@ -26,6 +27,7 @@ const cards = Object.fromEntries(source.cards.map((card) => {
     basePrintId: card.basePrintId,
     name: card.name,
     type: card.type,
+    supertype: card.supertype ?? null,
     costEnergy: card.costEnergy ?? null,
     costPower: card.costPower ?? null,
   }];

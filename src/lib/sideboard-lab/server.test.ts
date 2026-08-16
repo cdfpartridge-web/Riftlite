@@ -40,7 +40,7 @@ describe("Sideboard Lab all-history fact refresh", () => {
     expect(fake.factQuery.where).not.toHaveBeenCalled();
     expect(fake.aggregateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        backfill: { factVersion: 2, complete: true, cursor: null },
+        backfill: { factVersion: 3, complete: true, cursor: null },
       }),
       { merge: true },
     );
@@ -49,7 +49,7 @@ describe("Sideboard Lab all-history fact refresh", () => {
   it("uses a bounded watermark instead of rereading unchanged facts twice in one day", async () => {
     const latestFact = document("fact-latest", { updatedAt: 123_456 });
     const fake = fakeSideboardDb(
-      { factVersion: 2, complete: true, cursor: null },
+      { factVersion: 3, complete: true, cursor: null },
       {
         factCount: 42,
         watermarkPages: [page([latestFact]), page([latestFact])],
@@ -73,7 +73,7 @@ describe("Sideboard Lab all-history fact refresh", () => {
   it("rebuilds on retry when a forced pack sync fails after clearing the completion marker", async () => {
     const latestFact = document("fact-latest", { updatedAt: 123_456 });
     const fake = fakeSideboardDb(
-      { factVersion: 2, complete: true, cursor: null },
+      { factVersion: 3, complete: true, cursor: null },
       {
         watermarkPages: [page([latestFact]), page([latestFact]), page([latestFact])],
         aggregatePackPages: [page([])],
@@ -104,7 +104,7 @@ describe("Sideboard Lab all-history fact refresh", () => {
 
   it("resumes the index-free replay walk from the saved cursor", async () => {
     const fake = fakeSideboardDb({
-      factVersion: 2,
+      factVersion: 3,
       complete: false,
       cursor: { replayId: "rl2_previous" },
     });
@@ -122,7 +122,7 @@ describe("Sideboard Lab all-history fact refresh", () => {
     expect(fake.replayQuery.startAfter).not.toHaveBeenCalled();
     expect(fake.aggregateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        backfill: { factVersion: 2, complete: true, cursor: null },
+        backfill: { factVersion: 3, complete: true, cursor: null },
       }),
       { merge: true },
     );

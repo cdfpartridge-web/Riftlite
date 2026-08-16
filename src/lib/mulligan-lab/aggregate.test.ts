@@ -181,6 +181,32 @@ describe("Mulligan Lab observed-data aggregate", () => {
       classification: "two-drop-present",
       twoDropCount: 1,
     });
+    expect(pack?.drills[0]).toMatchObject({
+      deck: { chosenChampionCode: "OGN-014" },
+      context: {
+        battlefields: {
+          player: { cardCode: "OGN-291" },
+          opponent: { cardCode: "OGN-283" },
+        },
+        setup: {
+          chosenChampion: { cardCode: "OGN-014" },
+          replacementPoolCards: 35,
+        },
+      },
+      decisionEvidence: {
+        scope: "matching-curve",
+        hands: 30,
+        players: 12,
+        redrawCountHistogram: [
+          { redraws: 0, hands: 0 },
+          { redraws: 1, hands: 24 },
+          { redraws: 2, hands: 6 },
+        ],
+        mostCommonRedrawCount: 1,
+        twoRedrawRate: 0.2,
+        evidenceStatus: "robust",
+      },
+    });
     const evidence = pack?.drills[0].cardEvidence.find((entry) => entry.cardCode === "OGN-001");
     expect(evidence?.slices).toMatchObject({
       matchingCurve: { offered: 30, players: 12 },
@@ -632,7 +658,7 @@ function observedReplay(
       self: {
         id: "self",
         name: "Player",
-        fields: {},
+        fields: { selectedBattlefield: { cardCode: "OGN-291", name: "The Candlelit Sanctum" } },
         boardFields: {},
         zones: {
           hand,
@@ -649,7 +675,7 @@ function observedReplay(
       opponent: {
         id: "opponent",
         name: "Opponent",
-        fields: {},
+        fields: { selectedBattlefield: { cardCode: "OGN-283", name: "Navori Fighting Pit" } },
         boardFields: {},
         zones: {
           hand: [],

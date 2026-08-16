@@ -24,6 +24,7 @@ describe("targeted Sideboard Lab endpoint", () => {
       opponentLegendIdentityCode: "VEN-145",
       deckFingerprint: fingerprint,
       priorGameResult: "loss",
+      targetGameNumber: 2,
       limit: 6,
     });
   });

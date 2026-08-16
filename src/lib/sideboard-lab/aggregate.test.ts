@@ -176,6 +176,15 @@ describe("Sideboard Lab aggregate", () => {
         evidenceStatus: "developing",
       }),
     ]);
+    expect(pack?.drills[0].pairs).toEqual([
+      expect.objectContaining({
+        cardIn: expect.objectContaining({ cardCode: "OGN-050" }),
+        cardOut: expect.objectContaining({ cardCode: "OGN-001" }),
+        decisions: 24,
+        players: 12,
+        evidenceStatus: "developing",
+      }),
+    ]);
     const sideCard = pack?.drills[0].cardEvidence.find((entry) => (
       entry.direction === "in" && entry.cardCode === "OGN-050"
     ));
@@ -343,6 +352,31 @@ describe("Sideboard Lab aggregate", () => {
     expect(result?.drills).toHaveLength(2);
     expect(result?.drills.map((drill) => drill.evidence.decisions)).toEqual([15, 15]);
     expect(result?.drills.map((drill) => drill.evidence.status)).toEqual(["early", "early"]);
+  });
+
+  it("keeps Game 2 and Game 3 sideboard cohorts strictly separated", () => {
+    const game2 = Array.from({ length: 8 }, (_, index) => candidate(index + 2_000, {
+      contributorKey: `game2-${index % 4}`,
+      selectedIn: true,
+    }));
+    const game3 = Array.from({ length: 8 }, (_, index) => {
+      const value = candidate(index + 2_100, {
+        contributorKey: `game3-${index % 4}`,
+        selectedIn: false,
+      });
+      value.observation.targetGameNumber = 3;
+      return value;
+    });
+    const pack = buildSideboardLabPack([...game2, ...game3], {
+      playerLegendIdentityCode: "UNL-191",
+      opponentLegendIdentityCode: "VEN-145",
+      priorGameResult: "win",
+      targetGameNumber: 3,
+    }, { generatedAt: new Date("2026-08-13T06:00:00.000Z") });
+    expect(pack?.query.requested.targetGameNumber).toBe(3);
+    expect(pack?.drills.every((drill) => drill.context.targetGameNumber === 3)).toBe(true);
+    expect(pack?.drills.every((drill) => drill.decisionEvidence.decisions === 8)).toBe(true);
+    expect(pack?.drills[0].cardEvidence.find((entry) => entry.direction === "in" && entry.cardCode === "OGN-050")?.selected).toBe(0);
   });
 
   it("returns unavailable data instead of synthetic drills when no strict facts exist", () => {

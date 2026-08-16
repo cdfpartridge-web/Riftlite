@@ -42,6 +42,7 @@ export type SideboardLabAggregateOptions = {
   targetOpponentLegendIdentityCode?: string;
   targetDeckFingerprint?: string;
   targetPriorGameResult?: "win" | "loss";
+  targetGameNumber?: 2 | 3;
 };
 
 export type SideboardLabPackTarget = {
@@ -49,6 +50,7 @@ export type SideboardLabPackTarget = {
   opponentLegendIdentityCode?: string;
   deckFingerprint?: string;
   priorGameResult?: "win" | "loss";
+  targetGameNumber?: 2 | 3;
 };
 
 type Direction = "in" | "out";
@@ -91,7 +93,8 @@ export function buildSideboardLabSnapshot(
   const maxDrills = Math.min(48, positiveInteger(options.maxDrills) ?? 48);
   const generatedAt = options.generatedAt ?? new Date();
   const lifetimeHours = positiveInteger(options.lifetimeHours) ?? 36;
-  const balanced = dedupeCandidates(candidates);
+  const targetGameNumber = options.targetGameNumber ?? 2;
+  const balanced = dedupeCandidates(candidates).filter((candidate) => candidate.observation.targetGameNumber === targetGameNumber);
 
   const matchupGroups = new Map<string, ObservedSideboardCandidate[]>();
   const legendGroups = new Map<string, ObservedSideboardCandidate[]>();
@@ -227,7 +230,8 @@ export function buildSideboardLabPack(
     ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_DECISIONS;
   const minimumPlayers = positiveInteger(options.minimumPlayers)
     ?? DEFAULT_SIDEBOARD_LAB_MINIMUM_PLAYERS;
-  const balanced = dedupeCandidates(candidates);
+  const targetGameNumber = target.targetGameNumber ?? 2;
+  const balanced = dedupeCandidates(candidates).filter((candidate) => candidate.observation.targetGameNumber === targetGameNumber);
   const exactDeckCohort = target.deckFingerprint
     ? balanced.filter((candidate) => (
       playerLegendIdentityCode(candidate) === target.playerLegendIdentityCode &&
@@ -245,6 +249,7 @@ export function buildSideboardLabPack(
     targetPlayerLegendIdentityCode: target.playerLegendIdentityCode,
     targetOpponentLegendIdentityCode: target.opponentLegendIdentityCode,
     targetPriorGameResult: target.priorGameResult,
+    targetGameNumber,
     targetDeckFingerprint: exactDeckPublishable ? target.deckFingerprint : undefined,
   });
   if (!snapshot) return null;
@@ -271,10 +276,11 @@ export function buildSideboardLabPack(
         nextInitiative: sideboardNextInitiative(group, drill.deck.fingerprint),
         format: "bo3" as const,
         provider: "atlas" as const,
-        targetGameNumber: 2 as const,
+        targetGameNumber,
       },
       decisionEvidence: sideboardDecisionEvidence(group),
       packages: sideboardPackages(group, minimumDecisions, minimumPlayers),
+      pairs: sideboardPairs(group, minimumDecisions, minimumPlayers),
       cardEvidence: drill.cardEvidence.map((entry) => {
         // v1 evidence can fall back card-by-card from the matchup cohort to the
         // broader player-Legend cohort. Quantity and period evidence must use
@@ -325,6 +331,7 @@ export function buildSideboardLabPack(
         opponentLegend: target.opponentLegendIdentityCode ?? null,
         deckFingerprint: target.deckFingerprint ?? null,
         priorGameResult: target.priorGameResult ?? null,
+        targetGameNumber,
       },
       resolved: {
         scope: exactDeckResolved
@@ -721,6 +728,62 @@ function sideboardPackages(
     .map((entry) => ({
       cardsIn: entry.cardsIn,
       cardsOut: entry.cardsOut,
+      decisions: entry.decisions,
+      players: entry.players.size,
+      selectionRate: entry.decisions / group.length,
+      evidenceStatus: entry.decisions >= Math.max(CARD_GUIDANCE_MINIMUM_OPPORTUNITIES, minimumDecisions) &&
+        entry.players.size >= Math.max(CARD_GUIDANCE_MINIMUM_PLAYERS, minimumPlayers)
+        ? "robust" as const
+        : "developing" as const,
+    }));
+}
+
+/**
+ * Publishes stable IN↔OUT relationships even when players disagree on the
+ * rest of the package or exact quantities. This is deliberately a
+ * co-occurrence signal, not a claim that the two cards are mechanically
+ * interchangeable.
+ */
+function sideboardPairs(
+  group: ObservedSideboardCandidate[],
+  minimumDecisions: number,
+  minimumPlayers: number,
+) {
+  const pairs = new Map<string, {
+    cardIn: SideboardLabCard;
+    cardOut: SideboardLabCard;
+    decisions: number;
+    players: Set<string>;
+  }>();
+  for (const candidate of group) {
+    const cardsIn = [...new Set(candidate.cardsIn.map((card) => cardIdentity(card.cardCode)))];
+    const cardsOut = [...new Set(candidate.cardsOut.map((card) => cardIdentity(card.cardCode)))];
+    for (const incoming of cardsIn) {
+      const inMetadata = mulliganCardMetadata(incoming);
+      if (!inMetadata) continue;
+      for (const outgoing of cardsOut) {
+        const outMetadata = mulliganCardMetadata(outgoing);
+        if (!outMetadata) continue;
+        const key = `${incoming}|${outgoing}`;
+        const entry = pairs.get(key) ?? {
+          cardIn: { cardCode: incoming, name: inMetadata.name },
+          cardOut: { cardCode: outgoing, name: outMetadata.name },
+          decisions: 0,
+          players: new Set<string>(),
+        };
+        entry.decisions += 1;
+        entry.players.add(candidate.contributorKey);
+        pairs.set(key, entry);
+      }
+    }
+  }
+  return [...pairs.values()]
+    .filter((entry) => entry.decisions >= 8 && entry.players.size >= 4)
+    .sort((left, right) => right.decisions - left.decisions || right.players.size - left.players.size || left.cardIn.cardCode.localeCompare(right.cardIn.cardCode))
+    .slice(0, 12)
+    .map((entry) => ({
+      cardIn: entry.cardIn,
+      cardOut: entry.cardOut,
       decisions: entry.decisions,
       players: entry.players.size,
       selectionRate: entry.decisions / group.length,

@@ -86,6 +86,7 @@ export type SideboardLabPackReadQuery = {
   opponentLegendIdentityCode?: string;
   deckFingerprint?: string;
   priorGameResult?: "win" | "loss";
+  targetGameNumber?: 2 | 3;
   limit?: number;
 };
 
@@ -115,6 +116,7 @@ export async function readSideboardLabPack(
   // Result-specific shards are privacy-gated before they are written. Never
   // answer a result selector from a broader shard filtered at request time,
   // because its matching result stratum may be smaller than the public gate.
+  const targetGameNumber = query.targetGameNumber ?? 2;
   const candidates = query.priorGameResult
     ? [
       ...(query.deckFingerprint && query.opponentLegendIdentityCode
@@ -123,6 +125,7 @@ export async function readSideboardLabPack(
           query.opponentLegendIdentityCode,
           query.deckFingerprint,
           query.priorGameResult,
+          targetGameNumber,
         )]
         : []),
       ...(query.opponentLegendIdentityCode
@@ -131,6 +134,7 @@ export async function readSideboardLabPack(
           query.opponentLegendIdentityCode,
           undefined,
           query.priorGameResult,
+          targetGameNumber,
         )]
         : []),
       sideboardPackDocumentId(
@@ -138,6 +142,7 @@ export async function readSideboardLabPack(
         undefined,
         undefined,
         query.priorGameResult,
+        targetGameNumber,
       ),
     ]
     : [
@@ -146,15 +151,20 @@ export async function readSideboardLabPack(
           query.playerLegendIdentityCode,
           query.opponentLegendIdentityCode,
           query.deckFingerprint,
+          undefined,
+          targetGameNumber,
         )]
         : []),
       ...(query.opponentLegendIdentityCode
         ? [sideboardPackDocumentId(
           query.playerLegendIdentityCode,
           query.opponentLegendIdentityCode,
+          undefined,
+          undefined,
+          targetGameNumber,
         )]
         : []),
-      sideboardPackDocumentId(query.playerLegendIdentityCode),
+      sideboardPackDocumentId(query.playerLegendIdentityCode, undefined, undefined, undefined, targetGameNumber),
     ];
   let sawExpired = false;
   try {
@@ -188,6 +198,7 @@ export async function readSideboardLabPack(
             opponentLegend: query.opponentLegendIdentityCode ?? null,
             deckFingerprint: query.deckFingerprint ?? null,
             priorGameResult: query.priorGameResult ?? null,
+            targetGameNumber,
           },
           resolved: {
             scope: exactDeck ? "exact-deck" : exactMatchup ? "matchup" : "player-legend",
@@ -370,6 +381,18 @@ function buildSideboardPackDocuments(
   candidates: ReturnType<typeof storedSideboardFactCandidates>,
   options: Parameters<typeof buildSideboardLabPack>[2],
 ): SideboardPackDocument[] {
+  return ([2, 3] as const).flatMap((targetGameNumber) => buildSideboardPackDocumentsForGame(
+    candidates.filter((candidate) => candidate.observation.targetGameNumber === targetGameNumber),
+    options,
+    targetGameNumber,
+  ));
+}
+
+function buildSideboardPackDocumentsForGame(
+  candidates: ReturnType<typeof storedSideboardFactCandidates>,
+  options: Parameters<typeof buildSideboardLabPack>[2],
+  targetGameNumber: 2 | 3,
+): SideboardPackDocument[] {
   const pairs = new Map<string, {
     player: string;
     opponent: string;
@@ -473,52 +496,58 @@ function buildSideboardPackDocuments(
   };
   for (const { player, opponent, decisions, players } of pairs.values()) {
     if (decisions < 8 || players.size < 4) continue;
-    add(sideboardPackDocumentId(player, opponent), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
+    add(sideboardPackDocumentId(player, opponent, undefined, undefined, targetGameNumber), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
       playerLegendIdentityCode: player,
       opponentLegendIdentityCode: opponent,
+      targetGameNumber,
     }, { ...options, maxDrills: 12 }));
   }
   for (const { player, opponent, result, decisions, players } of pairResults.values()) {
     if (decisions < 8 || players.size < 4) continue;
-    add(sideboardPackDocumentId(player, opponent, undefined, result), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
+    add(sideboardPackDocumentId(player, opponent, undefined, result, targetGameNumber), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
       playerLegendIdentityCode: player,
       opponentLegendIdentityCode: opponent,
       priorGameResult: result,
+      targetGameNumber,
     }, { ...options, maxDrills: 12 }));
   }
   for (const [player, cohort] of legends) {
     if (cohort.decisions < 8 || cohort.players.size < 4) continue;
-    add(sideboardPackDocumentId(player), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
+    add(sideboardPackDocumentId(player, undefined, undefined, undefined, targetGameNumber), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
       playerLegendIdentityCode: player,
+      targetGameNumber,
     }, { ...options, maxDrills: 12 }));
   }
   for (const { player, result, decisions, players } of legendResults.values()) {
     if (decisions < 8 || players.size < 4) continue;
-    add(sideboardPackDocumentId(player, undefined, undefined, result), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
+    add(sideboardPackDocumentId(player, undefined, undefined, result, targetGameNumber), buildSideboardLabPack(candidatesByPlayer.get(player) ?? [], {
       playerLegendIdentityCode: player,
       priorGameResult: result,
+      targetGameNumber,
     }, { ...options, maxDrills: 12 }));
   }
   for (const cohort of decks.values()) {
     if (cohort.decisions < 8 || cohort.players.size < 4) continue;
     add(
-      sideboardPackDocumentId(cohort.player, cohort.opponent, cohort.fingerprint, cohort.result),
+      sideboardPackDocumentId(cohort.player, cohort.opponent, cohort.fingerprint, cohort.result, targetGameNumber),
       buildSideboardLabPack(candidatesByPlayer.get(cohort.player) ?? [], {
         playerLegendIdentityCode: cohort.player,
         opponentLegendIdentityCode: cohort.opponent,
         deckFingerprint: cohort.fingerprint,
         priorGameResult: cohort.result,
+        targetGameNumber,
       }, { ...options, maxDrills: 12 }),
     );
   }
   for (const cohort of allResultDecks.values()) {
     if (cohort.decisions < 8 || cohort.players.size < 4) continue;
     add(
-      sideboardPackDocumentId(cohort.player, cohort.opponent, cohort.fingerprint),
+      sideboardPackDocumentId(cohort.player, cohort.opponent, cohort.fingerprint, undefined, targetGameNumber),
       buildSideboardLabPack(candidatesByPlayer.get(cohort.player) ?? [], {
         playerLegendIdentityCode: cohort.player,
         opponentLegendIdentityCode: cohort.opponent,
         deckFingerprint: cohort.fingerprint,
+        targetGameNumber,
       }, { ...options, maxDrills: 12 }),
     );
   }
@@ -572,12 +601,14 @@ export function sideboardPackDocumentId(
   opponentLegendIdentityCode?: string,
   deckFingerprint?: string,
   priorGameResult?: "win" | "loss",
+  targetGameNumber: 2 | 3 = 2,
 ): string {
   return `${PACK_DOCUMENT_PREFIX}-${createHash("sha256").update(JSON.stringify([
     playerLegendIdentityCode,
     opponentLegendIdentityCode ?? null,
     deckFingerprint ?? null,
     priorGameResult ?? null,
+    targetGameNumber,
   ])).digest("hex").slice(0, 32)}`;
 }
 
@@ -597,6 +628,7 @@ function unavailableSideboardPack(
         opponentLegend: query.opponentLegendIdentityCode ?? null,
         deckFingerprint: query.deckFingerprint ?? null,
         priorGameResult: query.priorGameResult ?? null,
+        targetGameNumber: query.targetGameNumber ?? 2,
       },
       resolved: {
         scope: query.opponentLegendIdentityCode ? "matchup" : "player-legend",

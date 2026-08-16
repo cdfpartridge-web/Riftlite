@@ -5,6 +5,7 @@ export type MulliganRegistryCard = {
   basePrintId: string;
   name: string;
   type: string;
+  supertype: string | null;
   costEnergy: number | null;
   costPower: number | null;
 };
@@ -18,6 +19,18 @@ export function mulliganCardIdentity(cardCode: string): string | null {
 
 export function mulliganCardMetadata(cardCode: string): MulliganRegistryCard | null {
   return registry[cardCode] ?? null;
+}
+
+/** Resolves only a unique packaged name/type match; ambiguous names fail closed. */
+export function mulliganCardByName(name: string, requiredType?: string): { cardCode: string; card: MulliganRegistryCard } | null {
+  const normalized = name.trim().toLocaleLowerCase("en").replace(/\s+/g, " ");
+  if (!normalized) return null;
+  const matches = Object.entries(registry).filter(([, card]) => (
+    card.name.trim().toLocaleLowerCase("en").replace(/\s+/g, " ") === normalized &&
+    (!requiredType || card.type.toLocaleLowerCase("en") === requiredType.toLocaleLowerCase("en"))
+  ));
+  if (matches.length !== 1) return null;
+  return { cardCode: matches[0]![0], card: matches[0]![1] };
 }
 
 export const MULLIGAN_CARD_REGISTRY_METADATA = Object.freeze({
@@ -39,13 +52,26 @@ export function canonicalizeCandidateWithPackagedRegistry(
   const playerLegend = canonicalRegistryCard(candidate.matchup.playerLegend.cardCode, "legend");
   const opponentLegend = canonicalRegistryCard(candidate.matchup.opponentLegend.cardCode, "legend");
   const hand = candidate.hand.map((card) => canonicalRegistryCard(card.cardCode));
+  const playerBattlefield = candidate.battlefields?.player
+    ? canonicalRegistryCard(candidate.battlefields.player.cardCode, "battlefield")
+    : null;
+  const opponentBattlefield = candidate.battlefields?.opponent
+    ? canonicalRegistryCard(candidate.battlefields.opponent.cardCode, "battlefield")
+    : null;
   const mainDeck = candidate.deck.mainDeck.map((card) => {
     const registered = registry[card.cardCode];
     return registered && !FORBIDDEN_DECK_TYPES.has(registered.type.toLowerCase())
       ? { cardCode: card.cardCode, name: registered.name, count: card.count }
       : null;
   });
-  if (!playerLegend || !opponentLegend || hand.some((card) => !card) || mainDeck.some((card) => !card)) {
+  if (
+    !playerLegend ||
+    !opponentLegend ||
+    hand.some((card) => !card) ||
+    mainDeck.some((card) => !card) ||
+    (candidate.battlefields?.player && !playerBattlefield) ||
+    (candidate.battlefields?.opponent && !opponentBattlefield)
+  ) {
     return null;
   }
   return {
@@ -56,6 +82,9 @@ export function canonicalizeCandidateWithPackagedRegistry(
       ...candidate.deck,
       mainDeck: mainDeck as ObservedMulliganCandidate["deck"]["mainDeck"],
     },
+    battlefields: candidate.battlefields
+      ? { player: playerBattlefield, opponent: opponentBattlefield }
+      : undefined,
   };
 }
 

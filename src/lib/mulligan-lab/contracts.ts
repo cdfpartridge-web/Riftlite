@@ -16,6 +16,7 @@ export const MulliganLabDeckCardSchema = MulliganLabCardSchema.extend({
 export const MulliganLabDeckSchema = z.object({
   fingerprint: z.string().regex(SHA256),
   mainDeck: z.array(MulliganLabDeckCardSchema).min(14).max(40),
+  chosenChampionCode: z.string().regex(CARD_CODE).nullable().optional(),
 }).strict().superRefine((deck, context) => {
   const total = deck.mainDeck.reduce((sum, card) => sum + card.count, 0);
   if (total !== 40) {
@@ -23,6 +24,12 @@ export const MulliganLabDeckSchema = z.object({
   }
   if (new Set(deck.mainDeck.map((card) => card.cardCode)).size !== deck.mainDeck.length) {
     context.addIssue({ code: "custom", message: "mainDeck card codes must be unique" });
+  }
+  if (deck.chosenChampionCode) {
+    const chosen = deck.mainDeck.find((card) => card.cardCode === deck.chosenChampionCode);
+    if (!chosen || chosen.count !== 1) {
+      context.addIssue({ code: "custom", message: "chosenChampionCode must identify one registered Main Deck copy" });
+    }
   }
 });
 
@@ -73,7 +80,32 @@ const MulliganLabContextSchema = z.object({
     player: MulliganLabCardSchema.nullable(),
     opponent: MulliganLabCardSchema.nullable(),
   }).strict(),
+  duplicateIdentityCount: z.number().int().min(0).max(2).optional(),
+  setup: z.object({
+    chosenChampion: MulliganLabCardSchema.nullable(),
+    replacementPoolCards: z.literal(35).nullable(),
+  }).strict().optional(),
 }).strict();
+
+const MulliganLabDecisionEvidenceSchema = z.object({
+  scope: z.enum(["matching-curve", "matchup"]),
+  hands: z.number().int().min(8),
+  players: z.number().int().min(4),
+  redrawCountHistogram: z.array(z.object({
+    redraws: z.number().int().min(0).max(2),
+    hands: z.number().int().nonnegative(),
+  }).strict()).length(3),
+  mostCommonRedrawCount: z.number().int().min(0).max(2).nullable(),
+  twoRedrawRate: RATE,
+  evidenceStatus: z.enum(["robust", "developing"]),
+}).strict().superRefine((evidence, context) => {
+  const ordered = evidence.redrawCountHistogram.map((entry) => entry.redraws).join(",");
+  const total = evidence.redrawCountHistogram.reduce((sum, entry) => sum + entry.hands, 0);
+  const two = evidence.redrawCountHistogram.find((entry) => entry.redraws === 2)?.hands ?? -1;
+  if (ordered !== "0,1,2" || total !== evidence.hands || Math.abs(evidence.twoRedrawRate - two / evidence.hands) > Number.EPSILON) {
+    context.addIssue({ code: "custom", message: "whole-hand redraw evidence must equal its published histogram" });
+  }
+});
 
 /**
  * Descriptive community evidence for one base card identity. `offered`,
@@ -181,6 +213,7 @@ export const MulliganLabDrillSchema = z.object({
   }).strict(),
   cardEvidence: z.array(MulliganLabCardEvidenceSchema).min(1).max(4),
   context: MulliganLabContextSchema.optional(),
+  decisionEvidence: MulliganLabDecisionEvidenceSchema.optional(),
 }).strict().superRefine((drill, context) => {
   const evidenceCodes = new Set(drill.cardEvidence.map((entry) => entry.cardCode));
   const handCodes = new Set(drill.hand.map((entry) => entry.cardCode));

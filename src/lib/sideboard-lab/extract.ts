@@ -30,6 +30,7 @@ export type SideboardLabDeckCard = SideboardLabCard & {
 
 export type SideboardLabDeck = {
   fingerprint: string;
+  chosenChampionCode?: string;
   mainDeck: SideboardLabDeckCard[];
   sideboard: SideboardLabDeckCard[];
 };
@@ -40,7 +41,7 @@ export type ObservedSideboardCandidate = {
   observation: {
     provider: "atlas";
     matchKey: string;
-    targetGameNumber: 2;
+    targetGameNumber: 2 | 3;
     eventKey: string;
     observedOn: string;
     priorGameWon: boolean;
@@ -108,7 +109,8 @@ export function withoutSideboardContributor(
 }
 
 /**
- * Extracts the perspective player's confirmed Atlas Game 2 sideboard choice.
+ * Extracts the perspective player's confirmed Atlas Game 2 choice and, when
+ * fully proven, the separate Game 3 choice from the post-Game-2 baseline.
  * It intentionally accepts only complete, registry-backed before/after lists;
  * an attractive but ambiguous partial capture is less useful than no fact.
  */
@@ -218,7 +220,7 @@ export function auditObservedSideboardDecisions(
     ? "first" as const
     : firstPlayerId === opponent.id ? "second" as const : "unknown" as const;
 
-  return { candidates: [{
+  const game2Candidate: ObservedSideboardCandidate = {
     observedDecisionId: `sd1_${digest([
       replay.id,
       targetGame.id,
@@ -242,7 +244,61 @@ export function auditObservedSideboardDecisions(
     cardsIn,
     cardsOut,
     wonGame,
-  }], rejection: null };
+  };
+  const candidates = [game2Candidate];
+  const thirdGame = replay.series.games.find((game) => game.gameNumber === 3 && game.ordinal === 3)
+    ?? replay.series.games.find((game) => game.gameNumber === 3);
+  if (thirdGame) {
+    const thirdWon = perspectiveResult(thirdGame.result, perspectivePlayerId);
+    const thirdActions = confirmedPerspectiveSideboardActions(replay, thirdGame, perspectivePlayerId);
+    if (thirdWon !== null && thirdActions.length === 1) {
+      const thirdAction = thirdActions[0]!;
+      const thirdSubmitted = exactSubmittedDeckFromPatch(thirdAction, perspectivePlayerId);
+      const thirdSubmittedDeck = thirdSubmitted.source ? normalizeDeck(thirdSubmitted.source) : null;
+      if (thirdSubmittedDeck && sameCardPool(submittedDeck, thirdSubmittedDeck)) {
+        const thirdCardsIn = mainDeckDelta(submittedDeck.mainDeck, thirdSubmittedDeck.mainDeck, "in");
+        const thirdCardsOut = mainDeckDelta(submittedDeck.mainDeck, thirdSubmittedDeck.mainDeck, "out");
+        const incomingCount = cardTotal(thirdCardsIn);
+        const outgoingCount = cardTotal(thirdCardsOut);
+        const thirdObservedAt = epochMilliseconds(thirdAction.at);
+        if (
+          incomingCount === outgoingCount &&
+          sideboardDeltasMatch(submittedDeck, thirdSubmittedDeck, thirdCardsIn, thirdCardsOut) &&
+          thirdObservedAt !== null
+        ) {
+          const firstPlayerId = seekReplayByEventIndex(replay, thirdGame.eventEndIndex).state.room.firstPlayerId;
+          candidates.push({
+            observedDecisionId: `sd1_${digest([
+              replay.id,
+              thirdGame.id,
+              thirdAction.id,
+              submittedDeck.fingerprint,
+              thirdSubmittedDeck.fingerprint,
+            ]).slice(0, 32)}`,
+            contributorKey,
+            observation: {
+              provider: "atlas",
+              matchKey: `sm1_${digest([replay.id, replay.series.id, submittedDeck.fingerprint]).slice(0, 32)}`,
+              targetGameNumber: 3,
+              eventKey: `se1_${digest([replay.id, thirdAction.id, thirdAction.sourceMessageId]).slice(0, 32)}`,
+              observedOn: new Date(thirdObservedAt).toISOString().slice(0, 10),
+              priorGameWon: wonGame,
+              nextInitiative: firstPlayerId === perspectivePlayerId
+                ? "first"
+                : firstPlayerId === opponent.id ? "second" : "unknown",
+            },
+            matchup: { playerLegend, opponentLegend },
+            deck: submittedDeck,
+            submittedDeck: thirdSubmittedDeck,
+            cardsIn: thirdCardsIn,
+            cardsOut: thirdCardsOut,
+            wonGame: thirdWon,
+          });
+        }
+      }
+    }
+  }
+  return { candidates, rejection: null };
 }
 
 export function sideboardDeckFingerprint(
@@ -263,7 +319,7 @@ export function isValidObservedSideboardCandidate(candidate: ObservedSideboardCa
       !/^sd1_[a-f0-9]{32}$/.test(candidate.observedDecisionId) ||
       !candidate.contributorKey ||
       candidate.observation.provider !== "atlas" ||
-      candidate.observation.targetGameNumber !== 2 ||
+      (candidate.observation.targetGameNumber !== 2 && candidate.observation.targetGameNumber !== 3) ||
       !/^sm1_[a-f0-9]{32}$/.test(candidate.observation.matchKey) ||
       !/^se1_[a-f0-9]{32}$/.test(candidate.observation.eventKey) ||
       !isIsoDay(candidate.observation.observedOn) ||
@@ -429,6 +485,7 @@ function normalizeDeck(source: JsonObject): SideboardLabDeck | null {
   ) return null;
   return {
     fingerprint: sideboardDeckFingerprint(normalizedMain, normalizedSideboard),
+    ...(championCount === 1 ? { chosenChampionCode: champions[0]!.cardCode } : {}),
     mainDeck: normalizedMain,
     sideboard: normalizedSideboard,
   };
