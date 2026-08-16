@@ -18,6 +18,7 @@ import { deterministicReplayId } from "@/lib/replay-v2-server/ids";
 import type { ReplayRecord } from "@/lib/replay-v2-server/model";
 import {
   completeReplay,
+  deleteOwnerReplay,
   initReplay,
   listOwnerReplays,
   listPublicReplays,
@@ -198,6 +199,37 @@ describe("replay captured-time persistence", () => {
     expect(fake.transaction.set.mock.calls[0]?.[0]?.path).toBe(`replayV2Owners/owner-1/items/${existing.replayId}`);
     expect(fake.transaction.delete.mock.calls[0]?.[0]?.path).toBe(`replayV2Public/${existing.replayId}`);
   });
+
+  it("deletes replay metadata, indexes, and Lab facts for the uploader", async () => {
+    const existing = replayRecord();
+    const fake = fakeReplayDb(existing);
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await deleteOwnerReplay("owner-1", existing.replayId);
+
+    expect(result).toEqual({ replayId: existing.replayId, cleanupComplete: false });
+    expect(fake.transaction.delete.mock.calls.map((call) => call[0].path)).toEqual(expect.arrayContaining([
+      `replayV2/${existing.replayId}`,
+      `replayV2Public/${existing.replayId}`,
+      `mulliganLabFactsV1/${existing.replayId}`,
+      `sideboardLabFactsV1/${existing.replayId}`,
+      `replayV2Owners/owner-1/items/${existing.replayId}`,
+    ]));
+    consoleError.mockRestore();
+  });
+
+  it("does not delete a replay for a different authenticated account", async () => {
+    const existing = replayRecord();
+    const fake = fakeReplayDb(existing);
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(deleteOwnerReplay("not-the-uploader", existing.replayId)).rejects.toMatchObject({
+      status: 403,
+      code: "replay_owner_required",
+    });
+    expect(fake.transaction.delete).not.toHaveBeenCalled();
+  });
 });
 
 describe("replay completion concurrency", () => {
@@ -337,6 +369,28 @@ describe("historical replay owner aliases", () => {
     );
     await expect(readCanonicalReplay(record.replayId, "owner-1"))
       .resolves.toMatchObject({ record: { ownerUid: "desktop-alias" } });
+  });
+
+  it("lets the linked canonical account delete a replay uploaded by its proven desktop alias", async () => {
+    const record = {
+      ...replayRecord(),
+      replayId: "historical-delete-replay",
+      ownerUid: "desktop-alias",
+      visibility: "private" as const,
+    };
+    const fake = fakeAliasReplayDb(record, false);
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(deleteOwnerReplay("owner-1", record.replayId)).resolves.toMatchObject({
+      replayId: record.replayId,
+    });
+    expect(fake.transaction.delete.mock.calls.map((call) => call[0].path)).toEqual(expect.arrayContaining([
+      `replayV2/${record.replayId}`,
+      `replayV2Owners/owner-1/items/${record.replayId}`,
+      `replayV2Owners/desktop-alias/items/${record.replayId}`,
+    ]));
+    consoleError.mockRestore();
   });
 
   it("uses the same owner/alias authorization for the delivery-status contract", async () => {

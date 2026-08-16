@@ -1,6 +1,6 @@
 import "server-only";
 
-import { get, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
 import {
@@ -105,6 +105,30 @@ export async function readImmutableArtifact(
   } catch (error) {
     if (error instanceof ReplayV2Error) throw error;
     throw new ReplayV2Error(500, "artifact_read_failed", "Replay artifact could not be loaded.");
+  }
+}
+
+/**
+ * Permanently remove an immutable replay artifact after its owning replay has
+ * been deleted. Metadata authorization happens in the replay service before
+ * this helper is called; the pointer is still validated here so deletion can
+ * never escape the replay-v2 namespace.
+ */
+export async function deleteImmutableArtifact(
+  db: Firestore,
+  pointer: ReplayArtifactPointer,
+): Promise<void> {
+  try {
+    assertArtifactPointer(pointer);
+    if (pointer.provider === "vercel-blob") {
+      await del(pointer.pathname);
+      return;
+    }
+    await db.recursiveDelete(
+      db.collection(REPLAY_ARTIFACT_COLLECTION).doc(pointer.artifactId),
+    );
+  } catch {
+    throw new ReplayV2Error(500, "artifact_delete_failed", "Replay artifact cleanup could not be completed.");
   }
 }
 

@@ -12,7 +12,11 @@ import {
 } from "@/lib/replay-v2/replay-quality";
 import { summarizeReplayForListing, type ReplayListingMetadata } from "@/lib/replay-v2/replay-listing";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2/types";
-import { readImmutableArtifact, storeImmutableArtifact } from "@/lib/replay-v2-server/artifacts";
+import {
+  deleteImmutableArtifact,
+  readImmutableArtifact,
+  storeImmutableArtifact,
+} from "@/lib/replay-v2-server/artifacts";
 import {
   MAX_CANONICAL_GZIP_BYTES,
   MAX_CANONICAL_JSON_BYTES,
@@ -42,7 +46,10 @@ import {
   replayFailure,
   storedReplayFailureStatus,
 } from "@/lib/replay-v2-server/errors";
-import { privateReplayHubAccessAllowsViewer } from "@/lib/replay-v2-server/hub-grants";
+import {
+  privateReplayHubAccessAllowsViewer,
+  revokeDeletedReplayHubGrants,
+} from "@/lib/replay-v2-server/hub-grants";
 import { createArtifactGeneration, deterministicReplayId, sha256Hex } from "@/lib/replay-v2-server/ids";
 import type { ReplayPublicationWarning, ReplayRecord, ReplaySummary } from "@/lib/replay-v2-server/model";
 import {
@@ -57,10 +64,12 @@ import {
 import { identityUidsFor } from "@/lib/social/server";
 import {
   buildStoredMulliganFact,
+  MULLIGAN_LAB_FACT_COLLECTION,
   setMulliganFactInTransaction,
 } from "@/lib/mulligan-lab/facts";
 import {
   buildStoredSideboardFactDocument,
+  SIDEBOARD_LAB_FACT_COLLECTION,
   setSideboardFactInTransaction,
 } from "@/lib/sideboard-lab/facts";
 
@@ -74,6 +83,11 @@ export type ReplayListPage = {
   items: ReplaySummary[];
   hasMore: boolean;
   nextCursor: string | null;
+};
+
+export type DeleteReplayResult = {
+  replayId: string;
+  cleanupComplete: boolean;
 };
 
 export async function initReplay(ownerUid: string, input: InitReplayInput): Promise<InitReplayResult> {
@@ -468,6 +482,47 @@ export async function updateReplayVisibility(
   });
 }
 
+/**
+ * Delete a replay only after proving the caller owns the immutable upload
+ * record (including server-proven account-link aliases). Visibility and hub
+ * membership never grant delete authority.
+ */
+export async function deleteOwnerReplay(
+  ownerUid: string,
+  replayId: string,
+): Promise<DeleteReplayResult> {
+  const db = replayDb();
+  const ownerUids = await replayOwnerIdentityUids(db, ownerUid);
+  const replayRef = db.collection(REPLAY_COLLECTION).doc(replayId);
+  const deleted = await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(replayRef);
+    const current = replayRecord(snapshot);
+    assertOwner(current, ownerUids);
+
+    transaction.delete(replayRef);
+    transaction.delete(db.collection(REPLAY_PUBLIC_COLLECTION).doc(replayId));
+    transaction.delete(db.collection(MULLIGAN_LAB_FACT_COLLECTION).doc(replayId));
+    transaction.delete(db.collection(SIDEBOARD_LAB_FACT_COLLECTION).doc(replayId));
+    for (const identityUid of ownerUids) {
+      transaction.delete(ownerReplayRef(db, identityUid, replayId));
+    }
+    return current;
+  });
+
+  const cleanup = await Promise.allSettled([
+    revokeDeletedReplayHubGrants(db, replayId),
+    deleteReplayReferenceDocuments(db, "replayDiscordShares", replayId),
+    deleteReplayReferenceDocuments(db, "replayDiscordRequestReceipts", replayId),
+    ...(deleted.rawArtifact ? [deleteImmutableArtifact(db, deleted.rawArtifact)] : []),
+    ...(deleted.canonicalArtifact ? [deleteImmutableArtifact(db, deleted.canonicalArtifact)] : []),
+  ]);
+  const cleanupComplete = cleanup.every((result) => result.status === "fulfilled");
+  if (!cleanupComplete) {
+    console.error("Replay deleted with deferred secondary cleanup", { replayId });
+  }
+  return { replayId, cleanupComplete };
+}
+
 export async function listOwnerReplays(ownerUid: string, limit: number): Promise<ReplaySummary[]> {
   const db = replayDb();
   const ownerIndexUids = await replayOwnerIndexUids(db, ownerUid);
@@ -747,6 +802,23 @@ async function replayOwnerIndexUids(db: Firestore, ownerUid: string): Promise<st
 
 function ownerReplayRef(db: Firestore, ownerUid: string, replayId: string) {
   return db.collection(REPLAY_OWNER_COLLECTION).doc(ownerUid).collection("items").doc(replayId);
+}
+
+async function deleteReplayReferenceDocuments(
+  db: Firestore,
+  collectionName: string,
+  replayId: string,
+): Promise<void> {
+  for (;;) {
+    const snapshot = await db.collection(collectionName)
+      .where("replayId", "==", replayId)
+      .limit(100)
+      .get();
+    if (snapshot.empty) return;
+    const batch = db.batch();
+    for (const document of snapshot.docs) batch.delete(document.ref);
+    await batch.commit();
+  }
 }
 
 type ReplayListCursor = {

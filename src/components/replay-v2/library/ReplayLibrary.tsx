@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Share2,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import { getAuth, onIdTokenChanged, type User } from "firebase/auth";
 
@@ -110,6 +111,8 @@ const visibilityCopy: Record<ReplayVisibility, string> = {
 export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
   const auth = useMemo(() => getAuth(firebaseClientApp), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const deleteConfirmRef = useRef<HTMLButtonElement>(null);
+  const deleteReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [scope, setScope] = useState<ReplayScope>(embedded ? "mine" : "public");
   const [authReady, setAuthReady] = useState(embedded);
   const [user, setUser] = useState<User | null>(null);
@@ -129,6 +132,8 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
   const [uploadState, setUploadState] = useState<UploadState>(INITIAL_UPLOAD_STATE);
   const [busyReplayId, setBusyReplayId] = useState("");
   const [cardMessages, setCardMessages] = useState<Record<string, string>>({});
+  const [pendingDelete, setPendingDelete] = useState<ReplaySummary | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const [search, setSearch] = useState("");
   const [playerLegend, setPlayerLegend] = useState("");
   const [opponentLegend, setOpponentLegend] = useState("");
@@ -149,6 +154,13 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
     setSort("newest");
   }, []);
 
+  const closeDeleteDialog = useCallback(() => {
+    if (pendingDelete && busyReplayId === pendingDelete.replayId) return;
+    setPendingDelete(null);
+    setDeleteError("");
+    window.setTimeout(() => deleteReturnFocusRef.current?.focus(), 0);
+  }, [busyReplayId, pendingDelete]);
+
   useEffect(() => {
     return onIdTokenChanged(
       auth,
@@ -167,6 +179,19 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
       },
     );
   }, [auth]);
+
+  useEffect(() => {
+    if (!pendingDelete) return;
+    deleteConfirmRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && busyReplayId !== pendingDelete.replayId) {
+        event.preventDefault();
+        closeDeleteDialog();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [busyReplayId, closeDeleteDialog, pendingDelete]);
 
   const loadPublicReplays = useCallback(async (cursor: string | null = null) => {
     const append = Boolean(cursor);
@@ -432,6 +457,39 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  function requestReplayDelete(replay: ReplaySummary, trigger: HTMLButtonElement) {
+    deleteReturnFocusRef.current = trigger;
+    setDeleteError("");
+    setPendingDelete(replay);
+  }
+
+  async function confirmReplayDelete() {
+    if (!pendingDelete || (!user && !embedded)) return;
+    const replay = pendingDelete;
+    setBusyReplayId(replay.replayId);
+    setDeleteError("");
+    try {
+      const endpoint = `/api/v2/replays/${encodeURIComponent(replay.replayId)}`;
+      const response = user
+        ? await authenticatedFetch(user, endpoint, { method: "DELETE" })
+        : await fetch(endpoint, { method: "DELETE", credentials: "include" });
+      const payload = await readJson(response);
+      if (!response.ok) throw new Error(apiError(payload, "Replay could not be deleted."));
+      setMyReplays((current) => current.filter((item) => item.replayId !== replay.replayId));
+      setPublicReplays((current) => current.filter((item) => item.replayId !== replay.replayId));
+      setCardMessages((current) => {
+        const next = { ...current };
+        delete next[replay.replayId];
+        return next;
+      });
+      setPendingDelete(null);
+    } catch (error) {
+      setDeleteError(errorMessage(error, "Replay could not be deleted."));
+    } finally {
+      setBusyReplayId("");
+    }
+  }
+
   function setCardMessage(replayId: string, message: string) {
     setCardMessages((current) => ({ ...current, [replayId]: message }));
   }
@@ -629,11 +687,13 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
                 {displayedReplays.map((replay) => (
                   <ReplayCard
                     busy={busyReplayId === replay.replayId}
+                    canDelete={scope === "mine" && Boolean(user || (embedded && !embeddedOwnerUnavailable))}
                     embedded={embedded}
                     key={replay.replayId}
                     message={cardMessages[replay.replayId]}
                     mine={scope === "mine" && Boolean(user)}
                     onCopy={() => void copyLink(replay)}
+                    onDelete={(trigger) => requestReplayDelete(replay, trigger)}
                     onRetry={() => void retryProcessing(replay.replayId)}
                     onShare={() => void shareReplay(replay)}
                     onVisibility={(next) => void updateVisibility(replay, next)}
@@ -660,6 +720,54 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
           </section>
         ) : null}
       </section>
+      {pendingDelete ? (
+        <div
+          className={styles.deleteDialogBackdrop}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeDeleteDialog();
+          }}
+        >
+          <section
+            aria-describedby="delete-replay-description"
+            aria-labelledby="delete-replay-title"
+            aria-modal="true"
+            className={styles.deleteDialog}
+            role="dialog"
+          >
+            <span className={styles.deleteDialogIcon}><Trash2 aria-hidden="true" size={22} /></span>
+            <div>
+              <span className={styles.sectionKicker}>Permanent action</span>
+              <h2 id="delete-replay-title">Delete this Web Replay?</h2>
+              <p id="delete-replay-description">
+                <strong>{replayCardTitle(pendingDelete)}</strong> and its uploaded replay data will be permanently removed.
+                Existing links will stop working. This cannot be undone.
+              </p>
+              {deleteError ? <p className={styles.deleteDialogError} role="alert">{deleteError}</p> : null}
+            </div>
+            <div className={styles.deleteDialogActions}>
+              <button
+                disabled={busyReplayId === pendingDelete.replayId}
+                onClick={closeDeleteDialog}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.confirmDeleteButton}
+                disabled={busyReplayId === pendingDelete.replayId}
+                onClick={() => void confirmReplayDelete()}
+                ref={deleteConfirmRef}
+                type="button"
+              >
+                {busyReplayId === pendingDelete.replayId
+                  ? <LoaderCircle aria-hidden="true" className={styles.spinning} size={16} />
+                  : <Trash2 aria-hidden="true" size={16} />}
+                {busyReplayId === pendingDelete.replayId ? "Deleting…" : "Delete replay"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -838,20 +946,24 @@ function UploadPanel({
 
 function ReplayCard({
   busy,
+  canDelete,
   embedded,
   message,
   mine,
   onCopy,
+  onDelete,
   onRetry,
   onShare,
   onVisibility,
   replay,
 }: {
   busy: boolean;
+  canDelete: boolean;
   embedded: boolean;
   message?: string;
   mine: boolean;
   onCopy: () => void;
+  onDelete: (trigger: HTMLButtonElement) => void;
   onRetry: () => void;
   onShare: () => void;
   onVisibility: (visibility: ReplayVisibility) => void;
@@ -921,6 +1033,17 @@ function ReplayCard({
         <div className={styles.shareActions}>
           <button aria-label="Copy permanent replay link" onClick={onCopy} type="button"><Copy aria-hidden="true" size={15} /></button>
           <button aria-label="Share replay" onClick={onShare} type="button"><Share2 aria-hidden="true" size={15} /></button>
+          {canDelete ? (
+            <button
+              aria-label={`Delete ${replayCardTitle(replay)}`}
+              className={styles.deleteReplayButton}
+              disabled={busy}
+              onClick={(event) => onDelete(event.currentTarget)}
+              type="button"
+            >
+              <Trash2 aria-hidden="true" size={15} />
+            </button>
+          ) : null}
         </div>
       </footer>
       {message ? <p className={styles.cardMessage} role="status">{message}</p> : null}

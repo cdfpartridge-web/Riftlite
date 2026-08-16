@@ -17,7 +17,7 @@ const MAIN_DECK_SIZE = 40;
 const REGISTRY = registryData.cards as Record<string, RegistryCard>;
 const FORBIDDEN_DECK_TYPES = new Set(["legend", "battlefield", "rune", "token"]);
 
-type RegistryCard = { basePrintId: string; name: string; type: string };
+type RegistryCard = { basePrintId: string; name: string; type: string; supertype?: string | null };
 
 export type SideboardLabCard = {
   cardCode: string;
@@ -483,9 +483,14 @@ function normalizeDeck(source: JsonObject): SideboardLabDeck | null {
     normalizedSideboard.some((card) => card.count > 3) ||
     !withinBasePrintCopyLimit([...normalizedMain, ...normalizedSideboard])
   ) return null;
+  const designatedChampionCode = championCount === 1 ? champions[0]!.cardCode : null;
+  const chosenChampionCode = designatedChampionCode &&
+    REGISTRY[designatedChampionCode]?.supertype?.toLowerCase() === "champion"
+    ? designatedChampionCode
+    : null;
   return {
     fingerprint: sideboardDeckFingerprint(normalizedMain, normalizedSideboard),
-    ...(championCount === 1 ? { chosenChampionCode: champions[0]!.cardCode } : {}),
+    ...(chosenChampionCode ? { chosenChampionCode } : {}),
     mainDeck: normalizedMain,
     sideboard: normalizedSideboard,
   };
