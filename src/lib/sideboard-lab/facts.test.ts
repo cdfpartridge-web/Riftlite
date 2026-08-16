@@ -68,6 +68,29 @@ describe("Sideboard Lab anonymous fact documents", () => {
     })).toEqual([]);
   });
 
+  it("preserves legacy facts while dropping an unproven Chosen Champion label", () => {
+    const fact = buildStoredSideboardFactDocument(observedSideboardReplay(), "private-owner-id");
+    if (!fact) throw new Error("fixture must produce a fact");
+    const nonChampionCode = fact.decisions[0].deck.mainDeck.find((card) => card.count === 1)?.cardCode
+      ?? fact.decisions[0].deck.mainDeck[0].cardCode;
+    const legacy = {
+      ...fact,
+      version: 1 as const,
+      decisions: fact.decisions.map((decision) => ({
+        ...decision,
+        deck: { ...decision.deck, chosenChampionCode: nonChampionCode },
+        submittedDeck: { ...decision.submittedDeck, chosenChampionCode: nonChampionCode },
+      })),
+    };
+
+    const restored = storedSideboardFactCandidates(legacy);
+
+    expect(restored).toHaveLength(1);
+    expect(restored[0].deck.chosenChampionCode).toBeUndefined();
+    expect(restored[0].submittedDeck.chosenChampionCode).toBeUndefined();
+    expect(restored[0].deck.mainDeck.reduce((sum, card) => sum + card.count, 0)).toBe(40);
+  });
+
   it("uses an idempotent replay document and a versioned ineligible marker", () => {
     const set = vi.fn();
     const doc = vi.fn(() => ({ path: `${SIDEBOARD_LAB_FACT_COLLECTION}/replay-a` }));

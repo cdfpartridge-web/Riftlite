@@ -7,6 +7,7 @@ import { Timestamp, type Firestore, type Transaction } from "firebase-admin/fire
 import {
   extractObservedSideboardDecisions,
   isValidObservedSideboardCandidate,
+  normalizeSideboardChampionProvenance,
   withoutSideboardContributor,
   type ObservedSideboardCandidate,
 } from "@/lib/sideboard-lab/extract";
@@ -96,6 +97,8 @@ export function storedSideboardFactCandidates(value: unknown): ObservedSideboard
   ) return [];
   const restored = fact.decisions.map((decision) => ({
     ...decision,
+    deck: normalizeSideboardChampionProvenance(decision.deck),
+    submittedDeck: normalizeSideboardChampionProvenance(decision.submittedDeck),
     contributorKey: fact.contributorHash!,
   })) as ObservedSideboardCandidate[];
   return restored.every(isValidObservedSideboardCandidate) ? restored : [];
