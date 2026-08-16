@@ -312,6 +312,23 @@ export function sideboardDeckFingerprint(
   })).digest("hex");
 }
 
+/**
+ * Chosen Champion is provenance, not a guess from the provider's section
+ * label. Legacy facts occasionally put an ordinary card in that section; keep
+ * the legal forty-card deck but omit the unproven designation.
+ */
+export function normalizeSideboardChampionProvenance(
+  deck: SideboardLabDeck,
+): SideboardLabDeck {
+  const chosenChampionCode = validatedChosenChampionCode(deck);
+  if (chosenChampionCode === deck.chosenChampionCode) return deck;
+  return {
+    fingerprint: deck.fingerprint,
+    mainDeck: deck.mainDeck,
+    sideboard: deck.sideboard,
+  };
+}
+
 /** Revalidates a persisted candidate without trusting stored derived fields. */
 export function isValidObservedSideboardCandidate(candidate: ObservedSideboardCandidate): boolean {
   try {
@@ -630,6 +647,9 @@ function isCanonicalDeck(deck: SideboardLabDeck): boolean {
     cardTotal(deck.mainDeck) !== MAIN_DECK_SIZE ||
     deck.fingerprint !== sideboardDeckFingerprint(deck.mainDeck, deck.sideboard)
   ) return false;
+  if (deck.chosenChampionCode && validatedChosenChampionCode(deck) !== deck.chosenChampionCode) {
+    return false;
+  }
   const sections = [deck.mainDeck, deck.sideboard];
   if (sections.some((section) => (
     new Set(section.map(({ cardCode }) => cardCode)).size !== section.length ||
@@ -643,6 +663,13 @@ function isCanonicalDeck(deck: SideboardLabDeck): boolean {
     ))
   ))) return false;
   return withinBasePrintCopyLimit([...deck.mainDeck, ...deck.sideboard]);
+}
+
+function validatedChosenChampionCode(deck: SideboardLabDeck): string | undefined {
+  const code = typeof deck.chosenChampionCode === "string" ? deck.chosenChampionCode : "";
+  if (!code || REGISTRY[code]?.supertype?.toLowerCase() !== "champion") return undefined;
+  const registered = deck.mainDeck.find((card) => card.cardCode === code);
+  return registered?.count === 1 ? code : undefined;
 }
 
 function withinBasePrintCopyLimit(cards: SideboardLabDeckCard[]): boolean {
