@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import registryData from "@/lib/mulligan-lab/card-registry-v1.json";
 
-type RegistryCard = { basePrintId: string; name: string; type: string };
+type RegistryCard = { basePrintId: string; name: string; type: string; supertype?: string | null };
 
 const REGISTRY = registryData.cards as Record<string, RegistryCard>;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -34,6 +34,7 @@ export const SideboardLabDeckCardSchema = z.object({
 
 export const SideboardLabDeckSchema = z.object({
   fingerprint: z.string().regex(SHA256),
+  chosenChampionCode: z.string().nullable().optional(),
   mainDeck: z.array(SideboardLabDeckCardSchema).min(14).max(40),
   sideboard: z.array(SideboardLabDeckCardSchema).min(1).max(40),
 }).strict().superRefine((deck, context) => {
@@ -53,12 +54,18 @@ export const SideboardLabDeckSchema = z.object({
   if ([...combined.values()].some((count) => count > 3)) {
     context.addIssue({ code: "custom", message: "combined deck copies cannot exceed three per card identity" });
   }
+  if (deck.chosenChampionCode) {
+    const chosen = deck.mainDeck.find((card) => card.cardCode === deck.chosenChampionCode);
+    if (!chosen || chosen.count !== 1 || REGISTRY[chosen.cardCode]?.supertype?.toLowerCase() !== "champion") {
+      context.addIssue({ code: "custom", message: "chosenChampionCode must identify one registered Champion copy" });
+    }
+  }
 });
 
 export const SideboardLabObservationSchema = z.object({
   provider: z.literal("atlas"),
   matchKey: z.string().regex(/^sm1_[a-f0-9]{32}$/),
-  targetGameNumber: z.literal(2),
+  targetGameNumber: z.union([z.literal(2), z.literal(3)]),
   eventKey: z.string().regex(/^se1_[a-f0-9]{32}$/),
   observedOn: z.iso.date(),
   priorGameWon: z.boolean(),
@@ -111,7 +118,7 @@ const SideboardLabContextSchema = z.object({
   nextInitiative: z.enum(["first", "second", "unknown"]),
   format: z.literal("bo3"),
   provider: z.literal("atlas"),
-  targetGameNumber: z.literal(2),
+  targetGameNumber: z.union([z.literal(2), z.literal(3)]),
 }).strict();
 
 const SideboardLabDecisionEvidenceSchema = z.object({
@@ -131,6 +138,15 @@ const SideboardLabDecisionEvidenceSchema = z.object({
 const SideboardLabPackageSchema = z.object({
   cardsIn: z.array(SideboardLabSwapCardSchema).max(40),
   cardsOut: z.array(SideboardLabSwapCardSchema).max(40),
+  decisions: z.number().int().positive(),
+  players: z.number().int().positive(),
+  selectionRate: RATE,
+  evidenceStatus: z.enum(["robust", "developing"]),
+}).strict();
+
+const SideboardLabPairSchema = z.object({
+  cardIn: SideboardLabCardSchema,
+  cardOut: SideboardLabCardSchema,
   decisions: z.number().int().positive(),
   players: z.number().int().positive(),
   selectionRate: RATE,
@@ -231,6 +247,7 @@ export const SideboardLabDrillSchema = z.object({
   context: SideboardLabContextSchema.optional(),
   decisionEvidence: SideboardLabDecisionEvidenceSchema.optional(),
   packages: z.array(SideboardLabPackageSchema).max(8).optional(),
+  pairs: z.array(SideboardLabPairSchema).max(12).optional(),
 }).strict().superRefine((drill, context) => {
   const expected = new Set([
     ...drill.deck.mainDeck.map((card) => `out:${card.cardCode}`),
@@ -299,6 +316,7 @@ const SideboardLabPackQuerySchema = z.object({
     opponentLegend: z.string().refine((code) => REGISTRY[code]?.type.toLowerCase() === "legend", { message: "opponent legend must be registered" }).nullable(),
     deckFingerprint: z.string().regex(SHA256).nullable(),
     priorGameResult: z.enum(["win", "loss"]).nullable(),
+    targetGameNumber: z.union([z.literal(2), z.literal(3)]),
   }).strict(),
   resolved: z.object({
     scope: z.enum(["exact-deck", "matchup", "player-legend"]),
@@ -349,6 +367,7 @@ const SideboardLabPackDrillSchema = SideboardLabDrillSchema.safeExtend({
   context: SideboardLabContextSchema,
   decisionEvidence: SideboardLabDecisionEvidenceSchema,
   packages: z.array(SideboardLabPackageSchema).max(8),
+  pairs: z.array(SideboardLabPairSchema).max(12),
 }).strict();
 
 export const SideboardLabPackReadyResponseSchema = z.object({

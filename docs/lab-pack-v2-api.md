@@ -22,6 +22,8 @@ anonymous fact corpus. They never query raw replay artifacts on a user request.
 
 - The same Legend, fingerprint, and limit rules.
 - `priorGameResult`: optional `win` or `loss`.
+- `targetGameNumber`: optional `2` or `3`; defaults to `2`. Game 2 and Game 3
+  are always stored and selected as separate cohorts.
 
 An invalid selector returns HTTP 400 and `{ "error": "invalid_lab_query" }`.
 Ready and unavailable pack responses return HTTP 200 with `Cache-Control:
@@ -87,11 +89,25 @@ existing Mulligan v2 fields in `src/lib/mulligan-lab/contracts.ts`.
     "matchup": { "playerLegend": { "cardCode": "UNL-191", "name": "Master Yi, Wuju Master" }, "opponentLegend": { "cardCode": "VEN-145", "name": "Nasus, Curator of the Sands" } },
     "initiative": "first",
     "hand": ["four existing MulliganLabCard objects"],
-    "deck": { "fingerprint": "<64 lowercase hex>", "mainDeck": ["existing 40-card-count deck entries"] },
+    "deck": { "fingerprint": "<64 lowercase hex>", "chosenChampionCode": "OGN-014", "mainDeck": ["existing 40-card-count deck entries"] },
     "evidence": { "all existing Mulligan v2 drill-evidence fields": true },
     "context": {
       "curve": { "classification": "two-drop-present", "twoDropCount": 1, "earlyUnitCount": 1 },
-      "battlefields": { "player": null, "opponent": null }
+      "battlefields": { "player": null, "opponent": null },
+      "duplicateIdentityCount": 0,
+      "setup": {
+        "chosenChampion": { "cardCode": "OGN-014", "name": "Registered Champion name" },
+        "replacementPoolCards": 35
+      }
+    },
+    "decisionEvidence": {
+      "scope": "matching-curve",
+      "hands": 80,
+      "players": 32,
+      "redrawCountHistogram": [{ "redraws": 0, "hands": 8 }, { "redraws": 1, "hands": 12 }, { "redraws": 2, "hands": 60 }],
+      "mostCommonRedrawCount": 2,
+      "twoRedrawRate": 0.75,
+      "evidenceStatus": "robust"
     },
     "cardEvidence": [{
       "all existing Mulligan v2 card-evidence fields": true,
@@ -108,8 +124,12 @@ existing Mulligan v2 fields in `src/lib/mulligan-lab/contracts.ts`.
 
 Every targeted Mulligan drill has `context`, and every card-evidence object has
 `slices`; the four individual slices are nullable. Slice counts below eight
-offers or four contributors are withheld as `null`. `battlefields` remain null
-unless a future fact version can prove them at the decision boundary.
+offers or four contributors are withheld as `null`. Battlefield, setup, and
+Chosen Champion fields are fail-closed: they are published only when the
+captured decision boundary and registered 39+1 deck shape prove them. This is
+what allows the desktop to calculate exact one-versus-two replacement odds
+without guessing which card began outside the shuffled library. Whole-hand
+`decisionEvidence` is likewise published only after its own contributor gate.
 
 ## Mulligan unavailable shape
 
@@ -146,7 +166,7 @@ The unexpanded card/deck/evidence fields are the existing Sideboard v1 fields.
   "generatedAt": "2026-08-14T08:00:00.000Z",
   "expiresAt": "2026-08-15T20:00:00.000Z",
   "query": {
-    "requested": { "playerLegend": "UNL-191", "opponentLegend": "VEN-145", "deckFingerprint": null, "priorGameResult": "loss" },
+    "requested": { "playerLegend": "UNL-191", "opponentLegend": "VEN-145", "deckFingerprint": null, "priorGameResult": "loss", "targetGameNumber": 3 },
     "resolved": { "scope": "matchup", "deckFingerprint": null, "sharedCards": null, "totalCards": null },
     "fallbackReason": null
   },
@@ -169,7 +189,7 @@ The unexpanded card/deck/evidence fields are the existing Sideboard v1 fields.
   },
   "drills": [{
     "all existing Sideboard v1 drill fields": true,
-    "context": { "nextInitiative": "unknown", "format": "bo3", "provider": "atlas", "targetGameNumber": 2 },
+    "context": { "nextInitiative": "unknown", "format": "bo3", "provider": "atlas", "targetGameNumber": 3 },
     "decisionEvidence": {
       "decisions": 100,
       "players": 44,
@@ -182,6 +202,14 @@ The unexpanded card/deck/evidence fields are the existing Sideboard v1 fields.
     "packages": [{
       "cardsIn": [{ "cardCode": "OGN-050", "name": "Registered name", "count": 2 }],
       "cardsOut": [{ "cardCode": "OGN-001", "name": "Blazing Scorcher", "count": 2 }],
+      "decisions": 28,
+      "players": 16,
+      "selectionRate": 0.28,
+      "evidenceStatus": "robust"
+    }],
+    "pairs": [{
+      "cardIn": { "cardCode": "OGN-050", "name": "Rune Prison" },
+      "cardOut": { "cardCode": "OGN-001", "name": "Blazing Scorcher" },
       "decisions": 28,
       "players": 16,
       "selectionRate": 0.28,
@@ -200,7 +228,10 @@ The unexpanded card/deck/evidence fields are the existing Sideboard v1 fields.
 }
 ```
 
-Package publication requires at least eight decisions and four contributors.
+Package and recurring IN-to-OUT pair publication each require at least eight
+decisions and four contributors. They are aggregate patterns, never a sampled
+player's submitted plan. Game 3 uses the proven post-Game-2 deck as its
+pre-window baseline and never pools with Game 2.
 Quantity histograms include zero copies; this is the explicit non-selection
 denominator. The current-format reference is not asserted as the captured
 rules epoch and is not used to reject otherwise structurally valid historical
@@ -217,7 +248,7 @@ otherwise `nextInitiative` is `unknown`.
   "generatedAt": null,
   "expiresAt": null,
   "query": {
-    "requested": { "playerLegend": "UNL-191", "opponentLegend": "VEN-145", "deckFingerprint": null, "priorGameResult": "loss" },
+    "requested": { "playerLegend": "UNL-191", "opponentLegend": "VEN-145", "deckFingerprint": null, "priorGameResult": "loss", "targetGameNumber": 2 },
     "resolved": { "scope": "matchup", "deckFingerprint": null, "sharedCards": null, "totalCards": null },
     "fallbackReason": "matchup-not-observed"
   },

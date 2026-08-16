@@ -17,7 +17,7 @@ describe("Sideboard Lab anonymous fact documents", () => {
 
     expect(fact).toMatchObject({
       schema: "riftlite-sideboard-fact",
-      version: 2,
+      version: 3,
       status: "eligible",
       contributorHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       decisions: [{ observation: {

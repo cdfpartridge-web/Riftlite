@@ -56,6 +56,43 @@ describe("Sideboard Lab strict Atlas extraction", () => {
       .toBe("first");
   });
 
+  it("extracts Game 3 separately from the submitted Game 2 configuration", () => {
+    const replay = observedSideboardReplay();
+    replay.series.games.push(game("game-3", 3, 3, 6, 8, "self", "opponent"));
+    const submitted = deckObject(preMain(), preSideboard());
+    replay.events.push(
+      boundary("game-3", 6, 3, 3),
+      phase("game-3", 7, 3, "sideboarding"),
+      {
+        ...sideboardAction(replay),
+        id: "self-sideboard-game-3",
+        index: 8,
+        at: Date.UTC(2026, 7, 12, 10, 50),
+        atMs: 3_000_000,
+        sourceMessageId: "message-sideboard-game-3",
+        gameId: "game-3",
+        patch: {
+          operations: [{
+            id: "sideboard-deck-game-3",
+            op: "set_player_fields",
+            playerId: "self",
+            fields: { deck: submitted },
+          }],
+        },
+      },
+    );
+
+    const candidates = extractObservedSideboardDecisions(replay, "owner");
+    expect(candidates).toHaveLength(2);
+    expect(candidates[1]).toMatchObject({
+      observation: { targetGameNumber: 3, priorGameWon: false },
+      deck: { fingerprint: candidates[0]!.submittedDeck.fingerprint },
+      cardsIn: [{ cardCode: "OGN-001", count: 1 }],
+      cardsOut: [{ cardCode: "OGN-014", count: 1 }],
+      wonGame: true,
+    });
+  });
+
   it("deduplicates identical complete patch deck aliases but rejects conflicts", () => {
     const aliases = observedSideboardReplay();
     const action = sideboardAction(aliases);

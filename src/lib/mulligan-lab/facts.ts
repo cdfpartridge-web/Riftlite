@@ -18,18 +18,18 @@ import { canonicalizeCandidateWithPackagedRegistry } from "@/lib/mulligan-lab/re
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 
 export const MULLIGAN_LAB_FACT_COLLECTION = "mulliganLabFactsV1";
-export const MULLIGAN_LAB_FACT_VERSION = 2;
+export const MULLIGAN_LAB_FACT_VERSION = 3;
 
 export type StoredMulliganFact = Omit<ObservedMulliganCandidate, "contributorKey"> & {
   schema: "riftlite-mulligan-fact";
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   status: "eligible";
   contributorHash: string;
 };
 
 export type StoredMulliganFactMarker = {
   schema: "riftlite-mulligan-fact";
-  version: 2;
+  version: 3;
   status: "ineligible";
 };
 
@@ -58,6 +58,7 @@ export function buildStoredMulliganFact(
       redrawnCardIndexes: candidate.redrawnCardIndexes,
       wonGame: candidate.wonGame,
       deck: candidate.deck,
+      battlefields: candidate.battlefields,
     };
   } catch {
     // Fact extraction is deliberately optional: a malformed legacy replay
@@ -87,9 +88,9 @@ export function isCurrentMulliganFact(value: unknown): boolean {
   // Existing eligible v1 facts contain the complete observation and are
   // normalized through the current registry when read. Old v1 ineligible
   // markers carry no evidence and must be retried now legal star/base prints
-  // are accepted by extractor v2.
+  // remain accepted while the v3 battlefield/setup backfill progresses.
   return fact.status === "eligible"
-    ? fact.version === 1 || fact.version === MULLIGAN_LAB_FACT_VERSION
+    ? fact.version === 1 || fact.version === 2 || fact.version === MULLIGAN_LAB_FACT_VERSION
     : fact.status === "ineligible" && fact.version === MULLIGAN_LAB_FACT_VERSION;
 }
 
@@ -111,7 +112,7 @@ export function storedMulliganFactCandidate(value: unknown): ObservedMulliganCan
   const fact = value as Partial<StoredMulliganFact>;
   if (
     fact.schema !== "riftlite-mulligan-fact" ||
-    (fact.version !== 1 && fact.version !== MULLIGAN_LAB_FACT_VERSION) ||
+    (fact.version !== 1 && fact.version !== 2 && fact.version !== MULLIGAN_LAB_FACT_VERSION) ||
     fact.status !== "eligible" ||
     typeof fact.contributorHash !== "string" ||
     !/^[a-f0-9]{64}$/.test(fact.contributorHash) ||
@@ -134,6 +135,7 @@ export function storedMulliganFactCandidate(value: unknown): ObservedMulliganCan
     redrawnCardIndexes: fact.redrawnCardIndexes,
     wonGame: fact.wonGame,
     deck: fact.deck,
+    battlefields: fact.battlefields,
   } as ObservedMulliganCandidate;
   const canonical = canonicalizeCandidateWithPackagedRegistry(candidate);
   return canonical && validStoredCandidate(canonical) ? canonical : null;

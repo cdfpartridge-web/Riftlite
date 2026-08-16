@@ -24,6 +24,7 @@ import {
 } from "@/lib/mulligan-lab/contracts";
 import {
   MULLIGAN_CARD_REGISTRY_METADATA,
+  mulliganCardByName,
   mulliganCardIdentity,
   mulliganCardMetadata,
 } from "@/lib/mulligan-lab/registry";
@@ -45,6 +46,10 @@ export type ObservedMulliganCandidate = {
   redrawnCardIndexes: number[];
   wonGame: boolean;
   deck: MulliganLabDeck;
+  battlefields?: {
+    player: MulliganLabCard | null;
+    opponent: MulliganLabCard | null;
+  };
 };
 
 export type MulliganLabAggregateOptions = {
@@ -144,6 +149,10 @@ export function extractObservedMulligan(
     ? sameReplayParticipantDeck(perspectiveParticipant.fields, playerLegend, exactHand)
     : null;
   if (!deck) return null;
+  const battlefields = {
+    player: selectedBattlefieldCard(player),
+    opponent: selectedBattlefieldCard(opponent),
+  };
 
   const observedAt = epochMilliseconds(action.at);
   if (observedAt === undefined) return null;
@@ -172,6 +181,7 @@ export function extractObservedMulligan(
     redrawnCardIndexes,
     wonGame,
     deck,
+    battlefields,
   };
 }
 
@@ -385,15 +395,31 @@ export function buildMulliganLabPack(
     const matchingInitiative = matchup.filter((candidate) => candidate.initiative === drill.initiative);
     const preseason = matchup.filter((candidate) => candidate.observation.observedOn < CURRENT_SEASON_STARTED_ON);
     const currentSeason = matchup.filter((candidate) => candidate.observation.observedOn >= CURRENT_SEASON_STARTED_ON);
+    const sampledCandidate = matchup.find((candidate) => (
+      `ml2_${digest([matchupKey(candidate), candidate.observedHandId, candidate.deck.fingerprint]).slice(0, 32)}` === drill.id
+    ));
+    const decisionEvidence = mulliganDecisionEvidence(
+      matchingCurve,
+      matchup,
+      minimumHands,
+      minimumPlayers,
+    );
+    const chosenChampionCode = drill.deck.chosenChampionCode ?? null;
+    const chosenChampionMetadata = chosenChampionCode ? mulliganCardMetadata(chosenChampionCode) : null;
     return {
       ...drill,
       context: {
         curve,
-        // Battlefield selections are not consistently present before the
-        // authoritative mulligan event. Do not infer them from later board
-        // state; a future fact revision can fill these independently.
-        battlefields: { player: null, opponent: null },
+        battlefields: sampledCandidate?.battlefields ?? { player: null, opponent: null },
+        duplicateIdentityCount: duplicateIdentityCount(drill.hand),
+        setup: {
+          chosenChampion: chosenChampionCode && chosenChampionMetadata
+            ? { cardCode: chosenChampionCode, name: chosenChampionMetadata.name }
+            : null,
+          replacementPoolCards: chosenChampionCode && chosenChampionMetadata ? 35 as const : null,
+        },
       },
+      decisionEvidence,
       cardEvidence: drill.cardEvidence.map((entry) => ({
         ...entry,
         slices: {
@@ -491,11 +517,14 @@ function sameReplayParticipantDeck(
       : [];
   if (!includedEntries.length) return null;
 
+  const chosenChampionCode = mainCount === MAIN_DECK_SIZE - 1 && championCount === 1
+    ? championEntries[0]?.card.cardCode ?? null
+    : null;
   const cards = includedEntries.flatMap((entry) => (
     Array.from({ length: entry.count }, () => entry.card)
   ));
   for (const candidateCards of [cards]) {
-    const deck = normalizeDeck(candidateCards);
+    const deck = normalizeDeck(candidateCards, chosenChampionCode);
     if (!deck || !handFitsDeck(hand, deck)) continue;
     return deck;
   }
@@ -531,7 +560,7 @@ function mulliganPlaybackRedrawCount(
   return undefined;
 }
 
-function normalizeDeck(cards: MulliganLabCard[]): MulliganLabDeck | null {
+function normalizeDeck(cards: MulliganLabCard[], chosenChampionCode: string | null = null): MulliganLabDeck | null {
   if (cards.length !== MAIN_DECK_SIZE) return null;
   const byCode = new Map<string, { name: string; count: number }>();
   for (const card of cards) {
@@ -548,6 +577,7 @@ function normalizeDeck(cards: MulliganLabCard[]): MulliganLabDeck | null {
   return {
     fingerprint: mulliganDeckFingerprint(mainDeck),
     mainDeck,
+    chosenChampionCode,
   };
 }
 
@@ -563,6 +593,68 @@ function exactCard(card: ReplayCardState): MulliganLabCard | null {
   const name = card.name?.trim().replace(/\s+/g, " ") ?? "";
   if (card.isPlaceholder || !CARD_CODE.test(cardCode) || !name || name.length > 120) return null;
   return { cardCode, name };
+}
+
+function selectedBattlefieldCard(player: { fields: JsonObject; boardFields: JsonObject; zones: Record<string, ReplayCardState[]> }): MulliganLabCard | null {
+  for (const source of [player.fields, player.boardFields]) {
+    for (const key of ["selectedBattlefield", "battlefieldCard", "battlefield"] as const) {
+      const raw = source[key];
+      const object = jsonObject(raw);
+      const cardCode = stringValue(object?.cardCode ?? object?.cardId ?? object?.code);
+      const name = stringValue(object?.name ?? object?.cardName ?? object?.title) || (typeof raw === "string" ? raw.trim() : "");
+      if (CARD_CODE.test(cardCode) && name) return { cardCode, name };
+      const byName = mulliganCardByName(name, "battlefield");
+      if (byName) return { cardCode: byName.cardCode, name: byName.card.name };
+    }
+  }
+  for (const [zone, cards] of Object.entries(player.zones)) {
+    if (!normalizeKey(zone).includes("selectedbattlefield")) continue;
+    const card = cards.map(exactCard).find((entry): entry is MulliganLabCard => Boolean(entry));
+    if (card && mulliganCardMetadata(card.cardCode)?.type.toLocaleLowerCase("en") === "battlefield") return card;
+  }
+  return null;
+}
+
+function duplicateIdentityCount(hand: MulliganLabCard[]): number {
+  const counts = new Map<string, number>();
+  for (const card of hand) {
+    const identity = cardIdentity(card.cardCode);
+    counts.set(identity, (counts.get(identity) ?? 0) + 1);
+  }
+  return [...counts.values()].reduce((sum, count) => sum + Math.max(0, count - 1), 0);
+}
+
+function mulliganDecisionEvidence(
+  matchingCurve: ObservedMulliganCandidate[],
+  matchup: ObservedMulliganCandidate[],
+  minimumHands: number,
+  minimumPlayers: number,
+): NonNullable<MulliganLabDrill["decisionEvidence"]> | undefined {
+  const curvePlayers = new Set(matchingCurve.map((candidate) => candidate.contributorKey));
+  const matchupPlayers = new Set(matchup.map((candidate) => candidate.contributorKey));
+  const group = matchingCurve.length >= 8 && curvePlayers.size >= 4
+    ? matchingCurve
+    : matchup.length >= 8 && matchupPlayers.size >= 4
+      ? matchup
+      : null;
+  if (!group) return undefined;
+  const players = new Set(group.map((candidate) => candidate.contributorKey)).size;
+  const counts = [0, 0, 0];
+  for (const candidate of group) counts[candidate.redrawnCardIndexes.length] += 1;
+  const maximum = Math.max(...counts);
+  const modes = counts.flatMap((count, redraws) => count === maximum ? [redraws] : []);
+  return {
+    scope: group === matchingCurve ? "matching-curve" : "matchup",
+    hands: group.length,
+    players,
+    redrawCountHistogram: counts.map((hands, redraws) => ({ redraws, hands })),
+    mostCommonRedrawCount: modes.length === 1 ? modes[0]! : null,
+    twoRedrawRate: counts[2]! / group.length,
+    evidenceStatus: group.length >= Math.max(CARD_GUIDANCE_MINIMUM_OFFERS, minimumHands) &&
+      players >= Math.max(CARD_GUIDANCE_MINIMUM_PLAYERS, minimumPlayers)
+      ? "robust"
+      : "developing",
+  };
 }
 
 type RawCardEvidence = MulliganLabCard & {

@@ -42,7 +42,7 @@ describe("Mulligan Lab fact backfill", () => {
     expect(fake.replayQuery.startAfter).not.toHaveBeenCalled();
     expect(fake.aggregateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        backfill: { factVersion: 2, complete: true, cursor: null },
+        backfill: { factVersion: 3, complete: true, cursor: null },
       }),
       { merge: true },
     );
@@ -51,7 +51,7 @@ describe("Mulligan Lab fact backfill", () => {
   it("uses a bounded watermark instead of rereading unchanged facts twice in one day", async () => {
     const latestFact = document("fact-latest", { updatedAt: 123_456 });
     const fake = fakeMulliganDb(
-      { factVersion: 2, complete: true, cursor: null },
+      { factVersion: 3, complete: true, cursor: null },
       {
         factCount: 42,
         watermarkPages: [page([latestFact]), page([latestFact])],
@@ -78,7 +78,7 @@ describe("Mulligan Lab fact backfill", () => {
       document(`fact-${index}`, eligibleFact(index))
     ));
     const fake = fakeMulliganDb(
-      { factVersion: 2, complete: true, cursor: null },
+      { factVersion: 3, complete: true, cursor: null },
       {
         factCount: facts.length,
         factPages: [page(facts), page(facts), page(facts)],
@@ -107,7 +107,7 @@ describe("Mulligan Lab fact backfill", () => {
 
   it("resumes the index-free document-id walk from its persisted cursor", async () => {
     const fake = fakeMulliganDb({
-      factVersion: 2,
+      factVersion: 3,
       complete: false,
       cursor: { replayId: "rl2_previous" },
     });
@@ -118,7 +118,7 @@ describe("Mulligan Lab fact backfill", () => {
     expect(fake.replayQuery.startAfter).toHaveBeenCalledWith("rl2_previous");
   });
 
-  it("restarts an old v1 cursor so rejected markers can be reconsidered by extractor v2", async () => {
+  it("restarts an old v1 cursor so rejected markers can be reconsidered by extractor v3", async () => {
     const fake = fakeMulliganDb({
       factVersion: 1,
       complete: true,
@@ -131,7 +131,7 @@ describe("Mulligan Lab fact backfill", () => {
     expect(fake.replayQuery.startAfter).not.toHaveBeenCalled();
     expect(fake.aggregateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        backfill: { factVersion: 2, complete: true, cursor: null },
+        backfill: { factVersion: 3, complete: true, cursor: null },
       }),
       { merge: true },
     );
@@ -162,7 +162,7 @@ describe("Mulligan Lab fact backfill", () => {
           }),
         }),
         backfill: {
-          factVersion: 2,
+          factVersion: 3,
           complete: false,
           cursor: { replayId: "rl2_pending" },
         },

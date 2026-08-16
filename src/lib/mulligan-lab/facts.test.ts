@@ -39,7 +39,7 @@ describe("Mulligan Lab anonymous fact documents", () => {
       version: 1,
       status: "ineligible",
     })).toBe(false);
-    expect(ineligibleMulliganFactMarker()).toMatchObject({ version: 2, status: "ineligible" });
+    expect(ineligibleMulliganFactMarker()).toMatchObject({ version: 3, status: "ineligible" });
   });
 
   it("excludes combined dual-perspective replays so source matches are not double-counted", () => {

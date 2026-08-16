@@ -19,12 +19,15 @@ export async function GET(request: NextRequest) {
   const deckFingerprint = optionalSha256(request.nextUrl.searchParams.get("deckFingerprint"));
   const resultRaw = request.nextUrl.searchParams.get("priorGameResult");
   const priorGameResult = resultRaw === "win" || resultRaw === "loss" ? resultRaw : undefined;
+  const gameRaw = request.nextUrl.searchParams.get("targetGameNumber");
+  const targetGameNumber = gameRaw === null || gameRaw === "2" ? 2 : gameRaw === "3" ? 3 : undefined;
   const limit = boundedLimit(request.nextUrl.searchParams.get("limit"));
   if (
     !playerLegend ||
     (opponentRaw && !opponentLegend) ||
     (request.nextUrl.searchParams.has("deckFingerprint") && !deckFingerprint) ||
     (resultRaw && !priorGameResult) ||
+    targetGameNumber === undefined ||
     (request.nextUrl.searchParams.has("limit") && limit === undefined)
   ) {
     return NextResponse.json({ error: "invalid_lab_query" }, { status: 400, headers: HEADERS });
@@ -34,6 +37,7 @@ export async function GET(request: NextRequest) {
     ...(opponentLegend ? { opponentLegendIdentityCode: opponentLegend } : {}),
     ...(deckFingerprint ? { deckFingerprint } : {}),
     ...(priorGameResult ? { priorGameResult } : {}),
+    targetGameNumber,
     ...(limit ? { limit } : {}),
   }), { headers: HEADERS });
 }
