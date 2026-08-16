@@ -106,6 +106,45 @@ describe("Discord replay share eligibility", () => {
     expect(readOwnerRawReplayMock).not.toHaveBeenCalled();
   });
 
+  it("returns a settled terminal receipt without reopening the replay artifact", async () => {
+    readReplayDiscordRequestReceiptMock.mockResolvedValue({
+      status: "terminal",
+      results: [{ hubId: "hub-1", status: "not-configured" }],
+    });
+
+    const response = await shareRequest();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      results: [{ hubId: "hub-1", status: "not-configured" }],
+    });
+    expect(readCanonicalReplayMock).not.toHaveBeenCalled();
+  });
+
+  it("stores settled non-delivery results so later old-client retries stay cheap", async () => {
+    readCanonicalReplayMock.mockResolvedValue({
+      record: { platform: "tcga", status: "ready" },
+      bytes: gzipSync(Buffer.from(JSON.stringify({ schema: "riftlite-canonical-replay", version: 2 }))),
+    });
+    isDiscordReplayResultResolvedMock.mockReturnValue(true);
+    shareReplayToDiscordFeedsMock.mockResolvedValue([{ hubId: "hub-1", status: "not-configured" }]);
+
+    const response = await shareRequest();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: false });
+    expect(writeReplayDiscordRequestReceiptMock).toHaveBeenCalledWith({
+      ownerUid: "owner-1",
+      replayId: REPLAY_ID,
+      hubIds: ["hub-1"],
+      receipt: {
+        status: "terminal",
+        results: [{ hubId: "hub-1", status: "not-configured" }],
+      },
+    });
+  });
+
   it("does not change TCGA visibility while processing", async () => {
     readCanonicalReplayMock.mockResolvedValue({
       record: { platform: "tcga", status: "processing" },

@@ -66,6 +66,29 @@ describe("Discord replay request receipts", () => {
       hubIds: ["hub-a"],
     })).resolves.toBeNull();
   });
+
+  it("round-trips settled terminal destinations without treating them as delivered", async () => {
+    const fake = fakeReceiptDb();
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+    await writeReplayDiscordRequestReceipt({
+      ownerUid: "owner-1",
+      replayId: "replay-1",
+      hubIds: ["hub-a"],
+      receipt: {
+        status: "terminal",
+        results: [{ hubId: "hub-a", status: "not-configured" }],
+      },
+    });
+
+    await expect(readReplayDiscordRequestReceipt({
+      ownerUid: "owner-1",
+      replayId: "replay-1",
+      hubIds: ["hub-a"],
+    })).resolves.toEqual({
+      status: "terminal",
+      results: [{ hubId: "hub-a", status: "not-configured" }],
+    });
+  });
 });
 
 function fakeReceiptDb() {
