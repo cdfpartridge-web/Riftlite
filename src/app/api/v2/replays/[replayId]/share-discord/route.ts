@@ -4,6 +4,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { shareReplayToDiscordFeeds } from "@/lib/discord/replay-share-server";
+import {
+  readReplayDiscordRequestReceipt,
+  writeReplayDiscordRequestReceipt,
+} from "@/lib/discord/replay-share-request";
 import { isDiscordReplayResultResolved } from "@/lib/discord/replay-share";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 import { normalizeReplayProviderCapture } from "@/lib/replay-v2/provider-normalization";
@@ -43,6 +47,22 @@ export async function POST(request: Request, context: RouteContext) {
     const parsed = ShareSchema.safeParse(await readBoundedJson(request, 8_192));
     if (!parsed.success) throw new ReplayV2Error(400, "invalid_hubs", "Choose one or more valid private hubs.");
     const hubIds = Array.from(new Set(parsed.data.hubIds));
+    const receiptInput = { ownerUid, replayId, hubIds };
+    const receipt = await readReplayDiscordRequestReceipt(receiptInput);
+    if (receipt?.status === "complete") {
+      return NextResponse.json({
+        ok: true,
+        visibility: "unlisted",
+        results: receipt.results,
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (receipt?.status === "result-pending") {
+      throw new ReplayV2Error(
+        409,
+        "replay_result_pending",
+        "The completed match result is not available yet. RiftLite will retry before posting this replay to Discord.",
+      );
+    }
 
     const { record, bytes } = await readCanonicalReplay(replayId, ownerUid);
     if (record.status !== "ready" || !bytes) {
@@ -75,6 +95,10 @@ export async function POST(request: Request, context: RouteContext) {
       }
     }
     if (!isDiscordReplayResultResolved(replay)) {
+      await writeReplayDiscordRequestReceipt({
+        ...receiptInput,
+        receipt: { status: "result-pending" },
+      });
       throw new ReplayV2Error(
         409,
         "replay_result_pending",
@@ -90,6 +114,12 @@ export async function POST(request: Request, context: RouteContext) {
       activeDeck: parsed.data.activeDeck,
       origin: process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://www.riftlite.com",
     });
+    if (results.every((result) => result.status === "shared" || result.status === "already-shared")) {
+      await writeReplayDiscordRequestReceipt({
+        ...receiptInput,
+        receipt: { status: "complete", results },
+      });
+    }
     return NextResponse.json({
       ok: results.every((result) => result.status === "shared" || result.status === "already-shared"),
       visibility: "unlisted",

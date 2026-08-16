@@ -10,7 +10,10 @@ vi.mock("@/lib/firebase/admin", () => ({
 }));
 
 import { InitReplaySchema } from "@/lib/replay-v2-server/contracts";
-import { REPLAY_PROCESSING_RETRY_STATUS } from "@/lib/replay-v2-server/constants";
+import {
+  REPLAY_CAPTURE_MISSING_MULLIGAN_CODE,
+  REPLAY_PROCESSING_RETRY_STATUS,
+} from "@/lib/replay-v2-server/constants";
 import { deterministicReplayId } from "@/lib/replay-v2-server/ids";
 import type { ReplayRecord } from "@/lib/replay-v2-server/model";
 import {
@@ -248,6 +251,54 @@ describe("replay completion concurrency", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("returns a persisted terminal failure without rewriting or reopening its artifact", async () => {
+    const failed: ReplayRecord = {
+      ...processingReplayRecord(),
+      status: "failed",
+      processingGeneration: "",
+      failure: {
+        code: "replay_capture_invalid",
+        message: "The replay capture cannot be normalized.",
+        class: "capture",
+        retryable: false,
+        recommendedAction: "review-capture",
+      },
+    };
+    const fake = fakeReplayDb(failed);
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(completeReplay("owner-1", failed.replayId)).rejects.toMatchObject({
+      status: 422,
+      code: "replay_capture_invalid",
+    });
+
+    expect(fake.transaction.update).not.toHaveBeenCalled();
+    expect(fake.transaction.set).not.toHaveBeenCalled();
+    expect(fake.directGet).not.toHaveBeenCalled();
+  });
+
+  it("lets the explicit incomplete-capture override reopen only its supported failure", async () => {
+    const failed: ReplayRecord = {
+      ...processingReplayRecord(),
+      status: "failed",
+      processingGeneration: "",
+      failure: {
+        code: REPLAY_CAPTURE_MISSING_MULLIGAN_CODE,
+        message: "The opening mulligan was not captured.",
+        class: "capture",
+        retryable: false,
+        recommendedAction: "upload-incomplete",
+      },
+    };
+    const fake = fakeReplayDb(failed);
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    await expect(completeReplay("owner-1", failed.replayId, { allowIncomplete: true }))
+      .rejects.toMatchObject({ code: "artifact_metadata_invalid" });
+
+    expect(fake.transaction.update).toHaveBeenCalled();
   });
 });
 

@@ -118,6 +118,24 @@ export function normalizeStoredReplayFailure(value: unknown): ReplayFailureDetai
   return failureDetails(replayProblemDetails(legacyFailureStatus(code), code, message));
 }
 
+/** Recover the original HTTP family for an already-persisted terminal failure. */
+export function storedReplayFailureStatus(failure: ReplayFailureDetails): number {
+  const legacyStatus = legacyFailureStatus(failure.code);
+  if (legacyStatus !== 500 || failure.code === "processing_failed") return legacyStatus;
+  switch (failure.class) {
+    case "authentication": return 401;
+    case "authorization": return 403;
+    case "capture": return 422;
+    case "conflict": return 409;
+    case "request": return 400;
+    case "upload": return 409;
+    case "processing":
+    case "service":
+    default:
+      return 500;
+  }
+}
+
 export function replayApiProblem(error: unknown): ReplayApiProblem {
   if (error instanceof ReplayV2Error) {
     return replayProblemDetails(error.status, error.code, error.message);

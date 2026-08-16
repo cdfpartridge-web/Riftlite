@@ -18,6 +18,7 @@ import {
   MAX_CANONICAL_JSON_BYTES,
   MAX_RAW_JSON_BYTES,
   MAX_REPLAY_LIST_LIMIT,
+  REPLAY_CAPTURE_MISSING_MULLIGAN_CODE,
   REPLAY_COLLECTION,
   REPLAY_OWNER_COLLECTION,
   REPLAY_PROCESSING_RETRY_STATUS,
@@ -35,7 +36,12 @@ import {
   replayOwnerDeliveryStatus,
   type ReplayOwnerDeliveryStatus,
 } from "@/lib/replay-v2-server/delivery-status";
-import { normalizeStoredReplayFailure, ReplayV2Error, replayFailure } from "@/lib/replay-v2-server/errors";
+import {
+  normalizeStoredReplayFailure,
+  ReplayV2Error,
+  replayFailure,
+  storedReplayFailureStatus,
+} from "@/lib/replay-v2-server/errors";
 import { privateReplayHubAccessAllowsViewer } from "@/lib/replay-v2-server/hub-grants";
 import { createArtifactGeneration, deterministicReplayId, sha256Hex } from "@/lib/replay-v2-server/ids";
 import type { ReplayPublicationWarning, ReplayRecord, ReplaySummary } from "@/lib/replay-v2-server/model";
@@ -246,6 +252,17 @@ export async function completeReplay(
     if (current.status === "ready" && current.canonicalArtifact) {
       return { record: current, outcome: "ready" as const };
     }
+    if (
+      current.status === "failed" &&
+      current.failure &&
+      !current.failure.retryable &&
+      !(
+        options.allowIncomplete === true &&
+        current.failure.code === REPLAY_CAPTURE_MISSING_MULLIGAN_CODE
+      )
+    ) {
+      return { record: current, outcome: "terminal-failure" as const };
+    }
     if (!current.rawArtifact) {
       throw new ReplayV2Error(409, "raw_upload_required", "Upload the raw replay before completing it.");
     }
@@ -275,6 +292,13 @@ export async function completeReplay(
     return { record: updated, outcome: "claimed" as const };
   });
   if (claim.outcome === "ready") return claim.record;
+  if (claim.outcome === "terminal-failure") {
+    throw new ReplayV2Error(
+      storedReplayFailureStatus(claim.record.failure!),
+      claim.record.failure!.code,
+      claim.record.failure!.message,
+    );
+  }
   if (claim.outcome === "processing") {
     return waitForExistingCompletion(db, ownerUids, replayId, claim.generation);
   }
