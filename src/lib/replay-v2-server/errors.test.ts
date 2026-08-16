@@ -9,9 +9,26 @@ import {
   ReplayV2Error,
   replayApiProblem,
   replayFailure,
+  storedReplayFailureStatus,
 } from "@/lib/replay-v2-server/errors";
 
 describe("Replay V2 structured recovery errors", () => {
+  it("restores terminal HTTP statuses from persisted failures", () => {
+    expect(storedReplayFailureStatus({
+      code: "replay_capture_invalid",
+      message: "Invalid capture.",
+      class: "capture",
+      retryable: false,
+      recommendedAction: "review-capture",
+    })).toBe(422);
+    expect(storedReplayFailureStatus({
+      code: "canonical_too_large",
+      message: "Too large.",
+      class: "capture",
+      retryable: false,
+      recommendedAction: "review-capture",
+    })).toBe(413);
+  });
   it("classifies an in-flight completion as retryable processing", () => {
     expect(replayApiProblem(new ReplayV2Error(
       REPLAY_PROCESSING_RETRY_STATUS,

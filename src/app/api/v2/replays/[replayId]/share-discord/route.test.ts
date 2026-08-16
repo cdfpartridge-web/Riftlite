@@ -6,16 +6,20 @@ const {
   isDiscordReplayResultResolvedMock,
   normalizeReplayProviderCaptureMock,
   readCanonicalReplayMock,
+  readReplayDiscordRequestReceiptMock,
   readOwnerRawReplayMock,
   shareReplayToDiscordFeedsMock,
   updateReplayVisibilityMock,
+  writeReplayDiscordRequestReceiptMock,
 } = vi.hoisted(() => ({
   isDiscordReplayResultResolvedMock: vi.fn(),
   normalizeReplayProviderCaptureMock: vi.fn(),
   readCanonicalReplayMock: vi.fn(),
+  readReplayDiscordRequestReceiptMock: vi.fn(),
   readOwnerRawReplayMock: vi.fn(),
   shareReplayToDiscordFeedsMock: vi.fn(),
   updateReplayVisibilityMock: vi.fn(),
+  writeReplayDiscordRequestReceiptMock: vi.fn(),
 }));
 
 vi.mock("@/lib/discord/replay-share-server", () => ({
@@ -24,6 +28,11 @@ vi.mock("@/lib/discord/replay-share-server", () => ({
 
 vi.mock("@/lib/discord/replay-share", () => ({
   isDiscordReplayResultResolved: isDiscordReplayResultResolvedMock,
+}));
+
+vi.mock("@/lib/discord/replay-share-request", () => ({
+  readReplayDiscordRequestReceipt: readReplayDiscordRequestReceiptMock,
+  writeReplayDiscordRequestReceipt: writeReplayDiscordRequestReceiptMock,
 }));
 
 vi.mock("@/lib/replay-v2/provider-normalization", () => ({
@@ -66,7 +75,35 @@ const REPLAY_ID = `rl2_${"a".repeat(32)}`;
 describe("Discord replay share eligibility", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    shareReplayToDiscordFeedsMock.mockResolvedValue([{ status: "shared" }]);
+    shareReplayToDiscordFeedsMock.mockResolvedValue([{ hubId: "hub-1", status: "shared" }]);
+    readReplayDiscordRequestReceiptMock.mockResolvedValue(null);
+    writeReplayDiscordRequestReceiptMock.mockResolvedValue(undefined);
+  });
+
+  it("returns a completed request receipt without reopening the replay artifact", async () => {
+    readReplayDiscordRequestReceiptMock.mockResolvedValue({
+      status: "complete",
+      results: [{ hubId: "hub-1", status: "already-shared" }],
+    });
+
+    const response = await shareRequest();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, visibility: "unlisted" });
+    expect(readCanonicalReplayMock).not.toHaveBeenCalled();
+    expect(updateReplayVisibilityMock).not.toHaveBeenCalled();
+    expect(shareReplayToDiscordFeedsMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a cached pending-result conflict without reopening either artifact", async () => {
+    readReplayDiscordRequestReceiptMock.mockResolvedValue({ status: "result-pending" });
+
+    const response = await shareRequest();
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: "replay_result_pending" });
+    expect(readCanonicalReplayMock).not.toHaveBeenCalled();
+    expect(readOwnerRawReplayMock).not.toHaveBeenCalled();
   });
 
   it("does not change TCGA visibility while processing", async () => {
@@ -94,6 +131,12 @@ describe("Discord replay share eligibility", () => {
     expect(response.status).toBe(409);
     expect(updateReplayVisibilityMock).not.toHaveBeenCalled();
     expect(shareReplayToDiscordFeedsMock).not.toHaveBeenCalled();
+    expect(writeReplayDiscordRequestReceiptMock).toHaveBeenCalledWith({
+      ownerUid: "owner-1",
+      replayId: REPLAY_ID,
+      hubIds: ["hub-1"],
+      receipt: { status: "result-pending" },
+    });
   });
 
   it("makes an eligible replay unlisted immediately before sharing", async () => {
@@ -110,6 +153,12 @@ describe("Discord replay share eligibility", () => {
     expect(updateReplayVisibilityMock.mock.invocationCallOrder[0]).toBeLessThan(
       shareReplayToDiscordFeedsMock.mock.invocationCallOrder[0],
     );
+    expect(writeReplayDiscordRequestReceiptMock).toHaveBeenCalledWith({
+      ownerUid: "owner-1",
+      replayId: REPLAY_ID,
+      hubIds: ["hub-1"],
+      receipt: { status: "complete", results: [{ hubId: "hub-1", status: "shared" }] },
+    });
   });
 
   it("recovers an older unresolved canonical from its reviewed raw capture", async () => {
