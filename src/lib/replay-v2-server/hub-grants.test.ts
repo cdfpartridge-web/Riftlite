@@ -6,6 +6,7 @@ import {
   privateReplayHubAccessAllowsViewer,
   putHubWebReplay,
   replayHubGrantDocumentId,
+  revokeDeletedReplayHubGrants,
 } from "@/lib/replay-v2-server/hub-grants";
 import type { ReplayRecord } from "@/lib/replay-v2-server/model";
 
@@ -208,6 +209,25 @@ describe("private-hub Web Replay grants", () => {
       identityUids: ["former-member"],
     })).resolves.toMatchObject({ unlinked: true });
     expect(fake.has(`replayHubGrants/${grantId}`)).toBe(false);
+  });
+
+  it("revokes deleted-replay grants without clearing a newer match link", async () => {
+    const firstGrantId = replayHubGrantDocumentId("hub-a", "match-a");
+    const secondGrantId = replayHubGrantDocumentId("hub-b", "match-b");
+    const replacementReplayId = `rl2_${"b".repeat(32)}`;
+    const fake = new FakeFirestore({
+      "hubs/hub-a/matches/match-a": { uid: "owner", web_replay_id: REPLAY_ID },
+      "hubs/hub-b/matches/match-b": { uid: "owner", web_replay_id: replacementReplayId },
+      [`replayHubGrants/${firstGrantId}`]: grantRecord("hub-a", "match-a", "owner"),
+      [`replayHubGrants/${secondGrantId}`]: grantRecord("hub-b", "match-b", "owner"),
+    });
+
+    await revokeDeletedReplayHubGrants(fake.asFirestore(), REPLAY_ID);
+
+    expect(fake.get("hubs/hub-a/matches/match-a")?.web_replay_id).toBeUndefined();
+    expect(fake.get("hubs/hub-b/matches/match-b")?.web_replay_id).toBe(replacementReplayId);
+    expect(fake.has(`replayHubGrants/${firstGrantId}`)).toBe(false);
+    expect(fake.has(`replayHubGrants/${secondGrantId}`)).toBe(false);
   });
 });
 

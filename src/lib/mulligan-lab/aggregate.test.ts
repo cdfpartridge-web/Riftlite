@@ -32,7 +32,7 @@ describe("Mulligan Lab observed-data aggregate", () => {
       },
     });
     expect(candidate?.hand.map((card) => card.cardCode)).toEqual([
-      "OGN-001", "OGN-002", "OGN-003", "OGN-014",
+      "OGN-001", "OGN-002", "OGN-003", "OGN-013",
     ]);
     expect(candidate?.deck.mainDeck.reduce((sum, card) => sum + card.count, 0)).toBe(40);
     expect(candidate?.deck.fingerprint).toMatch(/^[a-f0-9]{64}$/);
@@ -179,17 +179,17 @@ describe("Mulligan Lab observed-data aggregate", () => {
     });
     expect(pack?.drills[0].context?.curve).toMatchObject({
       classification: "two-drop-present",
-      twoDropCount: 1,
+      twoDropCount: 2,
     });
     expect(pack?.drills[0]).toMatchObject({
-      deck: { chosenChampionCode: "OGN-014" },
+      deck: { chosenChampionCode: "OGN-027" },
       context: {
         battlefields: {
           player: { cardCode: "OGN-291" },
           opponent: { cardCode: "OGN-283" },
         },
         setup: {
-          chosenChampion: { cardCode: "OGN-014" },
+          chosenChampion: { cardCode: "OGN-027" },
           replacementPoolCards: 35,
         },
       },
@@ -286,6 +286,13 @@ describe("Mulligan Lab observed-data aggregate", () => {
         evidenceStatus: "developing",
         guidance: "unclear",
       });
+    const pack = buildMulliganLabPack(candidates, {
+      playerLegendIdentityCode: base.matchup.playerLegend.cardCode,
+      opponentLegendIdentityCode: base.matchup.opponentLegend.cardCode,
+    }, { generatedAt: new Date("2026-08-12T02:00:00.000Z") });
+    expect(pack?.drills.length).toBeGreaterThan(0);
+    expect(pack?.drills.every((drill) => !Object.prototype.hasOwnProperty.call(drill, "decisionEvidence")))
+      .toBe(true);
   });
 
   it("keeps developing matchup evidence over a marginally broader legend scope", () => {
@@ -431,19 +438,19 @@ describe("Mulligan Lab observed-data aggregate", () => {
     const base = extractObservedMulligan(observedReplay("base-art"), "player-a");
     const alternate = extractObservedMulligan(observedReplay("alternate-art"), "player-b");
     if (!base || !alternate) throw new Error("fixtures must be extractable");
-    replaceCardPrint(base, "OGN-001", "OGN-027", "Darius, Trifarian");
-    replaceCardPrint(alternate, "OGN-001", "OGN-027A", "Darius, Trifarian");
+    replaceCardPrint(base, "OGN-001", "OGN-030", "Jinx, Demolitionist");
+    replaceCardPrint(alternate, "OGN-001", "OGN-030A", "Jinx, Demolitionist");
     const snapshot = buildMulliganLabSnapshot([base, alternate], {
       generatedAt: new Date("2026-08-12T02:00:00.000Z"),
     });
 
     expect(new Set(snapshot?.drills.map((drill) => (
-      drill.hand.find((card) => card.cardCode.startsWith("OGN-027"))?.cardCode
-    )))).toEqual(new Set(["OGN-027", "OGN-027A"]));
+      drill.hand.find((card) => card.cardCode.startsWith("OGN-030"))?.cardCode
+    )))).toEqual(new Set(["OGN-030", "OGN-030A"]));
     for (const drill of snapshot?.drills ?? []) {
-      const shown = drill.hand.find((card) => card.cardCode.startsWith("OGN-027"));
+      const shown = drill.hand.find((card) => card.cardCode.startsWith("OGN-030"));
       expect(drill.cardEvidence.find((entry) => entry.cardCode === shown?.cardCode)).toMatchObject({
-        identityCode: "OGN-027",
+        identityCode: "OGN-030",
         offered: 2,
       });
     }
@@ -638,7 +645,7 @@ function observedReplay(
     card("hand-1", "Synthetic card 1", "OGN-001"),
     card("hand-2", "Synthetic card 2", "OGN-002"),
     card("hand-3", "Synthetic card 3", "OGN-003"),
-    card("hand-4", "Synthetic card 14", "OGN-014"),
+    card("hand-4", "Synthetic card 13", "OGN-013"),
   ];
   // Mirrors Atlas' real participant deck shape: 39 MainDeck cards plus one
   // separately-labelled signature Champion form the forty shuffled cards.
@@ -717,7 +724,7 @@ function observedReplay(
             deck: {
               sections: {
                 legend: [{ count: 1, name: "Master Yi, Wuju Master", cardCode: "UNL-191" }],
-                champion: [{ count: 1, name: "Synthetic card 14", cardCode: "OGN-014" }],
+                champion: [{ count: 1, name: "Darius, Trifarian", cardCode: "OGN-027" }],
                 mainDeck: mainDeckEntries,
               },
               totals: { champion: 1, mainDeck: 39 },

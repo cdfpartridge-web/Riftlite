@@ -754,6 +754,95 @@
   color: #dff8ff;
 }
 
+.shareActions .deleteReplayButton:hover:not(:disabled) {
+  border-color: rgba(255, 107, 122, 0.4);
+  color: #ff9ba6;
+  background: rgba(255, 107, 122, 0.08);
+}
+
+.deleteDialogBackdrop {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 7, 20, 0.78);
+  backdrop-filter: blur(12px);
+}
+
+.deleteDialog {
+  display: grid;
+  width: min(520px, 100%);
+  padding: 28px;
+  border: 1px solid rgba(255, 139, 152, 0.28);
+  border-radius: 22px;
+  color: #dce5f7;
+  background: linear-gradient(145deg, rgba(24, 27, 53, 0.99), rgba(10, 15, 34, 0.99));
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.05);
+  grid-template-columns: auto 1fr;
+  gap: 18px;
+}
+
+.deleteDialogIcon {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  border: 1px solid rgba(255, 107, 122, 0.24);
+  border-radius: 14px;
+  color: #ff9ba6;
+  background: rgba(255, 107, 122, 0.08);
+  place-items: center;
+}
+
+.deleteDialog h2 {
+  margin: 6px 0 8px;
+  color: #f8faff;
+  font-family: var(--font-rift-display), sans-serif;
+  font-size: 1.35rem;
+}
+
+.deleteDialog p {
+  margin: 0;
+  color: #92a0bd;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.deleteDialog p strong { color: #e8edf8; }
+.deleteDialog .deleteDialogError { margin-top: 12px; color: #ff9ba6; }
+
+.deleteDialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 8px;
+  grid-column: 1 / -1;
+}
+
+.deleteDialogActions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 15px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: #aebbd3;
+  background: rgba(255, 255, 255, 0.035);
+  gap: 8px;
+}
+
+.deleteDialogActions .confirmDeleteButton {
+  border-color: rgba(255, 107, 122, 0.36);
+  color: #fff4f5;
+  background: rgba(191, 58, 78, 0.76);
+}
+
+.deleteDialogActions .confirmDeleteButton:hover:not(:disabled) {
+  background: rgba(214, 67, 89, 0.9);
+}
+
 .cardMessage {
   margin: 11px 0 0;
   color: #84e7ff;
@@ -831,6 +920,9 @@
   .toolbarActions { align-self: stretch; justify-content: flex-end; }
   .filters { grid-template-columns: 1fr 1fr; }
   .searchFilter { grid-column: 1 / -1; }
+  .deleteDialog { padding: 22px; grid-template-columns: 1fr; }
+  .deleteDialogActions { align-items: stretch; flex-direction: column-reverse; }
+  .deleteDialogActions button { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -838,5 +930,7 @@
   .dropZone,
   .primaryButton,
   .openButton,
+  .deleteDialog,
+  .deleteDialogBackdrop,
   .progressTrack span { transition: none; }
 }

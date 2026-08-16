@@ -42,6 +42,26 @@ describe("Sideboard Lab strict Atlas extraction", () => {
     expect(candidate.cardsOut.map(({ cardCode }) => cardCode)).toEqual(["OGN-001"]);
   });
 
+  it("keeps a provider-designated non-Champion in the deck without claiming Chosen Champion provenance", () => {
+    const replay = observedSideboardReplay();
+    for (const source of [
+      replay.series.participants[0]!.fields.registeredDeck,
+      sideboardPatchFields(replay).deck,
+    ]) {
+      const sections = (source as JsonObject).sections as JsonObject;
+      const mainDeck = sections.mainDeck as unknown as SideboardLabDeckCard[];
+      const designated = mainDeck.find(({ cardCode }) => cardCode === "OGN-016")!;
+      sections.mainDeck = mainDeck.filter(({ cardCode }) => cardCode !== "OGN-016");
+      sections.champion = [{ ...designated }];
+    }
+
+    const candidate = extractObservedSideboardDecisions(replay, "owner")[0];
+    expect(candidate).toBeDefined();
+    expect(candidate.deck.mainDeck.reduce((sum, card) => sum + card.count, 0)).toBe(40);
+    expect(candidate.deck.chosenChampionCode).toBeUndefined();
+    expect(candidate.submittedDeck.chosenChampionCode).toBeUndefined();
+  });
+
   it("captures proven Game 2 initiative and otherwise leaves it unknown", () => {
     const unknown = extractObservedSideboardDecisions(observedSideboardReplay(), "owner")[0];
     expect(unknown.observation.nextInitiative).toBe("unknown");

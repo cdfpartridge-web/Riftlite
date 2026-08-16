@@ -419,7 +419,7 @@ export function buildMulliganLabPack(
           replacementPoolCards: chosenChampionCode && chosenChampionMetadata ? 35 as const : null,
         },
       },
-      decisionEvidence,
+      ...(decisionEvidence ? { decisionEvidence } : {}),
       cardEvidence: drill.cardEvidence.map((entry) => ({
         ...entry,
         slices: {
@@ -517,8 +517,12 @@ function sameReplayParticipantDeck(
       : [];
   if (!includedEntries.length) return null;
 
-  const chosenChampionCode = mainCount === MAIN_DECK_SIZE - 1 && championCount === 1
+  const designatedChampionCode = mainCount === MAIN_DECK_SIZE - 1 && championCount === 1
     ? championEntries[0]?.card.cardCode ?? null
+    : null;
+  const chosenChampionCode = designatedChampionCode &&
+    mulliganCardMetadata(designatedChampionCode)?.supertype?.toLowerCase() === "champion"
+    ? designatedChampionCode
     : null;
   const cards = includedEntries.flatMap((entry) => (
     Array.from({ length: entry.count }, () => entry.card)

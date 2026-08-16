@@ -4,12 +4,15 @@ import {
   MAX_VISIBILITY_JSON_BYTES,
   ReplayV2Error,
   VisibilityUpdateSchema,
+  deleteOwnerReplay,
   isReplayId,
+  noStoreJson,
   optionalReplayUser,
   readBoundedJson,
   readCanonicalReplay,
   replayApiError,
   requireReplayUser,
+  requireReplayViewerUser,
   serializeReplay,
   updateReplayVisibility,
 } from "@/lib/replay-v2-server";
@@ -134,6 +137,24 @@ export async function PATCH(request: Request, context: RouteContext) {
       { replay: serializeReplay(record, true) },
       { headers: { "Cache-Control": "no-store" } },
     );
+  } catch (error) {
+    return replayApiError(error);
+  }
+}
+
+export async function DELETE(request: Request, context: RouteContext) {
+  try {
+    const { replayId } = await context.params;
+    if (!isReplayId(replayId)) {
+      throw new ReplayV2Error(400, "invalid_replay_id", "Replay id is invalid.");
+    }
+    const ownerUid = await requireReplayViewerUser(request);
+    const result = await deleteOwnerReplay(ownerUid, replayId);
+    return noStoreJson({
+      ok: true,
+      replayId: result.replayId,
+      cleanupComplete: result.cleanupComplete,
+    });
   } catch (error) {
     return replayApiError(error);
   }

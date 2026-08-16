@@ -206,6 +206,54 @@ export async function deleteHubWebReplay(
 }
 
 /**
+ * Revoke every private-hub grant that points at a replay deleted by its
+ * uploader. The match pointer is cleared only when it still names this exact
+ * replay, so a newer replacement link cannot be removed by stale cleanup.
+ */
+export async function revokeDeletedReplayHubGrants(
+  db: Firestore,
+  replayIdInput: string,
+): Promise<void> {
+  const replayId = cleanReplayId(replayIdInput);
+  for (;;) {
+    const snapshot = await db
+      .collection(REPLAY_HUB_GRANT_COLLECTION)
+      .where("replayId", "==", replayId)
+      .limit(MAX_REPLAY_HUB_GRANTS)
+      .get();
+    if (snapshot.empty) return;
+
+    await Promise.all(snapshot.docs.map(async (grantSnapshot) => {
+      const rawGrant = grantSnapshot.data() ?? {};
+      const hubId = stringValue(rawGrant.hubId);
+      const matchId = stringValue(rawGrant.matchId);
+      if (!HUB_ID_PATTERN.test(hubId) || !MATCH_ID_PATTERN.test(matchId)) {
+        await grantSnapshot.ref.delete();
+        return;
+      }
+      const matchRef = db.collection("hubs").doc(hubId).collection("matches").doc(matchId);
+      await db.runTransaction(async (transaction) => {
+        const [matchSnapshot, currentGrantSnapshot] = await transaction.getAll(
+          matchRef,
+          grantSnapshot.ref,
+        );
+        const currentGrant = currentGrantSnapshot.data() ?? {};
+        if (stringValue(currentGrant.replayId) !== replayId) return;
+        const match = matchSnapshot.data() ?? {};
+        if (stringValue(match.web_replay_id ?? match.webReplayId) === replayId) {
+          transaction.update(matchRef, {
+            web_replay_id: FieldValue.delete(),
+            webReplayId: FieldValue.delete(),
+            web_replay_updated_at: Timestamp.now(),
+          });
+        }
+        transaction.delete(grantSnapshot.ref);
+      });
+    }));
+  }
+}
+
+/**
  * Authorize a private replay only through a current, server-issued grant.
  * Every read re-checks the live account-managed hub, current membership, and
  * the source match pointer, so leaving a hub or deleting a match revokes access

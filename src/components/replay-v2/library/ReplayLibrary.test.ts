@@ -79,6 +79,47 @@ describe("embedded replay library", () => {
     expect(view.getByText(/9 Jul 2026/)).toBeInTheDocument();
   });
 
+  it("lets the uploader confirm permanent deletion through the linked account session", async () => {
+    const replay = {
+      ...publicReplay("rl2_delete_me", "LeBlanc vs Fiora"),
+      visibility: "private",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        return new Response(JSON.stringify({ ok: true, replayId: replay.replayId, cleanupComplete: true }), {
+          headers: { "content-type": "application/json" },
+          status: 200,
+        });
+      }
+      return new Response(JSON.stringify({
+        items: String(input).includes("scope=mine") ? [replay] : [],
+      }), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(createElement(ReplayLibrary, { embedded: true }));
+    const deleteButton = await view.findByRole("button", { name: "Delete LeBlanc vs Fiora" });
+    fireEvent.click(deleteButton);
+
+    expect(view.getByRole("dialog", { name: "Delete this Web Replay?" })).toBeInTheDocument();
+    expect(view.getByText(/Existing links will stop working/i)).toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).not.toBeInTheDocument());
+
+    fireEvent.click(view.getByRole("button", { name: "Delete LeBlanc vs Fiora" }));
+    fireEvent.click(view.getByRole("button", { name: "Delete replay" }));
+
+    await waitFor(() => expect(view.queryByRole("heading", { name: "LeBlanc vs Fiora" })).not.toBeInTheDocument());
+    expect(view.getByRole("heading", { name: "No uploaded replays yet" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v2/replays/rl2_delete_me",
+      { credentials: "include", method: "DELETE" },
+    );
+  });
+
   it("shows the persisted partial-capture warning on a ready replay", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify({
       items: String(input).includes("scope=mine") ? [{
