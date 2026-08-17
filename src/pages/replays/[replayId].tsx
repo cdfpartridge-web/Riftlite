@@ -5,7 +5,6 @@ import { ReplayV2Player } from "@/components/replay-v2";
 
 type ReplayPageProps = {
   embed: boolean;
-  privateHubMode: boolean;
   replayId: string;
 };
 
@@ -16,12 +15,10 @@ export const getServerSideProps: GetServerSideProps<ReplayPageProps> = async ({ 
     return { notFound: true };
   }
   const embedValue = Array.isArray(query.embed) ? query.embed[0] : query.embed;
-  const privateHubValue = Array.isArray(query.privateHub) ? query.privateHub[0] : query.privateHub;
   const embed = embedValue === "1" || embedValue === "true";
   return {
     props: {
       embed,
-      privateHubMode: embed && (privateHubValue === "1" || privateHubValue === "true"),
       replayId,
     },
   };
@@ -29,7 +26,6 @@ export const getServerSideProps: GetServerSideProps<ReplayPageProps> = async ({ 
 
 export default function ReplayPage({
   embed,
-  privateHubMode,
   replayId,
 }: InferGetServerSidePropsType<typeof getServerSideProps>) {
   const canonicalPath = `/replays/${encodeURIComponent(replayId)}`;
@@ -44,7 +40,7 @@ export default function ReplayPage({
         <link href={canonicalPath} rel="canonical" />
         {embed ? <meta content="noindex,nofollow" name="robots" /> : null}
       </Head>
-      <ReplayV2Player embed={embed} privateHubMode={privateHubMode} replayId={replayId} />
+      <ReplayV2Player embed={embed} replayId={replayId} />
     </>
   );
 }

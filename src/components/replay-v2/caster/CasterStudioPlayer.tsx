@@ -18,9 +18,9 @@ export function CasterStudioPlayer({
   return (
     <ReplayV2Player
       apiBasePath={preview ? "/api/v2/replays" : "/api/meta-studio/caster/replays"}
+      allowPlayerNameHiding={!preview}
       casterLibraryHref={preview ? "/meta-studio/caster?preview=1" : "/meta-studio/caster"}
       mode="caster"
-      privateHubMode={!preview}
       replayId={replayId}
     />
   );
