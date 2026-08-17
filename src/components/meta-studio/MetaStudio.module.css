@@ -247,7 +247,8 @@
 }
 
 .creatorManagerButton,
-.liveManagerButton {
+.liveManagerButton,
+.replayResearchButton {
   width: auto;
   gap: 7px;
   padding: 0 12px;
@@ -261,7 +262,8 @@
 }
 
 .creatorManagerButton span,
-.liveManagerButton span {
+.liveManagerButton span,
+.replayResearchButton span {
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;

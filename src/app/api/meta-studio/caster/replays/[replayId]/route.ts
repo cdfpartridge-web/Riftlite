@@ -7,7 +7,7 @@ import {
 import {
   ReplayV2Error,
   isReplayId,
-  readCanonicalReplay,
+  readMetaStudioCanonicalReplay,
   replayApiError,
   serializeReplay,
 } from "@/lib/replay-v2-server";
@@ -30,10 +30,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
       throw new ReplayV2Error(400, "invalid_replay_id", "Replay id is invalid.");
     }
 
-    const { record, bytes } = await readCanonicalReplay(replayId, principal.uid);
+    const { record, bytes } = await readMetaStudioCanonicalReplay(replayId);
     if (!bytes || !record.canonicalArtifact) {
       return applyMetaStudioPrivateHeaders(NextResponse.json(
-        { replay: serializeReplay(record, record.ownerUid === principal.uid) },
+        { replay: serializeReplay(record, false) },
         { status: 202 },
       ));
     }

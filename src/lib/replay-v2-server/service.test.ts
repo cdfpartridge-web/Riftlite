@@ -20,6 +20,7 @@ import {
   completeReplay,
   deleteOwnerReplay,
   initReplay,
+  listMetaStudioReplayCorpus,
   listOwnerReplays,
   listPublicReplays,
   readCanonicalReplay,
@@ -27,6 +28,29 @@ import {
   serializeReplay,
   updateReplayVisibility,
 } from "@/lib/replay-v2-server/service";
+
+describe("Meta Studio private replay corpus", () => {
+  beforeEach(() => getFirestoreAdminMock.mockReset());
+
+  it("returns ready private and unlisted summaries without uploader-private fields", async () => {
+    const now = Timestamp.fromDate(new Date("2026-08-17T12:00:00.000Z"));
+    const documents = [
+      replayListingDocument("private-ready", "private", "ready", now),
+      replayListingDocument("unlisted-ready", "unlisted", "ready", now),
+      replayListingDocument("public-ready", "public", "ready", now),
+      replayListingDocument("private-processing", "private", "processing", now),
+    ];
+    const query = fakePublicReplayQuery(documents);
+    getFirestoreAdminMock.mockReturnValue({ collection: vi.fn(() => query) });
+
+    const items = await listMetaStudioReplayCorpus();
+
+    expect(items.map((item) => item.replayId).sort()).toEqual(["private-ready", "unlisted-ready"]);
+    expect(items.every((item) => !("captureId" in item) && !("roomCode" in item))).toBe(true);
+    expect(query.orderBy).toHaveBeenCalledOnce();
+    expect(query.limit).toHaveBeenCalledWith(500);
+  });
+});
 
 describe("public replay cursor pagination", () => {
   beforeEach(() => {
@@ -701,6 +725,39 @@ function publicReplayDocument(replayId: string, createdAt: Timestamp) {
       visibility: "public",
       status: "ready",
       title: "Akali vs Kennen",
+      platform: "atlas",
+      messageCount: 120,
+      listing: {
+        version: 1,
+        playerName: "Player one",
+        opponentName: "Player two",
+        playerLegend: "Akali",
+        opponentLegend: "Kennen",
+        format: "bo1",
+        result: "win",
+      },
+      capturedAt: createdAt,
+      createdAt,
+      updatedAt: createdAt,
+    }),
+  };
+}
+
+function replayListingDocument(
+  replayId: string,
+  visibility: "private" | "unlisted" | "public",
+  status: "ready" | "processing",
+  createdAt: Timestamp,
+) {
+  return {
+    id: replayId,
+    data: () => ({
+      replayId,
+      captureId: `capture-${replayId}`,
+      roomCode: `room-${replayId}`,
+      visibility,
+      status,
+      title: "Player one vs Player two",
       platform: "atlas",
       messageCount: 120,
       listing: {

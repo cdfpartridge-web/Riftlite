@@ -17,10 +17,10 @@ export function CasterStudioAccess() {
     });
     const payload = await response.json().catch(() => null) as { error?: string } | null;
     if (!response.ok) {
-      throw new Error(payload?.error ?? "Caster Studio access was not granted.");
+      throw new Error(payload?.error ?? "Replay Research access was not granted.");
     }
     window.location.reload();
-    return { message: "Opening Caster Studio..." };
+    return { message: "Opening Replay Research..." };
   }
 
   return (
@@ -32,7 +32,7 @@ export function CasterStudioAccess() {
           <img alt="RiftLite" src="/brand/riftlite-logo-transparent.png" />
           <div>
             <span>PRIVATE CREATOR WORKSPACE</span>
-            <h1>RiftLite Caster Studio</h1>
+            <h1>RiftLite Replay Research</h1>
           </div>
         </div>
         <p>
@@ -47,10 +47,10 @@ export function CasterStudioAccess() {
       </section>
       <div className={styles.authPanel}>
         <RiftLiteAuthPanel
-          actionLabel="Open Caster Studio"
+          actionLabel="Open Replay Research"
           description="This private creator workspace is currently restricted to BMU."
           onReady={createSession}
-          readyTitle="Caster Studio access"
+          readyTitle="Replay Research access"
         />
       </div>
     </main>

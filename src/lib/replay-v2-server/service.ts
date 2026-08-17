@@ -435,6 +435,25 @@ export async function readCanonicalReplay(
   };
 }
 
+/**
+ * Meta Studio is an operator-only workspace guarded by its own UID allowlist
+ * and private session cookie. Keep this read path separate from ordinary
+ * replay/hub authorization so granting Meta Studio access never changes the
+ * permissions of the public replay API.
+ */
+export async function readMetaStudioCanonicalReplay(
+  replayId: string,
+): Promise<{ record: ReplayRecord; bytes?: Buffer }> {
+  const db = replayDb();
+  const snapshot = await db.collection(REPLAY_COLLECTION).doc(replayId).get();
+  const record = replayRecord(snapshot);
+  if (record.status !== "ready" || !record.canonicalArtifact) return { record };
+  return {
+    record,
+    bytes: await readImmutableArtifact(db, record.canonicalArtifact),
+  };
+}
+
 export async function readOwnerRawReplay(ownerUid: string, replayId: string): Promise<{ record: ReplayRecord; bytes: Buffer }> {
   const db = replayDb();
   const record = await ownedReplay(db, await replayOwnerIdentityUids(db, ownerUid), replayId);
@@ -566,6 +585,45 @@ export async function listPublicReplays(limit: number, cursorValue = ""): Promis
     hasMore,
     nextCursor: lastDocument ? encodeReplayListCursor(lastDocument) : null,
   };
+}
+
+/**
+ * Builds the private Meta Studio research corpus. The caller must already have
+ * passed requireMetaStudioSession(); this function deliberately returns only
+ * display summaries and never owner UIDs, capture IDs, room codes or artifacts.
+ * The result is cached by the Meta Studio data layer so this full scan is not a
+ * per-filter or per-page Firestore cost.
+ */
+export async function listMetaStudioReplayCorpus(): Promise<ReplaySummary[]> {
+  const db = replayDb();
+  const summaries: ReplaySummary[] = [];
+  const pageSize = 500;
+  let cursor = "";
+
+  while (true) {
+    let query = db
+      .collection(REPLAY_COLLECTION)
+      .orderBy(FieldPath.documentId())
+      .limit(pageSize);
+    if (cursor) query = query.startAfter(cursor);
+    const snapshot = await query.get();
+
+    for (const document of snapshot.docs) {
+      const summary = serializeSummary(document.data(), false);
+      if (
+        summary.status === "ready" &&
+        (summary.visibility === "private" || summary.visibility === "unlisted")
+      ) {
+        summaries.push(summary);
+      }
+    }
+
+    if (snapshot.docs.length < pageSize) break;
+    cursor = snapshot.docs.at(-1)?.id ?? "";
+    if (!cursor) break;
+  }
+
+  return sortReplaySummariesByCapturedAt(summaries);
 }
 
 export function serializeReplay(record: ReplayRecord, ownerView: boolean): ReplaySummary {

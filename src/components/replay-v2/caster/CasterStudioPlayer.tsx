@@ -20,6 +20,7 @@ export function CasterStudioPlayer({
       apiBasePath={preview ? "/api/v2/replays" : "/api/meta-studio/caster/replays"}
       casterLibraryHref={preview ? "/meta-studio/caster?preview=1" : "/meta-studio/caster"}
       mode="caster"
+      privateHubMode={!preview}
       replayId={replayId}
     />
   );
