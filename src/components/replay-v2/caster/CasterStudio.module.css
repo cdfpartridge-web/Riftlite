@@ -548,7 +548,7 @@
 
 .researchFilters {
   display: grid;
-  grid-template-columns: minmax(190px, 1fr) minmax(190px, 1fr) minmax(150px, 0.55fr);
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) minmax(135px, 0.55fr);
   gap: 12px;
   border: 1px solid rgba(126, 192, 226, 0.13);
   border-radius: 15px;
@@ -882,6 +882,10 @@
 
   .researchWorkspace {
     grid-template-columns: 230px minmax(0, 1fr);
+  }
+
+  .researchFilters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

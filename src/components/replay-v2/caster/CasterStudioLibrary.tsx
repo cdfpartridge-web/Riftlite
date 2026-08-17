@@ -62,7 +62,8 @@ export function CasterStudioLibrary({
   const [locking, setLocking] = useState(false);
   const [playerQuery, setPlayerQuery] = useState("");
   const [selectedPlayer, setSelectedPlayer] = useState("");
-  const [selectedLegend, setSelectedLegend] = useState("");
+  const [selectedPlayerLegend, setSelectedPlayerLegend] = useState("");
+  const [selectedOpponentLegend, setSelectedOpponentLegend] = useState("");
   const [visibility, setVisibility] = useState<"all" | "private" | "unlisted">("all");
   const [visibleCount, setVisibleCount] = useState(96);
 
@@ -107,7 +108,14 @@ export function CasterStudioLibrary({
 
   const readyReplays = useMemo(() => replays.filter((replay) => replay.status === "ready"), [replays]);
   const playerDirectory = useMemo(() => replayPlayerDirectory(readyReplays), [readyReplays]);
-  const legendOptions = useMemo(() => replayLegendOptions(readyReplays), [readyReplays]);
+  const playerLegendOptions = useMemo(
+    () => replayLegendOptions(readyReplays, "playerLegend"),
+    [readyReplays],
+  );
+  const opponentLegendOptions = useMemo(
+    () => replayLegendOptions(readyReplays, "opponentLegend"),
+    [readyReplays],
+  );
   const visiblePlayers = useMemo(() => {
     const query = normalizeFilterValue(playerQuery);
     return playerDirectory
@@ -121,12 +129,10 @@ export function CasterStudioLibrary({
       const players = [listing?.playerName, listing?.opponentName].map(normalizeFilterValue);
       if (!players.includes(selectedPlayer)) return false;
     }
-    if (selectedLegend) {
-      const legends = [listing?.playerLegend, listing?.opponentLegend].map(normalizeFilterValue);
-      if (!legends.includes(selectedLegend)) return false;
-    }
+    if (selectedPlayerLegend && normalizeFilterValue(listing?.playerLegend) !== selectedPlayerLegend) return false;
+    if (selectedOpponentLegend && normalizeFilterValue(listing?.opponentLegend) !== selectedOpponentLegend) return false;
     return true;
-  }), [readyReplays, selectedLegend, selectedPlayer, visibility]);
+  }), [readyReplays, selectedOpponentLegend, selectedPlayer, selectedPlayerLegend, visibility]);
 
   const openReplay = useCallback((replayId: string) => {
     router.push(casterReplayPath(replayId, preview));
@@ -278,10 +284,23 @@ export function CasterStudioLibrary({
         <div className={styles.researchResults}>
           <div className={styles.researchFilters}>
             <label>
-              <span>Legend</span>
-              <select onChange={(event) => { setSelectedLegend(event.currentTarget.value); setVisibleCount(96); }} value={selectedLegend}>
-                <option value="">All Legends</option>
-                {legendOptions.map((legend) => <option key={legend.key} value={legend.key}>{legend.name}</option>)}
+              <span>Player Legend</span>
+              <select
+                onChange={(event) => { setSelectedPlayerLegend(event.currentTarget.value); setVisibleCount(96); }}
+                value={selectedPlayerLegend}
+              >
+                <option value="">All player Legends</option>
+                {playerLegendOptions.map((legend) => <option key={legend.key} value={legend.key}>{legend.name}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Opponent Legend</span>
+              <select
+                onChange={(event) => { setSelectedOpponentLegend(event.currentTarget.value); setVisibleCount(96); }}
+                value={selectedOpponentLegend}
+              >
+                <option value="">All opponent Legends</option>
+                {opponentLegendOptions.map((legend) => <option key={legend.key} value={legend.key}>{legend.name}</option>)}
               </select>
             </label>
             <label>
@@ -335,8 +354,14 @@ export function CasterStudioLibrary({
           <div className={styles.emptyState}>
             <Clapperboard />
             <h3>No replays match these filters</h3>
-            <p>Clear the player or Legend filter to widen the private corpus.</p>
-            <button onClick={() => { setSelectedPlayer(""); setSelectedLegend(""); setVisibility("all"); setVisibleCount(96); }} type="button">
+            <p>Clear the player or Legend filters to widen the private corpus.</p>
+            <button onClick={() => {
+              setSelectedPlayer("");
+              setSelectedPlayerLegend("");
+              setSelectedOpponentLegend("");
+              setVisibility("all");
+              setVisibleCount(96);
+            }} type="button">
               Clear filters
             </button>
           </div>
@@ -428,13 +453,15 @@ function replayPlayerDirectory(replays: CasterReplaySummary[]) {
   return [...players.values()].sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
 }
 
-function replayLegendOptions(replays: CasterReplaySummary[]) {
+function replayLegendOptions(
+  replays: CasterReplaySummary[],
+  field: "playerLegend" | "opponentLegend",
+) {
   const legends = new Map<string, string>();
   for (const replay of replays) {
-    for (const name of [replay.listing?.playerLegend, replay.listing?.opponentLegend]) {
-      const key = normalizeFilterValue(name);
-      if (key && name?.trim()) legends.set(key, name.trim());
-    }
+    const name = replay.listing?.[field];
+    const key = normalizeFilterValue(name);
+    if (key && name?.trim()) legends.set(key, name.trim());
   }
   return [...legends].map(([key, name]) => ({ key, name })).sort((left, right) => left.name.localeCompare(right.name));
 }
