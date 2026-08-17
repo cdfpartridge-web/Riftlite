@@ -40,9 +40,9 @@ describe("CasterStudioPlayer", () => {
     expect(view.getByTestId("replay-player")).toBeInTheDocument();
     expect(mocks.player).toHaveBeenLastCalledWith({
       apiBasePath: "/api/meta-studio/caster/replays",
+      allowPlayerNameHiding: true,
       casterLibraryHref: "/meta-studio/caster",
       mode: "caster",
-      privateHubMode: true,
       replayId,
     });
   });
@@ -57,9 +57,9 @@ describe("CasterStudioPlayer", () => {
 
     expect(mocks.player).toHaveBeenLastCalledWith({
       apiBasePath: "/api/v2/replays",
+      allowPlayerNameHiding: false,
       casterLibraryHref: "/meta-studio/caster?preview=1",
       mode: "caster",
-      privateHubMode: false,
       replayId,
     });
   });

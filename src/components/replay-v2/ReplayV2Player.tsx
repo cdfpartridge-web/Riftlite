@@ -157,7 +157,7 @@ export type ReplayV2PlayerProps = {
   apiBasePath?: string;
   casterLibraryHref?: string;
   mode?: "viewer" | "caster";
-  privateHubMode?: boolean;
+  allowPlayerNameHiding?: boolean;
 };
 
 type LoadState =
@@ -261,7 +261,7 @@ export function ReplayV2Player({
   apiBasePath = "/api/v2/replays",
   casterLibraryHref = "/meta-studio/caster",
   mode = "viewer",
-  privateHubMode = false,
+  allowPlayerNameHiding = false,
 }: ReplayV2PlayerProps) {
   const casterMode = mode === "caster";
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
@@ -306,15 +306,15 @@ export function ReplayV2Player({
   const casterCursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const casterNoteRef = useRef<HTMLTextAreaElement>(null);
   const analysisDraggingCardIdRef = useRef<string | null>(null);
-  const hidePlayerNames = privateHubMode && playerNamePrivacy.replayId === replayId
+  const hidePlayerNames = allowPlayerNameHiding && playerNamePrivacy.replayId === replayId
     ? playerNamePrivacy.hidden
     : false;
   const sourceReplay = loadState.status === "ready" ? loadState.replay : null;
   const replay = useMemo(
-    () => sourceReplay && privateHubMode && hidePlayerNames
+    () => sourceReplay && allowPlayerNameHiding && hidePlayerNames
       ? anonymizeReplayPlayerNames(sourceReplay)
       : sourceReplay,
-    [hidePlayerNames, privateHubMode, sourceReplay],
+    [allowPlayerNameHiding, hidePlayerNames, sourceReplay],
   );
   const { hostRef, scale } = usePlayerScale();
 
@@ -1580,7 +1580,7 @@ export function ReplayV2Player({
                     });
                   }}
                   replay={replay}
-                  playerNamesHidden={privateHubMode ? hidePlayerNames : null}
+                  playerNamesHidden={allowPlayerNameHiding ? hidePlayerNames : null}
                   showMore={showMore}
                   speed={speed}
                   state={state}
@@ -5019,7 +5019,7 @@ function TransportControls({
             aria-label={playerNamesHidden ? "Show player names" : "Hide player names"}
             aria-pressed={playerNamesHidden}
             className={styles.fullscreenButton}
-            data-control="private-hub-player-names"
+            data-control="private-workspace-player-names"
             onClick={onTogglePlayerNames}
             title="Private workspace blind-review display setting"
             type="button"
