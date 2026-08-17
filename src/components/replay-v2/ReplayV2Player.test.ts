@@ -53,6 +53,24 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(view.queryByText("Sideboarding")).not.toBeInTheDocument();
   });
 
+  it("offers display-only player name hiding only in a private hub viewer", async () => {
+    const normalView = render(createElement(ReplayV2Player, { replayId: "rp_normal_names" }));
+    await waitFor(() => expect(normalView.container.querySelector('[data-replay-player="v2"]')).toBeInTheDocument());
+    expect(normalView.queryByRole("button", { name: "Hide player names" })).not.toBeInTheDocument();
+    normalView.unmount();
+
+    const hubView = render(createElement(ReplayV2Player, { privateHubMode: true, replayId: "rp_hub_names" }));
+    const hideButton = await hubView.findByRole("button", { name: "Hide player names" });
+    expect(hubView.getByRole("heading", { name: "LeBlanc" })).toBeInTheDocument();
+    expect(hubView.getByRole("heading", { name: "Fiora" })).toBeInTheDocument();
+
+    fireEvent.click(hideButton);
+
+    expect(hubView.getByRole("button", { name: "Show player names" })).toHaveAttribute("aria-pressed", "true");
+    expect(hubView.getByRole("heading", { name: "Player 1" })).toBeInTheDocument();
+    expect(hubView.getByRole("heading", { name: "Player 2" })).toBeInTheDocument();
+  });
+
   it("keeps the opponent hand hidden in a normal perspective replay", async () => {
     const view = render(createElement(ReplayV2Player, { replayId: "rp_private_hand" }));
 
