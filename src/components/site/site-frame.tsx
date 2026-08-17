@@ -26,14 +26,31 @@ export function isFullScreenAppPath(pathname: string) {
   return isReplayAppPath(pathname) || pathname === "/meta-studio" || pathname.startsWith("/meta-studio/");
 }
 
+export function isViewportLockedAppPath(pathname: string) {
+  return (
+    isReplayAppPath(pathname) ||
+    pathname === "/meta-studio" ||
+    (pathname.startsWith("/meta-studio/") && pathname !== "/meta-studio/caster")
+  );
+}
+
 export function SiteFrame({ children, settings }: SiteFrameProps) {
   const pathname = usePathname();
   const fullScreenApp = isFullScreenAppPath(pathname || "");
+  const viewportLocked = isViewportLockedAppPath(pathname || "");
 
   return (
-    <div className={cn("surface-grid min-h-screen", fullScreenApp && "h-screen overflow-hidden bg-[#05070b]")}>
+    <div
+      className={cn(
+        "surface-grid min-h-screen",
+        fullScreenApp && "bg-[#05070b]",
+        viewportLocked && "h-screen overflow-hidden",
+      )}
+    >
       {fullScreenApp ? null : <SiteHeader discordUrl={settings.discordUrl} downloadUrl={settings.downloadUrl} />}
-      <main className={fullScreenApp ? "h-screen overflow-hidden" : undefined}>{children}</main>
+      <main className={viewportLocked ? "h-screen overflow-hidden" : fullScreenApp ? "min-h-screen" : undefined}>
+        {children}
+      </main>
       {fullScreenApp ? null : <SiteFooter settings={settings} />}
     </div>
   );
