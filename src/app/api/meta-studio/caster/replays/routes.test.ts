@@ -2,8 +2,8 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  listOwnerReplays: vi.fn(),
-  readCanonicalReplay: vi.fn(),
+  readMetaStudioReplayLibrary: vi.fn(),
+  readMetaStudioCanonicalReplay: vi.fn(),
   requireMetaStudioSession: vi.fn(),
 }));
 
@@ -19,15 +19,18 @@ vi.mock("@/lib/replay-v2-server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/replay-v2-server")>();
   return {
     ...actual,
-    listOwnerReplays: mocks.listOwnerReplays,
-    readCanonicalReplay: mocks.readCanonicalReplay,
+    readMetaStudioCanonicalReplay: mocks.readMetaStudioCanonicalReplay,
   };
 });
+
+vi.mock("@/lib/community/meta-studio-replay-library", () => ({
+  readMetaStudioReplayLibrary: mocks.readMetaStudioReplayLibrary,
+}));
 
 import { GET as getCasterReplay } from "@/app/api/meta-studio/caster/replays/[replayId]/route";
 import { GET as listCasterReplays } from "@/app/api/meta-studio/caster/replays/route";
 import { metaStudioJson } from "@/lib/community/meta-studio-auth";
-import { ReplayV2Error, type ReplayRecord } from "@/lib/replay-v2-server";
+import { type ReplayRecord } from "@/lib/replay-v2-server";
 
 const REPLAY_ID = `rl2_${"a".repeat(32)}`;
 const CANONICAL_BYTES = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x01, 0x02, 0x03]);
@@ -36,9 +39,8 @@ describe("Caster Studio replay list route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireMetaStudioSession.mockResolvedValue(principal());
-    mocks.listOwnerReplays.mockResolvedValue([{
+    mocks.readMetaStudioReplayLibrary.mockResolvedValue([{
       replayId: REPLAY_ID,
-      captureId: "capture-bmu",
       visibility: "private",
       status: "ready",
       title: "BMU vs Tester",
@@ -50,16 +52,16 @@ describe("Caster Studio replay list route", () => {
     }]);
   });
 
-  it("lists only the authenticated studio principal's replay library", async () => {
+  it("lists the private corpus only after authenticating the Meta Studio principal", async () => {
     const response = await listCasterReplays(request("/api/meta-studio/caster/replays?limit=999"));
 
     expect(response.status).toBe(200);
     expect(mocks.requireMetaStudioSession).toHaveBeenCalledOnce();
-    expect(mocks.listOwnerReplays).toHaveBeenCalledWith("canonical-bmu", 100);
+    expect(mocks.readMetaStudioReplayLibrary).toHaveBeenCalledOnce();
     await expect(response.json()).resolves.toMatchObject({
       count: 1,
-      scope: "mine",
-      items: [{ replayId: REPLAY_ID, captureId: "capture-bmu", visibility: "private" }],
+      scope: "private-meta-studio-corpus",
+      items: [{ replayId: REPLAY_ID, visibility: "private" }],
     });
     expectPrivateStudioHeaders(response);
   });
@@ -72,7 +74,7 @@ describe("Caster Studio replay list route", () => {
     const response = await listCasterReplays(request("/api/meta-studio/caster/replays"));
 
     expect(response.status).toBe(401);
-    expect(mocks.listOwnerReplays).not.toHaveBeenCalled();
+    expect(mocks.readMetaStudioReplayLibrary).not.toHaveBeenCalled();
     expectPrivateStudioHeaders(response);
   });
 });
@@ -94,12 +96,12 @@ describe("Caster Studio replay read route", () => {
     );
 
     expect(response.status).toBe(403);
-    expect(mocks.readCanonicalReplay).not.toHaveBeenCalled();
+    expect(mocks.readMetaStudioCanonicalReplay).not.toHaveBeenCalled();
     expectPrivateStudioHeaders(response);
   });
 
   it("returns a private owner summary while canonical processing is pending", async () => {
-    mocks.readCanonicalReplay.mockResolvedValue({ record: replayRecord({ status: "processing" }) });
+    mocks.readMetaStudioCanonicalReplay.mockResolvedValue({ record: replayRecord({ status: "processing" }) });
 
     const response = await getCasterReplay(
       request(`/api/meta-studio/caster/replays/${REPLAY_ID}`),
@@ -107,11 +109,10 @@ describe("Caster Studio replay read route", () => {
     );
 
     expect(response.status).toBe(202);
-    expect(mocks.readCanonicalReplay).toHaveBeenCalledWith(REPLAY_ID, "canonical-bmu");
+    expect(mocks.readMetaStudioCanonicalReplay).toHaveBeenCalledWith(REPLAY_ID);
     await expect(response.json()).resolves.toMatchObject({
       replay: {
         replayId: REPLAY_ID,
-        captureId: "capture-bmu",
         visibility: "private",
         status: "processing",
       },
@@ -125,7 +126,7 @@ describe("Caster Studio replay read route", () => {
       visibility: "unlisted",
       canonicalArtifact: canonicalArtifact(),
     });
-    mocks.readCanonicalReplay.mockResolvedValue({ record, bytes: CANONICAL_BYTES });
+    mocks.readMetaStudioCanonicalReplay.mockResolvedValue({ record, bytes: CANONICAL_BYTES });
 
     const response = await getCasterReplay(
       request(`/api/meta-studio/caster/replays/${REPLAY_ID}`),
@@ -151,7 +152,7 @@ describe("Caster Studio replay read route", () => {
       visibility: "public",
       canonicalArtifact: artifact,
     });
-    mocks.readCanonicalReplay.mockResolvedValue({ record, bytes: CANONICAL_BYTES });
+    mocks.readMetaStudioCanonicalReplay.mockResolvedValue({ record, bytes: CANONICAL_BYTES });
 
     const response = await getCasterReplay(
       request(`/api/meta-studio/caster/replays/${REPLAY_ID}`, {
@@ -165,19 +166,21 @@ describe("Caster Studio replay read route", () => {
     expectPrivateStudioHeaders(response);
   });
 
-  it("does not turn studio access into a private-replay admin bypass", async () => {
-    mocks.readCanonicalReplay.mockRejectedValue(
-      new ReplayV2Error(403, "replay_private", "Replay is private."),
-    );
+  it("uses the separate operator-only read path for another uploader's private replay", async () => {
+    const record = replayRecord({
+      ownerUid: "another-uploader",
+      canonicalArtifact: canonicalArtifact(),
+    });
+    mocks.readMetaStudioCanonicalReplay.mockResolvedValue({ record, bytes: CANONICAL_BYTES });
 
     const response = await getCasterReplay(
       request(`/api/meta-studio/caster/replays/${REPLAY_ID}`),
       context(REPLAY_ID),
     );
 
-    expect(mocks.readCanonicalReplay).toHaveBeenCalledWith(REPLAY_ID, "canonical-bmu");
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({ code: "replay_private" });
+    expect(mocks.readMetaStudioCanonicalReplay).toHaveBeenCalledWith(REPLAY_ID);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-riftlite-replay-visibility")).toBe("private");
     expectPrivateStudioHeaders(response);
   });
 });
@@ -226,7 +229,10 @@ function canonicalArtifact() {
 }
 
 function request(path: string, init?: RequestInit) {
-  return new NextRequest(`https://www.riftlite.com${path}`, init);
+  return new NextRequest(
+    `https://www.riftlite.com${path}`,
+    init as ConstructorParameters<typeof NextRequest>[1],
+  );
 }
 
 function context(replayId: string) {

@@ -1009,12 +1009,13 @@ export function MetaStudioCanvas({
               </button>
             </div>
             <Link
-              aria-label="Open Caster Studio"
-              className={`${styles.iconButton} ${clean ? styles.chromeHidden : ""}`}
+              aria-label="Open replay research"
+              className={`${styles.iconButton} ${styles.replayResearchButton} ${clean ? styles.chromeHidden : ""}`}
               href={preview ? "/meta-studio/caster?preview=1" : "/meta-studio/caster"}
-              title="Open private Caster Studio"
+              title="Search private and unlisted community replays"
             >
               <Clapperboard aria-hidden="true" size={19} />
+              <span>Replay research</span>
             </Link>
             <button
               aria-label="Manage live stream takeover"

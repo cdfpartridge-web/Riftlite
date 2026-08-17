@@ -5,11 +5,8 @@ import {
   metaStudioJson,
   requireMetaStudioSession,
 } from "@/lib/community/meta-studio-auth";
-import {
-  listOwnerReplays,
-  normalizeListLimit,
-  replayApiError,
-} from "@/lib/replay-v2-server";
+import { readMetaStudioReplayLibrary } from "@/lib/community/meta-studio-replay-library";
+import { replayApiError } from "@/lib/replay-v2-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,12 +16,11 @@ export async function GET(request: NextRequest) {
   if ("error" in principal) return principal.error;
 
   try {
-    const limit = normalizeListLimit(request.nextUrl.searchParams.get("limit"));
-    const items = await listOwnerReplays(principal.uid, limit);
+    const items = await readMetaStudioReplayLibrary();
     return metaStudioJson({
       items,
       count: items.length,
-      scope: "mine",
+      scope: "private-meta-studio-corpus",
     });
   } catch (error) {
     return applyMetaStudioPrivateHeaders(replayApiError(error));

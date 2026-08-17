@@ -11,8 +11,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export const metadata = createNoIndexMetadata(
-  "Private Caster Studio",
-  "Prepare and present RiftLite web replays for commentary and recorded content.",
+  "Private Replay Research",
+  "Search private and unlisted RiftLite web replays for private Meta Studio research.",
   "/meta-studio/caster",
 );
 

@@ -5021,7 +5021,7 @@ function TransportControls({
             className={styles.fullscreenButton}
             data-control="private-hub-player-names"
             onClick={onTogglePlayerNames}
-            title="Private hub blind-review display setting"
+            title="Private workspace blind-review display setting"
             type="button"
           >
             <Icon name="lock" /> {playerNamesHidden ? "Show names" : "Hide names"}

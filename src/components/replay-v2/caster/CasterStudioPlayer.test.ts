@@ -42,6 +42,7 @@ describe("CasterStudioPlayer", () => {
       apiBasePath: "/api/meta-studio/caster/replays",
       casterLibraryHref: "/meta-studio/caster",
       mode: "caster",
+      privateHubMode: true,
       replayId,
     });
   });
@@ -58,6 +59,7 @@ describe("CasterStudioPlayer", () => {
       apiBasePath: "/api/v2/replays",
       casterLibraryHref: "/meta-studio/caster?preview=1",
       mode: "caster",
+      privateHubMode: false,
       replayId,
     });
   });
