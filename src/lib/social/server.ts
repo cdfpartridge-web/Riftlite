@@ -681,16 +681,56 @@ export async function identityUidsFor(uid: string, providedDb?: Firestore): Prom
     .map(({ candidate }) => candidate);
 }
 
+const DESKTOP_IDENTITY_REPAIR_RETRY_MS = 6 * 60 * 60 * 1_000;
+const DESKTOP_IDENTITY_REPAIR_LEASE_MS = 5 * 60 * 1_000;
+
+type HistoricalIdentityRepairOptions = {
+  force?: boolean;
+  now?: number;
+};
+
 export async function repairHistoricalDesktopIdentityAssociations(
   canonicalUid: string,
   providedDb?: Firestore,
+  options: HistoricalIdentityRepairOptions = {},
 ): Promise<string[]> {
   const canonical = String(canonicalUid ?? "").trim();
   if (!canonical) return [];
   const db = providedDb ?? getFirestoreAdmin();
   if (!db) return [];
   const userRef = db.collection("users").doc(canonical);
-  const userSnap = await userRef.get();
+  const repairNow = options.now ?? Date.now();
+  const repairClaim = await db.runTransaction(async (tx) => {
+    const userSnap = await tx.get(userRef);
+    const user = userSnap.data() ?? {};
+    const backfillVersionIsCurrent = Number(
+      user.desktopIdentityBackfillVersion ?? 0,
+    ) >= DESKTOP_IDENTITY_BACKFILL_VERSION;
+    const pendingSources = Array.isArray(user.desktopIdentityBackfillPendingSources)
+      ? user.desktopIdentityBackfillPendingSources
+      : [];
+    const completedStateIsTrusted = backfillVersionIsCurrent &&
+      Number(user.desktopIdentityBackfilledAt ?? 0) > 0 &&
+      pendingSources.length === 0;
+    if (completedStateIsTrusted && !options.force) {
+      return { claimed: false, user };
+    }
+    const leaseExpiresAt = Number(user.desktopIdentityBackfillLeaseExpiresAt ?? 0);
+    if (leaseExpiresAt > repairNow) {
+      return { claimed: false, user };
+    }
+    const lastAttemptAt = Number(user.desktopIdentityBackfillLastAttemptAt ?? 0);
+    if (!options.force && lastAttemptAt > 0 && repairNow - lastAttemptAt < DESKTOP_IDENTITY_REPAIR_RETRY_MS) {
+      return { claimed: false, user };
+    }
+    tx.set(userRef, {
+      desktopIdentityBackfillLastAttemptAt: repairNow,
+      desktopIdentityBackfillLeaseExpiresAt: repairNow + DESKTOP_IDENTITY_REPAIR_LEASE_MS,
+    }, { merge: true });
+    return { claimed: true, user };
+  });
+  if (!repairClaim.claimed) return [];
+
   const sessions = await db.collection("desktopLinkSessions")
     .where("linkedUid", "==", canonical)
     .limit(100)
@@ -707,7 +747,7 @@ export async function repairHistoricalDesktopIdentityAssociations(
     sourceAliasSnapshots[index]?.data() ?? {},
   ]));
   const backfillVersionIsCurrent = Number(
-    userSnap.data()?.desktopIdentityBackfillVersion ?? 0,
+    repairClaim.user.desktopIdentityBackfillVersion ?? 0,
   ) >= DESKTOP_IDENTITY_BACKFILL_VERSION;
   const sourcesToRepair = sources.filter((source) => {
     const state = sourceAliasData.get(source) ?? {};
@@ -715,8 +755,6 @@ export async function repairHistoricalDesktopIdentityAssociations(
     if (linkedIdentityMigrationIsTerminalConflict(state, canonical)) return !backfillVersionIsCurrent;
     return true;
   });
-  if (backfillVersionIsCurrent && sourcesToRepair.length === 0) return [];
-
   const conflicts: Array<{ sourceUid: string; existingCanonicalUid: string }> = [];
   const migrated: string[] = [];
   for (const source of sourcesToRepair) {
@@ -756,11 +794,12 @@ export async function repairHistoricalDesktopIdentityAssociations(
   const completedSources = sources.filter((source) => (
     linkedIdentityMigrationIsComplete(finalStates.get(source) ?? {}, canonical)
   ));
-  const now = Date.now();
+  const now = options.now ?? Date.now();
   await userRef.set(pendingSources.length === 0 ? {
     desktopIdentityBackfillVersion: DESKTOP_IDENTITY_BACKFILL_VERSION,
     desktopIdentityBackfilledAt: now,
     desktopIdentityBackfillLastAttemptAt: now,
+    desktopIdentityBackfillLeaseExpiresAt: 0,
     desktopIdentityBackfilledSources: completedSources.length,
     desktopIdentityBackfillPendingSources: [],
     desktopIdentityBackfillConflicts: finalConflicts,
@@ -770,6 +809,7 @@ export async function repairHistoricalDesktopIdentityAssociations(
     desktopIdentityBackfillVersion: 0,
     desktopIdentityBackfilledAt: FieldValue.delete(),
     desktopIdentityBackfillLastAttemptAt: now,
+    desktopIdentityBackfillLeaseExpiresAt: 0,
     desktopIdentityBackfilledSources: completedSources.length,
     desktopIdentityBackfillPendingSources: pendingSources,
     desktopIdentityBackfillConflicts: finalConflicts,
@@ -807,10 +847,9 @@ function linkedIdentityMigrationIsTerminalConflict(
 type MembershipParentCollection = "hubs" | "teams";
 
 /**
- * Finds memberships through the fast collection-group index when it is
- * available, then falls back to direct member document reads. Member IDs are
- * the Firebase UID throughout RiftLite, so the fallback is deterministic and
- * does not require scanning private match or message data.
+ * Finds memberships through the collection-group index. Missing indexes must
+ * fail closed: enumerating every parent hub/team as a fallback turns one
+ * account lookup into hundreds of billed document reads.
  */
 export async function findMembershipDocuments(
   db: Firestore,
@@ -820,21 +859,11 @@ export async function findMembershipDocuments(
   const identityUids = Array.from(new Set(uids.map((value) => String(value ?? "").trim()).filter(Boolean)));
   if (!identityUids.length) return [];
 
-  try {
-    const indexed = await Promise.all(identityUids.map((uid) => (
-      db.collectionGroup("members").where("uid", "==", uid).get()
-    )));
-    return dedupeDocumentSnapshots(indexed.flatMap((snapshot) => snapshot.docs)
-      .filter((doc) => doc.ref.parent.parent?.parent.id === parentCollection));
-  } catch {
-    const parents = await db.collection(parentCollection).get();
-    const refs = parents.docs.flatMap((parent) => identityUids.map((uid) => parent.ref.collection("members").doc(uid)));
-    const members: DocumentSnapshot[] = [];
-    for (let offset = 0; offset < refs.length; offset += 250) {
-      members.push(...await db.getAll(...refs.slice(offset, offset + 250)));
-    }
-    return dedupeDocumentSnapshots(members.filter((member) => member.exists));
-  }
+  const indexed = await Promise.all(identityUids.map((uid) => (
+    db.collectionGroup("members").where("uid", "==", uid).get()
+  )));
+  return dedupeDocumentSnapshots(indexed.flatMap((snapshot) => snapshot.docs)
+    .filter((doc) => doc.ref.parent.parent?.parent.id === parentCollection));
 }
 
 function dedupeDocumentSnapshots(documents: DocumentSnapshot[]): DocumentSnapshot[] {
@@ -846,27 +875,11 @@ async function findNestedDocumentsByField(
   collectionId: string,
   field: string,
   value: string,
-  parentCollections: MembershipParentCollection[],
   limit = Number.POSITIVE_INFINITY,
 ): Promise<DocumentSnapshot[]> {
-  try {
-    let query: Query = db.collectionGroup(collectionId).where(field, "==", value);
-    if (Number.isFinite(limit)) query = query.limit(limit);
-    return (await query.get()).docs;
-  } catch {
-    const documents: DocumentSnapshot[] = [];
-    for (const parentCollection of parentCollections) {
-      const parents = await db.collection(parentCollection).get();
-      for (let offset = 0; offset < parents.docs.length && documents.length < limit; offset += 25) {
-        const remaining = Number.isFinite(limit) ? Math.max(1, limit - documents.length) : 200;
-        const snapshots = await Promise.all(parents.docs.slice(offset, offset + 25).map((parent) => (
-          parent.ref.collection(collectionId).where(field, "==", value).limit(remaining).get()
-        )));
-        documents.push(...snapshots.flatMap((snapshot) => snapshot.docs));
-      }
-    }
-    return dedupeDocumentSnapshots(documents).slice(0, Number.isFinite(limit) ? limit : undefined);
-  }
+  let query: Query = db.collectionGroup(collectionId).where(field, "==", value);
+  if (Number.isFinite(limit)) query = query.limit(limit);
+  return (await query.get()).docs;
 }
 
 async function migrateLinkedIdentityReferences(
@@ -978,13 +991,10 @@ async function migrateIdentitySnapshots(
       collectionId,
       "uid",
       sourceUid,
-      ["hubs", "teams"],
     );
-    // Root public matches are not guaranteed to appear when a deployment is
-    // missing the collection-group index and the helper takes its bounded
-    // parent-collection fallback. Read them explicitly so account migration
-    // cannot leave the scheduled community refresh and profile history owned
-    // by the old desktop UID.
+    // Root public matches do not belong to the nested collection group. Read
+    // them through their own indexed query so account migration cannot leave
+    // the scheduled community refresh and profile history on the old UID.
     const rootMatches = collectionId === "matches"
       ? (await db.collection("matches").where("uid", "==", sourceUid).get()).docs
       : [];
@@ -1994,7 +2004,7 @@ export async function repairProfileReferences(profile: AccountProfile): Promise<
           ...await findMembershipDocuments(db, [value], "hubs"),
           ...await findMembershipDocuments(db, [value], "teams"),
         ].slice(0, 150)
-      : await findNestedDocumentsByField(db, collectionId, field, value, ["hubs", "teams"], 150).catch(() => []);
+      : await findNestedDocumentsByField(db, collectionId, field, value, 150).catch(() => []);
     for (const doc of documents) {
       queueSet(doc.ref, data);
     }

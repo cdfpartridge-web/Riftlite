@@ -394,6 +394,11 @@ describe("desktop account-link routes", () => {
     expect(response.headers.get("cache-control")).toContain("private");
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(mocks.associateLinkedIdentity).toHaveBeenCalledWith("desktop-raw", "account-canonical");
+    expect(mocks.repairHistoricalDesktopIdentityAssociations).toHaveBeenCalledWith(
+      "account-canonical",
+      db,
+      { force: true },
+    );
     expect(mocks.createFirebaseCustomToken).toHaveBeenCalledWith("account-canonical");
     expect(ref.set).toHaveBeenCalledWith(expect.objectContaining({
       expectedUid: "account-canonical",

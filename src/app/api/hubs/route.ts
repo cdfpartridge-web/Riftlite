@@ -4,7 +4,7 @@ import { type NextRequest } from "next/server";
 import { linkedAccountUidFromCanonicalizedAuth } from "@/lib/account-link";
 import { linkedReplayUid } from "@/lib/replay-v2-server/identity";
 import { primaryOwnerUid } from "@/lib/social/hub-lifecycle";
-import { bestProfileDisplayName, ensureUserProfile, findMembershipDocuments, hubIdFromName, identityUidsFor, profileIsComplete, repairHistoricalDesktopIdentityAssociations, requireUser, socialJson, type AccountProfile } from "@/lib/social/server";
+import { bestProfileDisplayName, ensureUserProfile, findMembershipDocuments, hubIdFromName, identityUidsFor, profileIsComplete, requireUser, socialJson, type AccountProfile } from "@/lib/social/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,7 +21,6 @@ export async function GET(req: NextRequest) {
   if (!profileIsComplete(profile)) {
     return socialJson({ error: "Finish your RiftLite profile to open My Hubs.", code: "profile_incomplete" }, 409);
   }
-  await repairHistoricalDesktopIdentityAssociations(auth.decoded.uid);
   const uids = await identityUidsFor(auth.decoded.uid);
   const identityUidSet = new Set([...uids, auth.decoded.uid]);
   const memberDocs = await findMembershipDocuments(auth.db, uids, "hubs");
