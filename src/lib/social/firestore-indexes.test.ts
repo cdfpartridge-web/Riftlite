@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 type FieldOverride = {
   collectionGroup?: string;
   fieldPath?: string;
-  indexes?: Array<{ order?: string; queryScope?: string }>;
+  indexes?: Array<{ arrayConfig?: string; order?: string; queryScope?: string }>;
 };
 
 describe("Firestore social collection-group indexes", () => {
@@ -32,6 +32,9 @@ describe("Firestore social collection-group indexes", () => {
       ));
       expect(override, `${collectionGroup}.${fieldPath}`).toBeDefined();
       expect(override?.indexes).toEqual(expect.arrayContaining([
+        { order: "ASCENDING", queryScope: "COLLECTION" },
+        { order: "DESCENDING", queryScope: "COLLECTION" },
+        { arrayConfig: "CONTAINS", queryScope: "COLLECTION" },
         { order: "ASCENDING", queryScope: "COLLECTION_GROUP" },
         { order: "DESCENDING", queryScope: "COLLECTION_GROUP" },
       ]));
