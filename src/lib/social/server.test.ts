@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DocumentSnapshot, Firestore } from "firebase-admin/firestore";
 
 import {
@@ -244,7 +244,7 @@ describe("social profile helpers", () => {
     }]);
   });
 
-  it("finds UID-keyed hub memberships when the collection-group index is unavailable", async () => {
+  it("finds UID-keyed hub memberships through the collection-group index", async () => {
     const membershipRef = {
       path: "hubs/teamuk/members/anonymous-uid",
       parent: { parent: { parent: { id: "hubs" } } },
@@ -254,29 +254,29 @@ describe("social profile helpers", () => {
       ref: membershipRef,
       data: () => ({ uid: "anonymous-uid", role: "member" }),
     } as unknown as DocumentSnapshot;
-    const missing = {
-      exists: false,
-      ref: { ...membershipRef, path: "hubs/other/members/anonymous-uid" },
-      data: () => undefined,
-    } as unknown as DocumentSnapshot;
     const db = {
       collectionGroup: () => ({
-        where: () => ({ get: async () => { throw new Error("missing collection-group index"); } }),
+        where: () => ({ get: async () => ({ docs: [membership] }) }),
       }),
-      collection: () => ({
-        get: async () => ({
-          docs: [
-            { ref: { collection: () => ({ doc: () => membershipRef }) } },
-            { ref: { collection: () => ({ doc: () => missing.ref }) } },
-          ],
-        }),
-      }),
-      getAll: async () => [membership, missing],
     } as unknown as Firestore;
 
     const result = await findMembershipDocuments(db, ["anonymous-uid"], "hubs");
 
     expect(result).toEqual([membership]);
+  });
+
+  it("never scans every parent document when the membership index is unavailable", async () => {
+    const collection = vi.fn();
+    const db = {
+      collectionGroup: () => ({
+        where: () => ({ get: async () => { throw new Error("missing collection-group index"); } }),
+      }),
+      collection,
+    } as unknown as Firestore;
+
+    await expect(findMembershipDocuments(db, ["anonymous-uid"], "hubs"))
+      .rejects.toThrow("missing collection-group index");
+    expect(collection).not.toHaveBeenCalled();
   });
 
   it("repairs cached profile game rows from match-level score context", () => {
@@ -361,7 +361,7 @@ describe("social profile helpers", () => {
   it("retries a failed historical reference migration even after an older release stamped the backfill complete", async () => {
     const fake = fakeRetryableIdentityMigrationDatabase();
 
-    await expect(repairHistoricalDesktopIdentityAssociations("account-a", fake.db)).resolves.toEqual([]);
+    await expect(repairHistoricalDesktopIdentityAssociations("account-a", fake.db, { now: 1_000 })).resolves.toEqual([]);
     expect(fake.read("identityAliases/desktop-raw")).toMatchObject({
       canonicalUid: "account-a",
       migrationError: "injected migration batch failure",
@@ -372,7 +372,11 @@ describe("social profile helpers", () => {
     });
     expect(fake.read("replayV2/replay-old")).toMatchObject({ ownerUid: "desktop-raw" });
 
-    await expect(repairHistoricalDesktopIdentityAssociations("account-a", fake.db))
+    await expect(repairHistoricalDesktopIdentityAssociations("account-a", fake.db, { now: 2_000 }))
+      .resolves.toEqual([]);
+    expect(fake.read("replayV2/replay-old")).toMatchObject({ ownerUid: "desktop-raw" });
+
+    await expect(repairHistoricalDesktopIdentityAssociations("account-a", fake.db, { force: true, now: 2_000 }))
       .resolves.toEqual(["desktop-raw"]);
     expect(fake.read("identityAliases/desktop-raw")).toMatchObject({
       canonicalUid: "account-a",
@@ -397,6 +401,37 @@ describe("social profile helpers", () => {
       previousUid: "desktop-raw",
       owner_display_name: "Account A",
     });
+  });
+
+  it("skips completed automatic identity repairs before reading link sessions", async () => {
+    const transactionSet = vi.fn();
+    const collection = vi.fn((collectionId: string) => {
+      if (collectionId !== "users") throw new Error(`unexpected collection ${collectionId}`);
+      return {
+        doc: () => ({ path: "users/account-a" }),
+      };
+    });
+    const db = {
+      collection,
+      runTransaction: async (callback: (tx: {
+        get: () => Promise<{ data: () => Record<string, unknown> }>;
+        set: typeof transactionSet;
+      }) => Promise<unknown>) => callback({
+        get: async () => ({
+          data: () => ({
+            desktopIdentityBackfillVersion: 1,
+            desktopIdentityBackfilledAt: 900,
+            desktopIdentityBackfillPendingSources: [],
+          }),
+        }),
+        set: transactionSet,
+      }),
+    } as unknown as Firestore;
+
+    await expect(repairHistoricalDesktopIdentityAssociations("account-a", db, { now: 1_000 }))
+      .resolves.toEqual([]);
+    expect(collection).toHaveBeenCalledTimes(1);
+    expect(transactionSet).not.toHaveBeenCalled();
   });
 
   it("excludes a stale alias that is immutably bound to another canonical account", async () => {

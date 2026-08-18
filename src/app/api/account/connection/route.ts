@@ -66,7 +66,7 @@ async function connectionResponse(
   const uid = await accountConnectionUid(auth);
   if (!uid) return connectionJson({ error: "A Google or email RiftLite account is required." }, 401);
 
-  await repairHistoricalDesktopIdentityAssociations(uid);
+  await repairHistoricalDesktopIdentityAssociations(uid, auth.db, { force: allowCredentialRepair });
   const profile = await ensureUserProfile(uid, auth.decoded.name ?? "", auth.decoded.email ?? "");
   const aliases = await identityUidsFor(uid);
   const authenticatedUid = String(auth.authenticatedUid ?? "").trim();

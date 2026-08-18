@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     // also protects two different sessions created by the same desktop UID.
     await associateLinkedIdentity(claim.desktopUid ?? "", selectedUid);
     const profile = await ensureUserProfile(selectedUid, decoded.name ?? "", decoded.email ?? "");
-    await repairHistoricalDesktopIdentityAssociations(selectedUid);
+    await repairHistoricalDesktopIdentityAssociations(selectedUid, db, { force: true });
     const customToken = await createFirebaseCustomToken(selectedUid);
     if (!customToken) throw new Error("Could not create desktop sign-in token");
 

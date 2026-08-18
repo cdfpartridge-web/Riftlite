@@ -74,6 +74,11 @@ describe("account connection credential repair", () => {
     });
     expect(mocks.createFirebaseCustomToken).toHaveBeenCalledOnce();
     expect(mocks.createFirebaseCustomToken).toHaveBeenCalledWith("account-canonical");
+    expect(mocks.repairHistoricalDesktopIdentityAssociations).toHaveBeenCalledWith(
+      "account-canonical",
+      expect.anything(),
+      { force: true },
+    );
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(response.headers.get("pragma")).toBe("no-cache");
     expect(response.headers.get("vary")).toBe("Authorization");
@@ -87,6 +92,11 @@ describe("account connection credential repair", () => {
 
     if (!response) throw new Error("Expected an account connection response");
     expect(response.status).toBe(200);
+    expect(mocks.repairHistoricalDesktopIdentityAssociations).toHaveBeenCalledWith(
+      "account-canonical",
+      expect.anything(),
+      { force: true },
+    );
     await expect(response.json()).resolves.toMatchObject({
       connection: {
         verified: true,
@@ -113,6 +123,11 @@ describe("account connection credential repair", () => {
     const response = await GET({} as never);
 
     expect(response.status).toBe(200);
+    expect(mocks.repairHistoricalDesktopIdentityAssociations).toHaveBeenCalledWith(
+      "account-canonical",
+      expect.anything(),
+      { force: false },
+    );
     await expect(response.json()).resolves.toMatchObject({
       connection: {
         migrationState: "ready",
