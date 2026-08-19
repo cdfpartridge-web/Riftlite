@@ -952,6 +952,7 @@ button.cardPile { cursor: pointer; }
 
 .battlefieldZone {
   position: relative;
+  isolation: isolate;
   display: grid;
   min-width: 0;
   grid-template-rows: minmax(0, 1fr) 96px minmax(0, 1fr);
@@ -982,8 +983,8 @@ button.cardPile { cursor: pointer; }
   padding: 0;
 }
 
-.battlefieldUnitRowTop { align-items: flex-start; }
-.battlefieldUnitRowBottom { align-items: flex-end; }
+.battlefieldUnitRowTop { grid-row: 1; align-items: flex-start; }
+.battlefieldUnitRowBottom { grid-row: 3; align-items: flex-end; }
 .battlefieldUnitRow .cardSizeBoard { width: 80px; height: 112px; }
 .battlefieldUnitRow > .cardMotion[data-card-exhausted="true"],
 .battlefieldUnitRow > .attachedCardGroup:has(.cardMotion[data-card-exhausted="true"]) {
@@ -994,7 +995,24 @@ button.cardPile { cursor: pointer; }
   position: relative;
   z-index: 1;
   display: grid;
+  grid-row: 2;
   place-items: center;
+}
+
+.battlefieldCardDock .battlefieldTile,
+.battlefieldCardDock .emptyBattlefield {
+  height: 44px;
+  border-radius: 9px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+}
+
+.battlefieldCardDock .battlefieldTile > img {
+  height: 405%;
+}
+
+.battlefieldCardDock .battlefieldTile::after {
+  inset: 0;
+  background: linear-gradient(90deg, rgba(3, 7, 14, 0.8), rgba(3, 7, 14, 0.28) 46%, rgba(3, 7, 14, 0.82));
 }
 
 .battlefieldTile,
