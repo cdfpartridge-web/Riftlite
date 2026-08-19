@@ -2677,15 +2677,7 @@ function CentralArena({
           key={lane.key}
         >
             <span className={styles.centralLabel}>{lane.label}</span>
-            <BattlefieldUnitRow
-              cards={zoneCards(players.top, [lane.topCardZone])}
-              onCardHover={onCardHover}
-              onCardSelect={onCardSelect}
-              orientation="top"
-              playerId={players.top.id}
-              zone={lane.topCardZone}
-            />
-            <div className={styles.battlefieldCardDock}>
+            <div className={styles.battlefieldCardDock} data-battlefield-card-dock>
               {lane.battlefield ? (
                 <BattlefieldTile
                   card={lane.battlefield}
@@ -2702,6 +2694,14 @@ function CentralArena({
                 </div>
               )}
             </div>
+            <BattlefieldUnitRow
+              cards={zoneCards(players.top, [lane.topCardZone])}
+              onCardHover={onCardHover}
+              onCardSelect={onCardSelect}
+              orientation="top"
+              playerId={players.top.id}
+              zone={lane.topCardZone}
+            />
             <BattlefieldUnitRow
               cards={zoneCards(players.bottom, [lane.bottomCardZone])}
               onCardHover={onCardHover}

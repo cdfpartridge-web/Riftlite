@@ -37,6 +37,16 @@ describe("ReplayV2Player board spacing", () => {
       /\.battlefieldUnitRow\s*>\s*\.cardMotion\[data-card-exhausted="true"\][^{}]*\{[^{}]*margin-inline:\s*16px/s,
     );
   });
+
+  it("keeps battlefield cards in a lower, isolated paint layer than both unit rows", () => {
+    expect(ruleBody(".battlefieldZone")).toContain("isolation: isolate");
+    expect(ruleBody(".battlefieldCardDock")).toContain("grid-row: 2");
+    expect(ruleBody(".battlefieldCardDock")).toContain("z-index: 1");
+    expect(ruleBody(".battlefieldUnitRow")).toContain("z-index: 5");
+    expect(ruleBody(".battlefieldUnitRowTop")).toContain("grid-row: 1");
+    expect(ruleBody(".battlefieldUnitRowBottom")).toContain("grid-row: 3");
+    expect(ruleBody(".battlefieldCardDock .battlefieldTile,")).toContain("height: 44px");
+  });
 });
 
 function ruleBody(selector: string): string {

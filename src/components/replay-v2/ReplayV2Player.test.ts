@@ -1121,6 +1121,15 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(lanes[0].querySelector('[aria-label="Black Rose Dignitary"]')).toBeInTheDocument();
     expect(lanes[1].querySelector('[aria-label="Eager Drakehound"]')).toBeInTheDocument();
     expect(lanes[0].querySelector('[aria-label="Eager Drakehound"]')).not.toBeInTheDocument();
+    for (const lane of lanes) {
+      const battlefieldDock = lane.querySelector("[data-battlefield-card-dock]");
+      const unitRows = Array.from(lane.querySelectorAll("[data-battlefield-unit-row]"));
+      expect(battlefieldDock).toBeInTheDocument();
+      expect(unitRows).toHaveLength(2);
+      expect(unitRows.every((row) => Boolean(
+        battlefieldDock?.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING
+      ))).toBe(true);
+    }
   });
 
   it("projects owner-relative TCGA B1/B2 zones onto both selected battlefields", async () => {
