@@ -330,6 +330,40 @@ describe("normalizeRawCaptureV1", () => {
     expect(replay.diagnostics.some((entry) => entry.code === "desktop_match_metadata_ambiguous")).toBe(false);
   });
 
+  it("ignores a stale same-game setup phase after authoritative gameplay begins", () => {
+    const capture = desktopResultBo3Capture();
+    capture.messages = [
+      capture.messages[0],
+      capture.messages[1],
+      rawMessage(2, 1_150, {
+        type: "room_shell_sync",
+        gameInstanceId: "GAME-1",
+        sessionDoc: matchSessionDoc(1, "battlefield_pick"),
+      }),
+      ...capture.messages.slice(2).map((message) => ({
+        ...message,
+        seq: Number(message.seq) + 1,
+      })),
+    ];
+
+    const replay = normalizeRawCaptureV1(capture);
+    const firstGame = replay.series.games[0];
+
+    expect(firstGame.phases.map((phase) => phase.phase)).toEqual([
+      "battlefield_pick",
+      "in_game",
+    ]);
+    expect(replay.events.filter((event) => (
+      event.kind === "phase" &&
+      event.gameId === firstGame.id &&
+      event.phase === "battlefield_pick"
+    ))).toHaveLength(1);
+    expect(replay.diagnostics).toContainEqual(expect.objectContaining({
+      code: "stale_same_game_setup_phase",
+      severity: "warning",
+    }));
+  });
+
   it("keeps raw-derived results authoritative over conflicting desktop metadata", () => {
     const capture = desktopResultBo3Capture();
     capture.messages.splice(capture.messages.length - 1, 0, {
