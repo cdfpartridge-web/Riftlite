@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import type { ReplayCardState, ReplayEvent, ReplayPlayerState, ReplayState } from "@/lib/replay-v2";
+import type {
+  CanonicalReplayV2,
+  ReplayCardState,
+  ReplayEvent,
+  ReplayPlayerState,
+  ReplayState,
+} from "@/lib/replay-v2";
 
 import {
+  activeScene,
   attachedToCardId,
   banishedCards,
   banishedTransitions,
@@ -30,6 +37,61 @@ import {
   replayDisplayEvent,
   safeCardImageUrl,
 } from "./model";
+
+describe("replay scene selection", () => {
+  it("does not remount a setup overlay after the same game entered gameplay", () => {
+    const replay = {
+      events: [],
+      series: {
+        games: [{
+          id: "game-1",
+          phases: [
+            { phase: "battlefield_pick", startEventIndex: 0 },
+            { phase: "in_game", startEventIndex: 4 },
+            { phase: "battlefield_pick", startEventIndex: 5 },
+          ],
+        }],
+      },
+    } as unknown as CanonicalReplayV2;
+    const state = replayState(
+      replayPlayer("self", "Local", {}),
+      replayPlayer("opponent", "Opponent", {}),
+    );
+    state.gameId = "game-1";
+    state.phase = "battlefield_pick";
+    state.room.phase = "battlefield_pick";
+    state.appliedEventIndex = 5;
+
+    expect(activeScene(replay, state, 5_000)).toBeNull();
+
+    state.appliedEventIndex = 0;
+    expect(activeScene(replay, state, 0)).toBe("battlefields");
+  });
+
+  it("does not treat a recovery to in-game as a second opening scene", () => {
+    const replay = {
+      events: [
+        replayPhase(0, "in_game", 1_000),
+        replayPhase(1, "battlefield_pick", 1_100),
+        replayPhase(2, "in_game", 10_000),
+      ],
+      series: { games: [] },
+    } as unknown as CanonicalReplayV2;
+    const state = replayState(
+      replayPlayer("self", "Local", {}),
+      replayPlayer("opponent", "Opponent", {}),
+    );
+    state.gameId = "game-1";
+    state.phase = "in_game";
+    state.room.phase = "in_game";
+    state.appliedEventIndex = 2;
+
+    expect(activeScene(replay, state, 10_000)).toBeNull();
+
+    state.appliedEventIndex = 0;
+    expect(activeScene(replay, state, 1_000)).toBe("opening");
+  });
+});
 
 describe("replay action navigation", () => {
   it("skips provider bookkeeping and unknown packets in both directions", () => {
@@ -633,5 +695,24 @@ function replayUnknown(index: number, packetType: string): ReplayEvent {
     packetType,
     reason: "unsupported_packet",
     payload: {},
+  };
+}
+
+function replayPhase(
+  index: number,
+  phase: "battlefield_pick" | "in_game",
+  atMs: number,
+): ReplayEvent {
+  return {
+    id: `phase-${index}`,
+    index,
+    at: 1_000 + atMs,
+    atMs,
+    sourceMessageId: `message-${index}`,
+    gameId: "game-1",
+    kind: "phase",
+    phase,
+    rawPhase: phase,
+    gameNumber: 1,
   };
 }

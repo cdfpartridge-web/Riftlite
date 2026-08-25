@@ -236,8 +236,32 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
       currentGame.sourceIdentity.gameInstanceIds.push(observation.gameInstanceId);
     }
 
+    const staleSameGameSetupPhase = Boolean(
+      currentGame?.seenInGame && isPregameSetupPhase(observation.phase),
+    );
+    if (staleSameGameSetupPhase) {
+      diagnostics.push({
+        id: stableId(
+          "diagnostic",
+          packet.id,
+          "stale_same_game_setup_phase",
+          observation.phase,
+          currentGame?.gameNumber,
+        ),
+        severity: "warning",
+        code: "stale_same_game_setup_phase",
+        message: `Ignored a stale ${observation.phase} update after gameplay had already begun in the same game.`,
+        sourceMessageId: packet.id,
+      });
+    }
+
     let resultEventId = "";
-    if (observation.rawPhase && currentGame && observation.phase !== currentGame.currentPhase) {
+    if (
+      !staleSameGameSetupPhase &&
+      observation.rawPhase &&
+      currentGame &&
+      observation.phase !== currentGame.currentPhase
+    ) {
       const phaseEvent = appendPhaseEvent(packet, observation.phase ?? "unknown", observation.rawPhase, currentGame, append, closePhase);
       resultEventId = phaseEvent.id;
     }
@@ -253,6 +277,11 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
           currentGame?.gameNumber ?? observation.explicitGameNumber ?? 1,
           perspectivePlayerId,
         );
+        if (staleSameGameSetupPhase) {
+          snapshot.room.phase = "in_game";
+          snapshot.room.rawPhase = "in_game";
+          snapshot.room.fields = { ...snapshot.room.fields, phase: "in_game" };
+        }
         const event = append<ReplaySnapshotEvent>({
           id: stableId("event", packet.id, "snapshot"),
           kind: "snapshot" as const,
@@ -272,6 +301,11 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
       }
       case "authoritative_patch_commit": {
         const actionEvent = appendActionEvent(packet, currentGame, correlations, intents, perspectivePlayerId, append);
+        if (staleSameGameSetupPhase) {
+          for (const operation of actionEvent.patch.operations) {
+            if (operation.op === "set_room_fields") delete operation.fields.phase;
+          }
+        }
         actionEvent.patch.operations.forEach((operation) => {
           if (operation.op !== "set_board_fields") return;
           const score = typeof operation.fields.score === "number" && Number.isFinite(operation.fields.score)
@@ -911,6 +945,14 @@ function startsFollowingGame(phase: ReplayPhase, game: MutableGame, format: Repl
   if (format === "bo1") return false;
   if (!game.seenInGame) return false;
   return ["sideboarding", "battlefield_pick", "initiative_roll", "first_player_choice", "mulligan"].includes(phase);
+}
+
+function isPregameSetupPhase(phase: ReplayPhase | undefined): phase is ReplayPhase {
+  return Boolean(
+    phase &&
+    ["sideboarding", "battlefield_pick", "initiative_roll", "first_player_choice", "mulligan"]
+      .includes(phase),
+  );
 }
 
 function incrementCount(counts: Map<string, number>, key: string) {
