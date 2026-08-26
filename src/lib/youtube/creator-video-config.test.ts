@@ -42,13 +42,14 @@ describe("creator video carousel config", () => {
       sourceMode: "riftbound",
       videoSlots: 1,
     });
-    expect(config.creators.find((creator) => creator.id === "bloody")).toMatchObject({
-      name: "Bloody",
-      youtubeUrl: "https://www.youtube.com/@Blooby",
-      channelId: "UC3X3wpJhqCIHpcQo9o7lkCg",
-      sourceMode: "riftbound",
+    expect(config.creators.find((creator) => creator.id === "zelonius")).toMatchObject({
+      name: "Zelonius",
+      youtubeUrl: "https://www.youtube.com/@Zelonius-Riftbound",
+      channelId: "UClKusWe9-Zcg_RGcRcGc52A",
+      sourceMode: "all",
       videoSlots: 1,
     });
+    expect(config.creators.some((creator) => creator.id === "bloody")).toBe(false);
   });
 
   it("normalizes bounds, direct channel URLs, and handle URLs", () => {

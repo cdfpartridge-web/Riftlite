@@ -699,15 +699,15 @@ export function activeScene(
     case "lobby":
       return "matchup";
     case "battlefield_pick":
-      return "battlefields";
+      return setupPhaseFollowedGameplayInSameGame(replay, state) ? null : "battlefields";
     case "initiative_roll":
-      return "initiative";
+      return setupPhaseFollowedGameplayInSameGame(replay, state) ? null : "initiative";
     case "first_player_choice":
-      return "first_player";
+      return setupPhaseFollowedGameplayInSameGame(replay, state) ? null : "first_player";
     case "mulligan":
-      return "mulligan";
+      return setupPhaseFollowedGameplayInSameGame(replay, state) ? null : "mulligan";
     case "sideboarding":
-      return "sideboarding";
+      return setupPhaseFollowedGameplayInSameGame(replay, state) ? null : "sideboarding";
     case "game_end":
     case "series_end":
       return "game_end";
@@ -722,14 +722,32 @@ export function activeScene(
   }
 
   if (state.phase === "in_game") {
-    const latestGameStart = [...appliedEvents]
-      .reverse()
-      .find((event) => event.kind === "phase" && event.phase === "in_game" && event.gameId === state.gameId);
-    if (latestGameStart && currentMs - latestGameStart.atMs < 2_400) return "opening";
+    const gameStarts = appliedEvents.filter((event) => (
+      event.kind === "phase" && event.phase === "in_game" && event.gameId === state.gameId
+    ));
+    const latestGameStart = gameStarts.at(-1);
+    if (
+      gameStarts.length === 1 &&
+      latestGameStart &&
+      currentMs - latestGameStart.atMs < 2_400
+    ) {
+      return "opening";
+    }
   }
 
   if (currentMs < 2_400 && state.appliedEventIndex <= 0) return "matchup";
   return null;
+}
+
+function setupPhaseFollowedGameplayInSameGame(
+  replay: CanonicalReplayV2,
+  state: ReplayState,
+): boolean {
+  if (!state.gameId) return false;
+  const game = replay.series.games.find((candidate) => candidate.id === state.gameId);
+  return Boolean(game?.phases.some((phase) => (
+    phase.phase === "in_game" && phase.startEventIndex < state.appliedEventIndex
+  )));
 }
 
 export function turnMarkers(replay: CanonicalReplayV2): ReplayTurnMarker[] {

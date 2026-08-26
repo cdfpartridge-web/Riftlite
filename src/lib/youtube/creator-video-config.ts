@@ -44,6 +44,7 @@ const ALL_UPLOAD_CREATOR_IDS = new Set([
   "runesandrift",
   "agitoswiftly",
   "maskedswan",
+  "zelonius",
 ]);
 const DEFAULT_CREATOR_VIDEO_SLOTS = new Map([
   ["riftlab", 4],
@@ -81,7 +82,7 @@ export const DEFAULT_COMMUNITY_SPOTLIGHT_VIDEO_PROFILES: CommunitySpotlightVideo
   spotlight("maskedswan", "MaskedSwan", "https://www.youtube.com/@MaskedSwanRiftbound", "UCbpB82os6Y9LEXIpSl6FaGA"),
   spotlight("arg0ntcg", "Arg0n", "https://www.youtube.com/@arg0nTCG", "UCpVmfDlTNEZJ3T41Lgixu1A"),
   spotlight("tronisbad", "TronIsBad", "https://www.youtube.com/@tronisbad", "UCNt_YObgG3Oj8ijtqF0xcKw"),
-  spotlight("bloody", "Bloody", "https://www.youtube.com/@Blooby", "UC3X3wpJhqCIHpcQo9o7lkCg"),
+  spotlight("zelonius", "Zelonius", "https://www.youtube.com/@Zelonius-Riftbound", "UClKusWe9-Zcg_RGcRcGc52A"),
 ];
 
 export const DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG: CreatorVideoCarouselConfig = {
