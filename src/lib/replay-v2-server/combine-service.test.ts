@@ -5,11 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   combineCanonicalReplaysMock,
+  deleteImmutableArtifactMock,
   getFirestoreAdminMock,
   readCanonicalReplayMock,
   storeImmutableArtifactMock,
 } = vi.hoisted(() => ({
   combineCanonicalReplaysMock: vi.fn(),
+  deleteImmutableArtifactMock: vi.fn(),
   getFirestoreAdminMock: vi.fn(),
   readCanonicalReplayMock: vi.fn(),
   storeImmutableArtifactMock: vi.fn(),
@@ -20,6 +22,7 @@ vi.mock("@/lib/firebase/admin", () => ({
 }));
 
 vi.mock("@/lib/replay-v2-server/artifacts", () => ({
+  deleteImmutableArtifact: deleteImmutableArtifactMock,
   storeImmutableArtifact: storeImmutableArtifactMock,
 }));
 
@@ -56,6 +59,7 @@ describe("combined replay persistence", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     readCanonicalReplayMock.mockImplementation(async (replayId: string) => sourceResponse(replayId));
+    deleteImmutableArtifactMock.mockResolvedValue(undefined);
     storeImmutableArtifactMock.mockResolvedValue(canonicalArtifact());
     combineCanonicalReplaysMock.mockImplementation((input: { replayId: string }) => combinedCanonical(input.replayId));
   });
@@ -127,6 +131,21 @@ describe("combined replay persistence", () => {
     );
   });
 
+  it("coalesces identical in-flight requests before reading or storing twice", async () => {
+    const fake = fakeReplayDb();
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    const [first, second] = await Promise.all([
+      createCombinedReplay("owner-1", LEFT_ID, RIGHT_ID),
+      createCombinedReplay("owner-1", RIGHT_ID, LEFT_ID),
+    ]);
+
+    expect(first.record.replayId).toBe(second.record.replayId);
+    expect(readCanonicalReplayMock).toHaveBeenCalledTimes(2);
+    expect(storeImmutableArtifactMock).toHaveBeenCalledOnce();
+    expect(fake.db.runTransaction).toHaveBeenCalledOnce();
+  });
+
   it("rejects TCGA sources before creating a combined replay", async () => {
     const tcga = sourceResponse(LEFT_ID);
     tcga.record = { ...tcga.record, platform: "tcga" };
@@ -161,6 +180,32 @@ describe("combined replay persistence", () => {
     expect(retried.record.replayId).toBe(first.record.replayId);
     expect(storeImmutableArtifactMock).not.toHaveBeenCalled();
     expect(retryFake.db.runTransaction).not.toHaveBeenCalled();
+  });
+
+  it("removes a losing artifact when another request wins the create transaction", async () => {
+    const fingerprints = sourceFingerprints();
+    const captureId = deterministicCombinedCaptureId(fingerprints);
+    const replayId = deterministicReplayId("owner-1", captureId);
+    const existing = buildCombinedReplayRecord({
+      ownerUid: "owner-1",
+      replayId,
+      captureId,
+      canonical: combinedCanonical(replayId),
+      canonicalArtifact: sourceArtifact(`rl2_${"d".repeat(32)}`, "8".repeat(64)),
+      fingerprints,
+      sources: loadedSources(),
+      createdAt: Timestamp.now(),
+    });
+    const uploaded = canonicalArtifact();
+    storeImmutableArtifactMock.mockResolvedValue(uploaded);
+    const fake = fakeReplayDb(undefined, existing);
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+
+    const result = await createCombinedReplay("owner-1", LEFT_ID, RIGHT_ID);
+
+    expect(result.created).toBe(false);
+    expect(result.record.canonicalArtifact).toEqual(existing.canonicalArtifact);
+    expect(deleteImmutableArtifactMock).toHaveBeenCalledWith(fake.db, uploaded);
   });
 
   it("rejects deterministic ID reuse with mismatched source provenance", () => {
@@ -338,10 +383,13 @@ function combinedCanonical(replayId: string): CanonicalReplayV2 {
   };
 }
 
-function fakeReplayDb(existing?: CombinedReplayRecord) {
+function fakeReplayDb(
+  existing?: CombinedReplayRecord,
+  concurrentExisting?: CombinedReplayRecord,
+) {
   const initialSnapshot = snapshot(existing);
   const transaction = {
-    get: vi.fn(async () => snapshot()),
+    get: vi.fn(async () => snapshot(concurrentExisting)),
     create: vi.fn(),
     set: vi.fn(),
   };

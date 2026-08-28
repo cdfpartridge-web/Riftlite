@@ -1307,6 +1307,31 @@ button.cardPile { cursor: pointer; }
 .combinedReplayBadge svg { width: 14px; height: 14px; color: var(--replay-cyan); }
 .combinedReplayBadge i { color: #526d80; font-style: normal; padding: 0 2px; }
 
+.cardsUpBoardBadge {
+  position: absolute;
+  top: 15px;
+  left: 140px;
+  z-index: 82;
+  display: flex;
+  height: 28px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(100, 218, 255, .34);
+  border-radius: 99px;
+  background: rgba(5, 21, 32, .92);
+  box-shadow: 0 7px 24px rgba(0, 0, 0, .32), 0 0 18px rgba(73, 193, 238, .1);
+  color: #c9f5ff;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  padding: 0 11px;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.cardsUpBoardBadge svg { width: 14px; height: 14px; color: #6be2ff; }
+.cardsUpBoardBadge i { color: #526d80; font-style: normal; padding: 0 2px; }
+
 .deckPeekOverlay {
   position: absolute;
   inset: 0;
@@ -2899,6 +2924,39 @@ button.cardPile { cursor: pointer; }
 .moreButton svg { width: 15px; }
 .fullscreenButton { min-width: 104px; gap: 6px; padding: 0 12px; color: #8ca1b7; font-size: 10px; font-weight: 700; }
 .fullscreenButton svg { width: 15px; }
+
+.cardsUpButton {
+  display: inline-flex;
+  min-width: 96px;
+  height: 39px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-left: 6px;
+  border: 1px solid rgba(100, 218, 255, .26);
+  border-radius: 10px;
+  background: rgba(25, 111, 143, .1);
+  color: #92cbd9;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 760;
+}
+
+.cardsUpButton svg { width: 15px; }
+.cardsUpButton:hover:not(:disabled),
+.cardsUpButton:focus-visible,
+.cardsUpButtonActive {
+  border-color: rgba(107, 226, 255, .64);
+  outline: none;
+  background: rgba(31, 145, 181, .24);
+  color: #d9f9ff;
+  box-shadow: 0 0 22px rgba(73, 193, 238, .15);
+}
+
+.cardsUpButton:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
 
 .analysisToggleButton {
   display: inline-flex;

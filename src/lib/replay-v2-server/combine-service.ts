@@ -12,7 +12,10 @@ import {
 } from "@/lib/replay-v2/combine-replays";
 import type { CanonicalReplayV2, ReplayCollaborationDiagnostics } from "@/lib/replay-v2/types";
 import { summarizeReplayForListing } from "@/lib/replay-v2/replay-listing";
-import { storeImmutableArtifact } from "@/lib/replay-v2-server/artifacts";
+import {
+  deleteImmutableArtifact,
+  storeImmutableArtifact,
+} from "@/lib/replay-v2-server/artifacts";
 import {
   MAX_CANONICAL_GZIP_BYTES,
   MAX_CANONICAL_JSON_BYTES,
@@ -67,7 +70,28 @@ type LoadedSource = {
   replay: CanonicalReplayV2;
 };
 
-export async function createCombinedReplay(
+const inFlightCombinedReplays = new Map<string, Promise<CreateCombinedReplayResult>>();
+
+export function createCombinedReplay(
+  ownerUid: string,
+  leftReplayId: string,
+  rightReplayId: string,
+): Promise<CreateCombinedReplayResult> {
+  const sourceIds = [leftReplayId, rightReplayId].sort();
+  const requestKey = `${ownerUid}\u0000${sourceIds[0]}\u0000${sourceIds[1]}`;
+  const existing = inFlightCombinedReplays.get(requestKey);
+  if (existing) return existing;
+
+  const tracked = createCombinedReplayOnce(ownerUid, leftReplayId, rightReplayId).finally(() => {
+    if (inFlightCombinedReplays.get(requestKey) === tracked) {
+      inFlightCombinedReplays.delete(requestKey);
+    }
+  });
+  inFlightCombinedReplays.set(requestKey, tracked);
+  return tracked;
+}
+
+async function createCombinedReplayOnce(
   ownerUid: string,
   leftReplayId: string,
   rightReplayId: string,
@@ -150,6 +174,13 @@ export async function createCombinedReplay(
     transaction.set(ownerReplayRef(db, ownerUid, replayId), projectReplaySummaryRecord(record, true));
     return { record, created: true };
   });
+
+  if (
+    !stored.created &&
+    stored.record.canonicalArtifact?.generation !== canonicalArtifact.generation
+  ) {
+    await deleteImmutableArtifact(db, canonicalArtifact).catch(() => undefined);
+  }
 
   return {
     ...stored,

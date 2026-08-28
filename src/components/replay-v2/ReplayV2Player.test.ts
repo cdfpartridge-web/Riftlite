@@ -87,6 +87,83 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(view.container.querySelector("[data-combined-replay]")).not.toBeInTheDocument();
   });
 
+  it("reveals only opponent cards proven by the later timeline when Cards up is enabled", async () => {
+    const replay = futureKnownAnalysisReplay();
+    const snapshot = replay.events.find((event) => event.kind === "snapshot");
+    if (!snapshot || snapshot.kind !== "snapshot") throw new Error("Missing replay snapshot");
+    snapshot.snapshot.players.opponent.zones.hand.push(hiddenCard("opponent-unknown"));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_cards_up" }));
+
+    const toggle = await view.findByRole("button", { name: "Cards up" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+      .toHaveAccessibleName("Hidden card");
+    expect(view.container.querySelector('[data-card-id="opponent-unknown"]'))
+      .toHaveAccessibleName("Hidden card");
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+        .toHaveAccessibleName("Eager Apprentice, known from a later reveal");
+    });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+      .toHaveAttribute("data-analysis-card", "future-known");
+    expect(view.container.querySelector('[data-card-id="opponent-unknown"]'))
+      .toHaveAccessibleName("Hidden card");
+    expect(view.container.querySelector('[data-cards-up-badge="known-only"]'))
+      .toHaveTextContent("Cards up · 1 known card");
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+        .toHaveAccessibleName("Hidden card");
+    });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(view.container.querySelector("[data-cards-up-badge]")).not.toBeInTheDocument();
+  });
+
+  it("keeps a returned public card visible without exposing unrelated private hand data", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/?t=1");
+    const replay = previouslyKnownCardsUpReplay();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_cards_up_returned" }));
+
+    try {
+      const toggle = await view.findByRole("button", { name: "Cards up" });
+      expect(view.container.querySelector('[data-card-id="opponent-returned"]'))
+        .toHaveAccessibleName("Hidden card");
+      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+        .toHaveAccessibleName("Hidden card");
+
+      fireEvent.click(toggle);
+
+      await waitFor(() => {
+        expect(view.container.querySelector('[data-card-id="opponent-returned"]'))
+          .toHaveAccessibleName("Stupefy, known from an earlier reveal");
+      });
+      expect(view.container.querySelector('[data-card-id="opponent-returned"]'))
+        .toHaveAttribute("data-analysis-card", "previously-known");
+      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+        .toHaveAccessibleName("Hidden card");
+      expect(view.container.querySelector('[data-cards-up-badge="known-only"]'))
+        .toHaveTextContent("Cards up · 1 known card");
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl || "/");
+    }
+  });
+
   it("offers labelled player fullscreen controls and keeps F and Escape in sync", async () => {
     const view = render(createElement(ReplayV2Player, { replayId: "rp_fullscreen" }));
 
@@ -333,6 +410,7 @@ describe("ReplayV2Player presentation prelude", () => {
     });
     expect(view.container.querySelector('[data-combined-replay="open-hands"]'))
       .toHaveTextContent("Combined replay · Open hands");
+    expect(view.queryByRole("button", { name: "Cards up" })).not.toBeInTheDocument();
     const opponentBoardHand = view.container.querySelector<HTMLElement>(
       '[data-player-id="opponent"] [data-hand-cards]',
     );
@@ -2171,6 +2249,52 @@ function futureKnownAnalysisReplay(): CanonicalReplayV2 {
         from: { playerId: "opponent", zone: "hand" },
         to: { playerId: "opponent", zone: "base", index: 0 },
         card: revealed,
+      }],
+    },
+  });
+  return replay;
+}
+
+function previouslyKnownCardsUpReplay(): CanonicalReplayV2 {
+  const replay = sideboardingAtZeroReplay();
+  const snapshot = replay.events.find((event) => event.kind === "snapshot");
+  if (!snapshot || snapshot.kind !== "snapshot") throw new Error("Missing replay snapshot");
+  snapshot.snapshot.room.phase = "in_game";
+  snapshot.snapshot.room.rawPhase = "in_game";
+  snapshot.snapshot.room.turnNumber = 3;
+  const returned = replayCard("opponent-returned", "Stupefy", "OGN-212", "base");
+  snapshot.snapshot.players.opponent.zones.base = [returned];
+  replay.source.endedAt = 2_200;
+  replay.source.messageCount = 4;
+  replay.series.endedAt = 2_200;
+  replay.series.games[0].endedAt = 2_200;
+  replay.series.games[0].endedAtMs = 1_200;
+  replay.series.games[0].eventEndIndex = 3;
+  replay.events.push({
+    id: "event-return-opponent-card",
+    index: 3,
+    at: 2_000,
+    atMs: 1_000,
+    sourceMessageId: "message-return-opponent-card",
+    gameId: "game-1",
+    kind: "action",
+    actionType: "return_card",
+    actorPlayerId: "opponent",
+    action: { cardId: returned.id },
+    confirmation: {
+      status: "confirmed",
+      authority: "authoritative_patch_commit",
+      correlation: "matched_intent",
+      commitMessageId: "message-return-opponent-card",
+    },
+    patch: {
+      sequence: 4,
+      operations: [{
+        id: "move-returned-opponent-card",
+        op: "zone_move",
+        cardId: returned.id,
+        from: { playerId: "opponent", zone: "base" },
+        to: { playerId: "opponent", zone: "hand", index: 1 },
       }],
     },
   });

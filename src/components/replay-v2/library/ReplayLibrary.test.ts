@@ -143,7 +143,7 @@ describe("embedded replay library", () => {
     expect(view.getByRole("link", { name: /Watch replay/i })).toBeEnabled();
   });
 
-  it("keeps the manual combiner hidden from the website replay library", async () => {
+  it("links the public website replay library to the combiner", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [] }), {
       headers: { "content-type": "application/json" },
       status: 200,
@@ -154,7 +154,21 @@ describe("embedded replay library", () => {
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "No public replays yet" })).toBeInTheDocument();
     });
-    expect(view.queryByRole("link", { name: "Combine two replays" })).not.toBeInTheDocument();
+    expect(view.getByRole("link", { name: "Combine two replays" }))
+      .toHaveAttribute("href", "/replays/combine");
+  });
+
+  it("opens My replays directly without paying for an unused public listing read", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view = render(createElement(ReplayLibrary, { initialScope: "mine" }));
+
+    await waitFor(() => {
+      expect(view.getByRole("heading", { name: "Sign in to manage your replays" })).toBeInTheDocument();
+    });
+    expect(view.getByRole("tab", { name: "My replays" })).toHaveAttribute("aria-selected", "true");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("falls back to public replays when the embedded owner session is unauthorized", async () => {

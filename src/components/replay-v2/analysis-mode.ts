@@ -67,6 +67,7 @@ type AnonymousAtlasHandEvidence = {
     | { count: number; index: number; kind: "insert" }
     | { indices: number[]; kind: "remove" }
   >;
+  privateTransition: boolean;
   publicCards: ReplayCardState[];
 };
 
@@ -107,6 +108,7 @@ export function revealFutureKnownHandCards(
   replay: CanonicalReplayV2,
   anchorEventIndex: number,
   anchorState: ReplayState,
+  options: { allowStableProjectionGaps?: boolean } = {},
 ): { inferredCardIds: string[]; state: ReplayState } {
   const state = cloneReplayState(anchorState);
   const tracked = new Map<string, TrackedHiddenCard>();
@@ -129,7 +131,7 @@ export function revealFutureKnownHandCards(
           }
           tracked.set(card.id, {
             active: true,
-            allowProjectionGaps: isStableTcgaCardId(card.id),
+            allowProjectionGaps: options.allowStableProjectionGaps !== false && isStableTcgaCardId(card.id),
             playerId: player.id,
           });
         }
@@ -178,6 +180,10 @@ export function revealFutureKnownHandCards(
 
     for (const [cardId, tracking] of tracked) {
       if (!tracking.active || inferred.has(cardId)) continue;
+      if (eventPrivatizesCard(event, cardId, tracking.playerId)) {
+        tracking.active = false;
+        continue;
+      }
       const previous = findCardLocation(previousState, cardId);
       const current = findCardLocation(futureState, cardId);
       if (!current) {
@@ -188,9 +194,12 @@ export function revealFutureKnownHandCards(
         tracking.active = false;
         continue;
       }
+      if (isPrivateKnowledgeZone(current.zone) && !isHandZone(current.zone)) {
+        tracking.active = false;
+        continue;
+      }
       if (
-        !current.card.isPlaceholder &&
-        hasPublicIdentity(current.card) &&
+        isPublicCardEvidence(current.card, current.zone) &&
         (Boolean(previous) || tracking.allowProjectionGaps)
       ) {
         inferred.set(cardId, current.card);
@@ -234,6 +243,7 @@ function anonymousAtlasHandEvidence(
     const evidence = result.get(playerId) ?? {
       hiddenRemoved: 0,
       mutations: [],
+      privateTransition: false,
       publicCards: [],
     };
     result.set(playerId, evidence);
@@ -255,6 +265,9 @@ function anonymousAtlasHandEvidence(
     }
     if (operation.op === "zone_insert") {
       const evidence = evidenceFor(operation.playerId);
+      if (isPrivateKnowledgeZone(operation.zone) && !isHandZone(operation.zone)) {
+        evidence.privateTransition = true;
+      }
       if (isHandZone(operation.zone)) {
         const hiddenAdded = operation.cards.filter(
           (card) => card.isPlaceholder && isAnonymousAtlasHandCardId(card.id),
@@ -270,7 +283,7 @@ function anonymousAtlasHandEvidence(
       for (const card of operation.cards) {
         if (
           event.actionType === "move_card" &&
-          hasPublicIdentity(card) &&
+          isPublicCardEvidence(card, operation.zone) &&
           (!card.ownerPlayerId || card.ownerPlayerId === operation.playerId)
         ) {
           evidence.publicCards.push(card);
@@ -280,6 +293,9 @@ function anonymousAtlasHandEvidence(
     }
     if (operation.op === "zone_move") {
       const evidence = evidenceFor(operation.from.playerId);
+      if (isPrivateKnowledgeZone(operation.to.zone) && !isHandZone(operation.to.zone)) {
+        evidence.privateTransition = true;
+      }
       if (
         isHandZone(operation.from.zone) &&
         isAnonymousAtlasHandCardId(operation.cardId)
@@ -289,7 +305,7 @@ function anonymousAtlasHandEvidence(
         if (index !== undefined) {
           evidence.mutations.push({ indices: [index], kind: "remove" });
         }
-        if (operation.card && hasPublicIdentity(operation.card)) {
+        if (operation.card && isPublicCardEvidence(operation.card, operation.to.zone)) {
           evidence.publicCards.push(operation.card);
         }
       }
@@ -316,7 +332,7 @@ function anonymousAtlasHandEvidence(
         fromZone &&
         isHandZone(fromZone) &&
         card &&
-        hasPublicIdentity(card)
+        isPubliclyVisibleIdentity(card)
       ) {
         evidenceFor(playerId).publicCards.push(card);
       }
@@ -349,6 +365,7 @@ function applyAnonymousAtlasHandEvidence(
   }
 
   if (
+    !evidence.privateTransition &&
     removedAnchorCardIds.length === evidence.hiddenRemoved &&
     evidence.publicCards.length === evidence.hiddenRemoved
   ) {
@@ -890,6 +907,52 @@ function ensureZone(player: ReplayPlayerState, zone: string): ReplayCardState[] 
 
 function hasPublicIdentity(card: ReplayCardState): boolean {
   return Boolean(!card.isPlaceholder && (card.name.trim() || card.cardCode?.trim()));
+}
+
+function isPublicCardEvidence(card: ReplayCardState, zone: string): boolean {
+  return !isPrivateKnowledgeZone(zone) && isPubliclyVisibleIdentity(card);
+}
+
+function isPubliclyVisibleIdentity(card: ReplayCardState): boolean {
+  return hasPublicIdentity(card) && (
+    card.fields?.hidden !== true || card.fields?.revealedToOpponent === true
+  );
+}
+
+function isPrivateKnowledgeZone(zone: string): boolean {
+  return [
+    "cardsinhand",
+    "deck",
+    "exilehidden",
+    "hand",
+    "removed",
+    "removedfromgame",
+    "runedeck",
+    "sideboard",
+    "unknown",
+  ]
+    .includes(normalizeZone(zone));
+}
+
+function eventPrivatizesCard(
+  event: CanonicalReplayV2["events"][number],
+  cardId: string,
+  playerId: string,
+): boolean {
+  if (event.kind !== "action") return false;
+  return event.patch.operations.some((operation) => {
+    if (operation.op === "zone_move") {
+      return operation.cardId === cardId &&
+        operation.to.playerId === playerId &&
+        isPrivateKnowledgeZone(operation.to.zone) &&
+        !isHandZone(operation.to.zone);
+    }
+    return operation.op === "zone_insert" &&
+      operation.playerId === playerId &&
+      isPrivateKnowledgeZone(operation.zone) &&
+      !isHandZone(operation.zone) &&
+      operation.cards.some((card) => card.id === cardId);
+  });
 }
 
 function isHandZone(zone: string): boolean {

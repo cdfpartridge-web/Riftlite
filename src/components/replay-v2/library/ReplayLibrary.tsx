@@ -9,6 +9,7 @@ import {
   Copy,
   ExternalLink,
   Globe2,
+  GitMerge,
   Link2,
   LoaderCircle,
   LockKeyhole,
@@ -108,17 +109,24 @@ const visibilityCopy: Record<ReplayVisibility, string> = {
   public: "Listed here for everyone to discover.",
 };
 
-export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
+export function ReplayLibrary({
+  embedded = false,
+  initialScope = "public",
+}: {
+  embedded?: boolean;
+  initialScope?: ReplayScope;
+}) {
   const auth = useMemo(() => getAuth(firebaseClientApp), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deleteConfirmRef = useRef<HTMLButtonElement>(null);
   const deleteReturnFocusRef = useRef<HTMLButtonElement | null>(null);
-  const [scope, setScope] = useState<ReplayScope>(embedded ? "mine" : "public");
+  const [scope, setScope] = useState<ReplayScope>(embedded ? "mine" : initialScope);
   const [authReady, setAuthReady] = useState(embedded);
   const [user, setUser] = useState<User | null>(null);
   const [publicReplays, setPublicReplays] = useState<ReplaySummary[]>([]);
   const [myReplays, setMyReplays] = useState<ReplaySummary[]>([]);
-  const [publicLoading, setPublicLoading] = useState(true);
+  const [publicLoading, setPublicLoading] = useState(!embedded && initialScope === "public");
+  const [publicLoaded, setPublicLoaded] = useState(false);
   const [publicLoadingMore, setPublicLoadingMore] = useState(false);
   const [mineLoading, setMineLoading] = useState(false);
   const [publicError, setPublicError] = useState("");
@@ -217,6 +225,7 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
       setPublicReplays((current) => append ? mergeReplayItems(current, items) : items);
       setPublicNextCursor(pageInfo.nextCursor);
       setPublicHasMore(pageInfo.hasMore);
+      setPublicLoaded(true);
     } catch (error) {
       const message = errorMessage(error, "Public replays are unavailable right now.");
       if (append) setPublicMoreError(message);
@@ -257,8 +266,8 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
   }, [embedded, resetFilters]);
 
   useEffect(() => {
-    void loadPublicReplays();
-  }, [loadPublicReplays]);
+    if (scope === "public" && !publicLoaded) void loadPublicReplays();
+  }, [loadPublicReplays, publicLoaded, scope]);
 
   useEffect(() => {
     if (scope === "mine" && authReady && (user || embedded)) void loadMyReplays(user);
@@ -548,8 +557,8 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
           <div>
             <h1>Every match, rebuilt as a living board.</h1>
             <p>
-              Watch deterministic Atlas and TCGA replays, share a permanent link, or turn a RiftLite raw capture into a
-              private replay in a few clicks.
+              Watch deterministic Atlas and TCGA replays, share a permanent link, upload a private capture, or combine
+              two consented perspectives into one unlisted replay.
             </p>
           </div>
           <div className={styles.heroTrust}>
@@ -586,6 +595,11 @@ export function ReplayLibrary({ embedded = false }: { embedded?: boolean }) {
             </button>
           </div>
           <div className={styles.toolbarActions}>
+            {!embedded ? (
+              <Link className={styles.combineLink} href="/replays/combine">
+                <GitMerge aria-hidden="true" size={16} /> Combine two replays
+              </Link>
+            ) : null}
             <button
               className={styles.refreshButton}
               disabled={loading || publicLoadingMore || (scope === "mine" && !user && !embedded)}

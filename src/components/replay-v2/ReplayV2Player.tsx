@@ -9,6 +9,7 @@ import {
   type RefObject,
   useCallback,
   useContext,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -53,6 +54,11 @@ import {
   type ReplayAnalysisOperation,
   type ReplayAnalysisSession,
 } from "./analysis-mode";
+import {
+  createReplayCardsUpProjectionCache,
+  projectReplayCardsUp,
+  type ReplayCardsUpProjectionCache,
+} from "./cards-up";
 import { buildDeckPeekPresentation, type DeckPeekPresentation } from "./deck-peek";
 import { anonymizeReplayPlayerNames } from "./player-anonymization";
 import {
@@ -275,6 +281,7 @@ export function ReplayV2Player({
   const [showMore, setShowMore] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [playerNamePrivacy, setPlayerNamePrivacy] = useState({ replayId, hidden: false });
+  const [cardsUpPreference, setCardsUpPreference] = useState({ replayId, enabled: false });
   const [fullscreen, setFullscreen] = useState(false);
   const [discardOverlay, setDiscardOverlay] = useState<DiscardOverlayState>(null);
   const [banishedOverlay, setBanishedOverlay] = useState<BanishedOverlayState>(null);
@@ -309,6 +316,10 @@ export function ReplayV2Player({
   const hidePlayerNames = allowPlayerNameHiding && playerNamePrivacy.replayId === replayId
     ? playerNamePrivacy.hidden
     : false;
+  const cardsUp = cardsUpPreference.replayId === replayId
+    ? cardsUpPreference.enabled
+    : false;
+  const deferredCardsUp = useDeferredValue(cardsUp);
   const sourceReplay = loadState.status === "ready" ? loadState.replay : null;
   const replay = useMemo(
     () => sourceReplay && allowPlayerNameHiding && hidePlayerNames
@@ -421,8 +432,25 @@ export function ReplayV2Player({
     ),
     [canonicalState, casterMode, replay],
   );
-  const state = analysisSession?.state ?? casterCanonicalState;
   const eventIndex = projection?.eventIndex ?? -1;
+  const combinedReplay = replay ? isConsentedDualPerspectiveReplay(replay) : false;
+  const cardsUpProjectionCache = useMemo<ReplayCardsUpProjectionCache | null>(() => (
+    deferredCardsUp && !casterMode && !combinedReplay && replay
+      ? createReplayCardsUpProjectionCache(replay)
+      : null
+  ), [casterMode, combinedReplay, deferredCardsUp, replay]);
+  const cardsUpProjection = useMemo(() => {
+    if (!cardsUpProjectionCache || eventIndex < 0) return null;
+    try {
+      return projectReplayCardsUp(cardsUpProjectionCache, eventIndex);
+    } catch {
+      return null;
+    }
+  }, [cardsUpProjectionCache, eventIndex]);
+  const cardsUpProjectionActive = cardsUp && Boolean(cardsUpProjection) && !analysisSession;
+  const state = analysisSession?.state ?? (
+    cardsUp ? cardsUpProjection?.state : null
+  ) ?? casterCanonicalState;
   const currentEvent = useMemo(
     () => (replay ? replayDisplayEvent(replay, eventIndex) : undefined),
     [eventIndex, replay],
@@ -1283,6 +1311,7 @@ export function ReplayV2Player({
               <ReplayBoard
                 analysisActive={Boolean(analysisSession)}
                 analysisDraggingCardId={analysisDraggingCardId}
+                cardsUp={cardsUpProjectionActive && !combinedReplay}
                 currentMs={currentMs}
                 eventIndex={eventIndex}
                 getAnalysisDraggingCardId={getAnalysisDraggingCardId}
@@ -1535,8 +1564,10 @@ export function ReplayV2Player({
               ) : (
                 <TransportControls
                   allowAnalysis={!casterMode}
+                  allowCardsUp={!casterMode && !combinedReplay}
                   analysisActive={Boolean(analysisSession)}
                   bookmarks={casterMode ? casterProject.bookmarks : []}
+                  cardsUp={cardsUp && !combinedReplay}
                   currentMs={currentMs}
                   durationMs={durationMs}
                   eventIndex={eventIndex}
@@ -1556,6 +1587,10 @@ export function ReplayV2Player({
                   onStepTurn={stepTurn}
                   onToggleMore={() => setShowMore((value) => !value)}
                   onToggleAnalysis={toggleAnalysis}
+                  onToggleCardsUp={() => setCardsUpPreference((current) => ({
+                    enabled: current.replayId === replayId ? !current.enabled : true,
+                    replayId,
+                  }))}
                   onTogglePlayerNames={() => setPlayerNamePrivacy((current) => ({
                     hidden: current.replayId === replayId ? !current.hidden : true,
                     replayId,
@@ -1633,6 +1668,7 @@ export function ReplayV2Player({
 function ReplayBoard({
   analysisActive,
   analysisDraggingCardId,
+  cardsUp,
   currentMs,
   eventIndex,
   getAnalysisDraggingCardId,
@@ -1652,6 +1688,7 @@ function ReplayBoard({
 }: {
   analysisActive: boolean;
   analysisDraggingCardId: string | null;
+  cardsUp: boolean;
   currentMs: number;
   eventIndex: number;
   getAnalysisDraggingCardId: () => string | null;
@@ -1672,6 +1709,9 @@ function ReplayBoard({
   const boardRef = useRef<HTMLDivElement>(null);
   const activeDropTargetRef = useRef<HTMLElement | null>(null);
   const players = useMemo(() => resolveReplayPlayers(replay, state), [replay, state]);
+  const cardsUpKnownCount = cardsUp
+    ? handCards(players.top).filter(isKnownHandCard).length
+    : 0;
   const battlefields = useMemo(() => battlefieldCards(state, players), [players, state]);
   const canonicalScene = activeScene(replay, state, currentMs);
   const scene = analysisActive
@@ -1784,6 +1824,7 @@ function ReplayBoard({
       }`}
       data-analysis-board={analysisActive ? "true" : undefined}
       data-analysis-dragging={analysisDraggingCardId ? "true" : undefined}
+      data-cards-up={cardsUp ? "known-only" : undefined}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       ref={boardRef}
@@ -1868,6 +1909,16 @@ function ReplayBoard({
           <span>Combined replay <i>·</i> Open hands</span>
         </div>
       ) : null}
+      {cardsUp ? (
+        <div className={styles.cardsUpBoardBadge} data-cards-up-badge="known-only">
+          <Icon name="eye" />
+          <span>
+            Cards up <i>·</i> {cardsUpKnownCount
+              ? `${cardsUpKnownCount} known ${cardsUpKnownCount === 1 ? "card" : "cards"}`
+              : "No known cards now"}
+          </span>
+        </div>
+      ) : null}
       {deckPeek && !scene && !analysisActive ? (
         <DeckPeekOverlay
           onCardHover={onCardHover}
@@ -1879,6 +1930,7 @@ function ReplayBoard({
       {scene ? (
         <SceneOverlay
           battlefields={battlefields}
+          cardsUp={cardsUp}
           currentMs={currentMs}
           playing={playing}
           players={players}
@@ -2187,7 +2239,7 @@ function PlayerHalf({
             forceFaceDown={
               orientation === "top" &&
               !openHands &&
-              card.fields.analysisKnowledge !== "future_reveal" &&
+              !isKnownHandCard(card) &&
               card.fields.analysisStatus !== "what_if"
             }
             inspected={inspectedCard?.id === card.id}
@@ -2415,6 +2467,7 @@ function CardTile({
   const redCounter = hidden ? undefined : cardCounterValue(card, "redCounter");
   const attachmentTargetId = hidden ? undefined : attachedToCardId(card);
   const futureKnown = !hidden && card.fields.analysisKnowledge === "future_reveal";
+  const previouslyKnown = !hidden && card.fields.analysisKnowledge === "previous_reveal";
   const whatIf = !hidden && card.fields.analysisStatus === "what_if";
   const analysisInteractive = Boolean(analysisInteractions?.active && !hidden);
   const analysisDraggable = Boolean(analysisInteractive && !analysisChainEntryId);
@@ -2446,15 +2499,17 @@ function CardTile({
           ? "Hidden card"
           : `${cardName(card)}${gameplayHidden ? ", hidden at battlefield" : ""}${
               futureKnown ? ", known from a later reveal" : ""
-            }${whatIf ? ", changed in analysis" : ""}${analysisChainTargetIds?.length
+            }${previouslyKnown ? ", known from an earlier reveal" : ""}${
+              whatIf ? ", changed in analysis" : ""
+            }${analysisChainTargetIds?.length
               ? `, ${analysisChainTargetIds.length} ${analysisChainTargetIds.length === 1 ? "target" : "targets"} linked`
               : ""
             }`
       }
       className={`${styles.cardMotion} ${styles[`cardSize${capitalize(size)}`]} ${
         inspected ? styles.inspectedCard : ""
-      } ${futureKnown ? styles.futureKnownCard : ""} ${whatIf ? styles.whatIfCard : ""}`}
-      data-analysis-card={whatIf ? "what-if" : futureKnown ? "future-known" : undefined}
+      } ${futureKnown || previouslyKnown ? styles.futureKnownCard : ""} ${whatIf ? styles.whatIfCard : ""}`}
+      data-analysis-card={whatIf ? "what-if" : futureKnown ? "future-known" : previouslyKnown ? "previously-known" : undefined}
       data-analysis-chain-entry-id={analysisChainEntryId}
       data-analysis-chain-target-count={analysisChainTargetIds?.length || undefined}
       data-analysis-chain-target-ids={analysisChainTargetIds?.join(" ") || undefined}
@@ -2500,11 +2555,14 @@ function CardTile({
           <b className={styles.cardCost}>{looseNumber(card.fields.cost)}</b>
         ) : null}
       </span>
-      {gameplayHidden || duplicate || labels.length || futureKnown || whatIf ? (
+      {gameplayHidden || duplicate || labels.length || futureKnown || previouslyKnown || whatIf ? (
         <span className={styles.cardTagStack}>
           {whatIf ? <span className={`${styles.duplicateTag} ${styles.whatIfTag}`}>What if</span> : null}
           {futureKnown ? (
             <span className={`${styles.duplicateTag} ${styles.futureKnownTag}`}>Known later</span>
+          ) : null}
+          {previouslyKnown ? (
+            <span className={`${styles.duplicateTag} ${styles.futureKnownTag}`}>Known already</span>
           ) : null}
           {gameplayHidden ? <span className={`${styles.duplicateTag} ${styles.hiddenCardTag}`}>Hidden</span> : null}
           {duplicate ? <span className={styles.duplicateTag}>Duplicate</span> : null}
@@ -2881,6 +2939,7 @@ function TargetArrowLayer({ arrows }: { arrows: TargetArrow[] }) {
 
 function SceneOverlay({
   battlefields,
+  cardsUp,
   currentMs,
   playing,
   players,
@@ -2890,6 +2949,7 @@ function SceneOverlay({
   state,
 }: {
   battlefields: Array<ReplayCardState | undefined>;
+  cardsUp: boolean;
   currentMs: number;
   playing: boolean;
   players: ReplayPlayerPair;
@@ -2971,12 +3031,18 @@ function SceneOverlay({
       );
       break;
     case "mulligan": {
-      const transitions = game
+      const rawTransitions = game
         ? mulliganHandTransitions(replay, game, players)
         : {
             bottom: unavailableMulliganTransition(handCards(players.bottom)),
             top: unavailableMulliganTransition(handCards(players.top)),
           };
+      const transitions = cardsUp
+        ? {
+            ...rawTransitions,
+            top: revealKnownMulliganCards(rawTransitions.top, handCards(players.top)),
+          }
+        : rawTransitions;
       content = (
         <div className={styles.sceneColumn}>
           <SceneHeading
@@ -3140,7 +3206,7 @@ function SceneHand({ faceDown = false, label, player }: { faceDown?: boolean; la
         {cards.map((card, index) => (
           <CardTile
             card={card}
-            forceFaceDown={faceDown}
+            forceFaceDown={faceDown && !isKnownHandCard(card)}
             key={card.id}
             size="scene"
             style={{ "--deal-delay": `${index * 70}ms` } as CSSProperties}
@@ -3150,6 +3216,35 @@ function SceneHand({ faceDown = false, label, player }: { faceDown?: boolean; la
       </div>
     </div>
   );
+}
+
+function isKnownHandCard(card: ReplayCardState): boolean {
+  return card.fields.analysisKnowledge === "future_reveal" ||
+    card.fields.analysisKnowledge === "previous_reveal";
+}
+
+function revealKnownMulliganCards(
+  transition: MulliganHandTransition,
+  knownHand: ReplayCardState[],
+): MulliganHandTransition {
+  const knownById = new Map(
+    knownHand
+      .filter(isKnownHandCard)
+      .map((card) => [card.id, card] as const),
+  );
+  if (!knownById.size) return transition;
+  const reveal = (card: ReplayCardState | undefined) => (
+    card ? knownById.get(card.id) ?? card : undefined
+  );
+  return {
+    ...transition,
+    cards: transition.cards.map((card) => reveal(card) ?? card),
+    slots: transition.slots.map((slot) => ({
+      entering: reveal(slot.entering),
+      kept: reveal(slot.kept),
+      leaving: reveal(slot.leaving),
+    })),
+  };
 }
 
 function SideboardingScene({
@@ -3345,19 +3440,19 @@ function MulliganSceneHand({
           >
             {slot.kept ? (
               <span className={styles.mulliganCardKept} data-mulligan-card="kept">
-                <CardTile card={slot.kept} forceFaceDown={faceDown} size="scene" />
+                <CardTile card={slot.kept} forceFaceDown={faceDown && !isKnownHandCard(slot.kept)} size="scene" />
                 {cardIdentitiesAvailable ? <i>Kept</i> : null}
               </span>
             ) : null}
             {slot.leaving ? (
               <span aria-hidden="true" className={styles.mulliganCardLeaving} data-mulligan-card="leaving">
-                <CardTile card={slot.leaving} forceFaceDown={faceDown} size="scene" />
+                <CardTile card={slot.leaving} forceFaceDown={faceDown && !isKnownHandCard(slot.leaving)} size="scene" />
                 <i>Out</i>
               </span>
             ) : null}
             {slot.entering ? (
               <span className={styles.mulliganCardEntering} data-mulligan-card="entering">
-                <CardTile card={slot.entering} forceFaceDown={faceDown} size="scene" />
+                <CardTile card={slot.entering} forceFaceDown={faceDown && !isKnownHandCard(slot.entering)} size="scene" />
                 <i>New</i>
               </span>
             ) : null}
@@ -4810,8 +4905,10 @@ function CasterLowerThird({
 
 function TransportControls({
   allowAnalysis,
+  allowCardsUp,
   analysisActive,
   bookmarks,
+  cardsUp,
   currentMs,
   durationMs,
   eventIndex,
@@ -4829,6 +4926,7 @@ function TransportControls({
   onStepTurn,
   onToggleMore,
   onToggleAnalysis,
+  onToggleCardsUp,
   onTogglePlayerNames,
   onTogglePlayback,
   playing,
@@ -4841,8 +4939,10 @@ function TransportControls({
   turns,
 }: {
   allowAnalysis: boolean;
+  allowCardsUp: boolean;
   analysisActive: boolean;
   bookmarks: CasterBookmark[];
+  cardsUp: boolean;
   currentMs: number;
   durationMs: number;
   eventIndex: number;
@@ -4860,6 +4960,7 @@ function TransportControls({
   onStepTurn: (direction: -1 | 1) => void;
   onToggleMore: () => void;
   onToggleAnalysis: () => void;
+  onToggleCardsUp: () => void;
   onTogglePlayerNames: () => void;
   onTogglePlayback: () => void;
   playing: boolean;
@@ -5025,6 +5126,23 @@ function TransportControls({
             type="button"
           >
             <Icon name="lock" /> {playerNamesHidden ? "Show names" : "Hide names"}
+          </button>
+        ) : null}
+        {allowCardsUp ? (
+          <button
+            aria-pressed={cardsUp}
+            className={`${styles.cardsUpButton} ${cardsUp ? styles.cardsUpButtonActive : ""}`}
+            data-control="cards-up"
+            disabled={analysisActive}
+            onClick={onToggleCardsUp}
+            title={
+              analysisActive
+                ? "Take control already includes cards proven by a later reveal."
+                : "Shows opponent cards already revealed, or later proven to be in hand. Unknown cards stay hidden."
+            }
+            type="button"
+          >
+            <Icon name="eye" /> Cards up
           </button>
         ) : null}
         {allowAnalysis ? <button
@@ -5826,6 +5944,7 @@ type IconName =
   | "chat"
   | "close"
   | "combine"
+  | "eye"
   | "forward"
   | "fullscreen"
   | "help"
@@ -5856,6 +5975,7 @@ function Icon({ name }: { name: IconName }) {
     chat: <path d="M4 5h16v11H9l-5 4z" />,
     close: <><path d="m6 6 12 12" /><path d="M18 6 6 18" /></>,
     combine: <><circle cx="8" cy="12" r="5" /><circle cx="16" cy="12" r="5" /><path d="M10.5 8.2a5 5 0 0 1 0 7.6M13.5 8.2a5 5 0 0 0 0 7.6" /></>,
+    eye: <><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.7" /></>,
     forward: <><path d="m13 7 5 5-5 5" /><path d="M6 7v10" /></>,
     fullscreen: <><path d="M8 4H4v4" /><path d="M16 4h4v4" /><path d="M20 16v4h-4" /><path d="M4 16v4h4" /></>,
     help: <><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.4 2.4 0 1 1 3.2 2.3c-.7.3-1 .8-1 1.7" /><path d="M12 17h.01" /></>,

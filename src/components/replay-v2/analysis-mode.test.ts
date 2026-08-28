@@ -74,6 +74,36 @@ describe("replay analysis mode", () => {
     });
   });
 
+  it("does not use a face-down battlefield identity as public hand evidence", () => {
+    const hidden = hiddenCard("face-down-later");
+    const concealed = opponentPublicCard(
+      hidden.id,
+      "Black Rose Dignitary",
+      "UNL-152",
+    );
+    concealed.fields.hidden = true;
+    const state = analysisState([hidden]);
+    const replay = analysisReplay([
+      markerEvent(0),
+      actionEvent(1, [{
+        id: "play-face-down",
+        op: "zone_move",
+        cardId: hidden.id,
+        from: { playerId: "opponent", zone: "hand" },
+        to: { playerId: "opponent", zone: "battlefieldA", index: 0 },
+        card: concealed,
+      }], "move_card"),
+    ]);
+
+    const result = revealFutureKnownHandCards(replay, 0, state);
+
+    expect(result.inferredCardIds).toEqual([]);
+    expect(result.state.players.opponent.zones.hand[0]).toMatchObject({
+      id: hidden.id,
+      isPlaceholder: true,
+    });
+  });
+
   it("does not reveal an ID that disappears before being reused publicly", () => {
     const state = analysisState([hiddenCard("reused-id")]);
     const withoutCard = analysisState([]);

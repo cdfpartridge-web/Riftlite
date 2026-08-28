@@ -240,7 +240,7 @@ export function ReplayCombiner() {
             </ol>
             <div className={styles.rawNotice}>
               <ShieldCheck aria-hidden="true" size={20} />
-              <p><strong>Raw captures are never shared between accounts.</strong> This prototype combines only the already processed replay artifacts each link is allowed to open.</p>
+              <p><strong>Raw captures are never shared between accounts.</strong> RiftLite combines only the processed replay artifacts each link is allowed to open, then saves the result as Unlisted in your replay library.</p>
             </div>
           </aside>
         </div>
@@ -281,7 +281,7 @@ function CombinationResult({ success }: { success: CombinationSuccess }) {
           <Link className={styles.openButton} href={success.playerPath} target="_blank">
             Open combined replay <ExternalLink aria-hidden="true" size={17} />
           </Link>
-          <Link className={styles.secondaryButton} href="/replays">Back to replay library</Link>
+          <Link className={styles.secondaryButton} href="/replays?scope=mine">View in My replays</Link>
         </div>
       </div>
     </section>
