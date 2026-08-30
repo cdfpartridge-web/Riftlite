@@ -6,7 +6,7 @@ const MAX_REPLAY_ID_LENGTH = 160;
 const MAX_NOTE_ID_LENGTH = 180;
 const MAX_NOTE_TITLE_LENGTH = 160;
 const MAX_NOTE_BODY_LENGTH = 4_000;
-const MAX_NOTES = 250;
+export const MAX_REPLAY_NOTES = 250;
 
 export type ReplayNote = {
   id: string;
@@ -58,7 +58,7 @@ export function parseReplayNotesProject(value: unknown, replayId: string): Repla
   if (storedReplayId && storedReplayId !== empty.replayId) return empty;
 
   const usedIds = new Set<string>();
-  const candidates = Array.isArray(decoded.notes) ? decoded.notes.slice(0, MAX_NOTES) : [];
+  const candidates = Array.isArray(decoded.notes) ? decoded.notes.slice(0, MAX_REPLAY_NOTES) : [];
   const notes = candidates.flatMap((candidate, index) => {
     const note = sanitizeReplayNote(candidate, empty.replayId, index, usedIds);
     return note ? [note] : [];
@@ -75,7 +75,7 @@ export function addReplayNote(
   input: ReplayNoteInput,
 ): ReplayNotesProjectV1 {
   const current = parseReplayNotesProject(project, project.replayId);
-  if (current.notes.length >= MAX_NOTES) return current;
+  if (current.notes.length >= MAX_REPLAY_NOTES) return current;
   const now = nonNegativeInteger(input.createdAt) ?? Date.now();
   const usedIds = new Set(current.notes.map((note) => note.id));
   const note = sanitizeReplayNote(

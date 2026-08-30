@@ -103,6 +103,29 @@ export function formatReplayClipTimecode(milliseconds: number): string {
   return hours ? `${hours}:${clock}` : clock;
 }
 
+export function formatReplayClipMinutesSeconds(milliseconds: number): string {
+  const boundedMilliseconds = finiteNonNegativeMilliseconds(milliseconds);
+  const minutes = Math.floor(boundedMilliseconds / 60_000);
+  const seconds = Math.floor((boundedMilliseconds % 60_000) / 1_000);
+  const remainder = boundedMilliseconds % 1_000;
+  return `${minutes}:${String(seconds).padStart(2, "0")}.${String(remainder).padStart(3, "0")}`;
+}
+
+export function parseReplayClipTimecode(value: string): number | null {
+  const normalized = value.trim();
+  if (!/^\d+:\d{1,2}(?:\.\d{1,3})?$/.test(normalized)) return null;
+
+  const [minutesField, secondsField] = normalized.split(":");
+  const minutes = Number(minutesField);
+  const seconds = Number(secondsField);
+  if (!Number.isSafeInteger(minutes) || minutes < 0 || !Number.isFinite(seconds) || seconds >= 60) {
+    return null;
+  }
+
+  const milliseconds = (minutes * 60 + seconds) * 1_000;
+  return Number.isSafeInteger(Math.round(milliseconds)) ? Math.round(milliseconds) : null;
+}
+
 function replaySecondsParameter(params: URLSearchParams, name: string): number | null {
   const rawValue = params.get(name);
   if (rawValue === null || rawValue.trim() === "") return null;

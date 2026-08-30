@@ -2628,7 +2628,9 @@ button.cardPile { cursor: pointer; }
 .activityTabs button span { display: inline-grid; min-width: 18px; height: 18px; place-items: center; margin-left: 4px; border-radius: 99px; background: rgba(110,177,218,.09); font-size: 8px; }
 .activityTabs .activeActivityTab { color: #d8efff; }
 .activityTabs .activeActivityTab::after { opacity: 1; transform: scaleX(1); }
+.activityHeaderActions { display: flex; flex: 0 0 auto; gap: 4px; margin-right: 8px; }
 .activityHeaderAction { display: flex; height: 27px; align-items: center; gap: 4px; margin-right: 8px; border: 1px solid rgba(241,198,109,.22); border-radius: 7px; background: rgba(241,198,109,.07); color: #b5a77e; cursor: pointer; font-size: 7px; font-weight: 750; padding: 0 7px; }
+.activityHeaderActions .activityHeaderAction { margin-right: 0; }
 .activityHeaderAction:hover, .activityHeaderAction:focus-visible { border-color: rgba(241,198,109,.45); outline: none; color: #ffe4a0; }
 .activityHeaderAction svg { width: 12px; }
 
@@ -2641,9 +2643,19 @@ button.cardPile { cursor: pointer; }
 .replayNoteListItem { display: grid; width: 100%; grid-template-columns: 62px minmax(0,1fr); gap: 8px; border: 0; border-bottom: 1px solid rgba(241,198,109,.08); background: transparent; cursor: pointer; padding: 8px 4px; text-align: left; }
 .replayNoteListItem > span { color: #8f7847; font-family: ui-monospace,Consolas,monospace; font-size: 8px; padding-top: 2px; }
 .replayNoteListItem b { display: block; overflow: hidden; color: #d9c898; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.replayNoteListItem b em { margin-left: 6px; border: 1px solid rgba(117,241,229,.22); border-radius: 99px; color: #7acdc9; font-size: 6px; font-style: normal; letter-spacing: .08em; padding: 1px 4px; text-transform: uppercase; }
 .replayNoteListItem p { display: -webkit-box; overflow: hidden; margin: 3px 0 0; color: #827c70; font-size: 8px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .replayNoteListItem:hover, .replayNoteListItem:focus-visible, .replayNoteListItem[aria-current="true"] { outline: none; background: rgba(241,198,109,.07); }
 .replayNoteListItem[aria-current="true"] { box-shadow: inset 2px 0 #f1c66d; }
+.replayNotesSharingDisclosure { margin: 1px 0 8px; border-left: 2px solid rgba(241,198,109,.38); color: #7f7865; font-size: 7px; line-height: 1.45; padding: 4px 7px; }
+.sharedReplayNotesBanner { position: sticky; top: 0; z-index: 2; display: grid; gap: 7px; margin: 1px 0 8px; border: 1px solid rgba(117,241,229,.2); border-radius: 9px; background: linear-gradient(135deg,rgba(30,77,82,.97),rgba(40,35,76,.97)); color: #8ba6b7; box-shadow: 0 5px 14px rgba(3,10,17,.42); font-size: 8px; line-height: 1.4; padding: 9px; }
+.sharedReplayNotesBanner > div { display: flex; align-items: center; gap: 6px; }
+.sharedReplayNotesBanner > div:first-child svg { width: 13px; flex: 0 0 auto; color: #75f1e5; }
+.sharedReplayNotesBanner b { color: #cefaf6; }
+.sharedReplayNotesBanner small { color: #657f90; font-size: 7px; }
+.sharedReplayNotesBanner > div:last-child { justify-content: flex-end; }
+.sharedReplayNotesBanner button { min-height: 25px; border: 1px solid rgba(117,241,229,.2); border-radius: 6px; background: rgba(61,142,151,.1); color: #9fc6c7; cursor: pointer; font-size: 7px; font-weight: 750; padding: 0 7px; }
+.sharedReplayNotesBanner button:hover, .sharedReplayNotesBanner button:focus-visible { border-color: rgba(117,241,229,.45); outline: none; color: #e2fffc; }
 .emptyActivity { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: #43576c; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
 .emptyActivity svg { width: 28px; }
 
@@ -2960,6 +2972,10 @@ button.cardPile { cursor: pointer; }
 .timelineMarkerInput.replayNoteTimelineMarker::-moz-range-thumb { width: 10px; height: 10px; border: 1px solid rgba(255,227,155,.8); border-radius: 2px; background: #e4b85e; box-shadow: 0 0 10px rgba(241,198,109,.45); clip-path: polygon(50% 0,100% 50%,50% 100%,0 50%); }
 .timelineMarkerInput.replayNoteTimelineMarkerSelected::-webkit-slider-thumb { background: #ffe09a; box-shadow: 0 0 0 3px rgba(241,198,109,.18),0 0 16px rgba(241,198,109,.78); }
 .timelineMarkerInput.replayNoteTimelineMarkerSelected::-moz-range-thumb { background: #ffe09a; box-shadow: 0 0 0 3px rgba(241,198,109,.18),0 0 16px rgba(241,198,109,.78); }
+.sharedReplayNoteTimelineMarker { position: absolute; top: -18px; z-index: 4; width: 25px; height: 25px; border: 0; background: transparent; cursor: pointer; padding: 0; transform: translateX(-50%); }
+.sharedReplayNoteTimelineMarker::before { position: absolute; top: 7px; left: 7px; width: 11px; height: 11px; border: 1px solid rgba(155,225,220,.86); border-radius: 2px; background: #63bfc0; box-shadow: 0 0 10px rgba(91,204,201,.45); clip-path: polygon(50% 0,100% 50%,50% 100%,0 50%); content: ""; }
+.sharedReplayNoteTimelineMarker:hover, .sharedReplayNoteTimelineMarker:focus-visible { outline: none; }
+.sharedReplayNoteTimelineMarker:hover::before, .sharedReplayNoteTimelineMarker:focus-visible::before, .sharedReplayNoteTimelineMarkerSelected::before { background: #a6f4ee; box-shadow: 0 0 0 3px rgba(117,241,229,.16),0 0 16px rgba(91,204,201,.75); }
 .timelineMarkerInput:focus-visible { outline: none; }
 .timelineMarkerInput:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(223,250,255,.3),0 0 17px currentColor; }
 .timelineMarkerInput:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px rgba(223,250,255,.3),0 0 17px currentColor; }
@@ -3153,8 +3169,10 @@ button.cardPile { cursor: pointer; }
 .clipEndpointActions label span { color: #60788e; font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .clipEndpointActions input { width: 100%; height: 44px; border: 1px solid rgba(125,190,224,.16); border-radius: 9px; outline: none; background: rgba(3,10,18,.46); color: #dff7ff; font-family: ui-monospace,Consolas,monospace; font-size: 12px; padding: 0 8px; }
 .clipEndpointActions input:focus { border-color: rgba(117,241,229,.48); box-shadow: 0 0 0 2px rgba(117,241,229,.08); }
+.clipEndpointActions input[aria-invalid="true"] { border-color: rgba(224,112,117,.62); box-shadow: 0 0 0 2px rgba(224,112,117,.09); }
 .clipEndpoint button, .clipModal > footer button { min-height: 44px; border: 1px solid rgba(125,190,224,.16); border-radius: 9px; background: rgba(72,134,170,.08); color: #91a9bb; cursor: pointer; font-size: 12px; font-weight: 720; }
 .clipEndpoint button:hover, .clipEndpoint button:focus-visible, .clipModal > footer button:hover, .clipModal > footer button:focus-visible { border-color: rgba(117,241,229,.34); outline: none; background: rgba(69,178,181,.11); color: #ddfffb; }
+.clipModal > footer button:disabled { border-color: rgba(107,129,145,.13); color: #526372; cursor: not-allowed; opacity: .48; }
 .clipEndpoint button:disabled { cursor: not-allowed; opacity: .42; }
 .clipEndpoint button:disabled:hover { border-color: rgba(125,190,224,.16); background: rgba(72,134,170,.08); color: #91a9bb; }
 .clipNudgeActions { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(70px,1fr) repeat(4,64px); align-items: center; gap: 7px; }

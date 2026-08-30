@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   defaultReplayClipRange,
+  formatReplayClipMinutesSeconds,
   formatReplayClipSeconds,
   formatReplayClipTimecode,
   normalizeReplayClipRange,
+  parseReplayClipTimecode,
   replayClipDraftFromMarkedStart,
   replayClipUrl,
   replayLocationSelection,
@@ -65,5 +67,17 @@ describe("Web Replay clips", () => {
       startMs: 12_345,
       endMs: 67_890,
     })).toBe("https://www.riftlite.com/replays/rp%20%2Funsafe?start=12.345&end=67.89");
+  });
+
+  it("formats and parses editable clip times as minutes and seconds", () => {
+    expect(formatReplayClipMinutesSeconds(12_350)).toBe("0:12.350");
+    expect(formatReplayClipMinutesSeconds(3_723_045)).toBe("62:03.045");
+    expect(parseReplayClipTimecode("0:12")).toBe(12_000);
+    expect(parseReplayClipTimecode("1:05.25")).toBe(65_250);
+    expect(parseReplayClipTimecode("62:03.045")).toBe(3_723_045);
+    expect(parseReplayClipTimecode("65")).toBeNull();
+    expect(parseReplayClipTimecode("1:60")).toBeNull();
+    expect(parseReplayClipTimecode("-1:05")).toBeNull();
+    expect(parseReplayClipTimecode("1:05.1234")).toBeNull();
   });
 });

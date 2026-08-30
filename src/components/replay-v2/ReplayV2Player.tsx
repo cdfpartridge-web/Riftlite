@@ -66,9 +66,10 @@ import {
 import {
   MIN_REPLAY_CLIP_MS,
   defaultReplayClipRange,
-  formatReplayClipSeconds,
+  formatReplayClipMinutesSeconds,
   formatReplayClipTimecode,
   normalizeReplayClipRange,
+  parseReplayClipTimecode,
   replayClipDraftFromMarkedStart,
   replayClipUrl,
   replayLocationSelection,
@@ -134,6 +135,7 @@ import {
   type CasterProjectV1,
 } from "./caster/caster-project";
 import {
+  MAX_REPLAY_NOTES,
   addReplayNote,
   createReplayNotesProject,
   deleteReplayNote,
@@ -144,6 +146,14 @@ import {
   type ReplayNote,
   type ReplayNotesProjectV1,
 } from "./replay-notes";
+import {
+  MAX_SHARED_REPLAY_NOTES_URL_BYTES,
+  SHARED_REPLAY_NOTES_HASH_PARAM,
+  canonicalReplayNoteDedupeKey,
+  decodeSharedReplayNotesPayload,
+  encodeSharedReplayNotesPayload,
+  type SharedReplayNote,
+} from "./replay-notes-url";
 
 const DESIGN_WIDTH = 1_920;
 const DESIGN_HEIGHT = 1_080;
@@ -296,6 +306,11 @@ type ReplayNoteEditorState = {
   body: string;
 };
 
+type SharedReplayNotesLinkState =
+  | { status: "none"; notes: [] }
+  | { status: "invalid"; notes: [] }
+  | { status: "ready"; notes: SharedReplayNote[] };
+
 export function ReplayV2Player({
   replayId,
   embed = false,
@@ -343,6 +358,10 @@ export function ReplayV2Player({
   const replayNotesProjectRef = useRef(replayNotesProject);
   const [selectedReplayNoteId, setSelectedReplayNoteId] = useState<string | null>(null);
   const [replayNoteEditor, setReplayNoteEditor] = useState<ReplayNoteEditorState | null>(null);
+  const [sharedReplayNotesLink, setSharedReplayNotesLink] = useState<SharedReplayNotesLinkState>({
+    status: "none",
+    notes: [],
+  });
   const [analysisSession, setAnalysisSession] = useState<ReplayAnalysisSession | null>(null);
   const [analysisSelectedCardId, setAnalysisSelectedCardId] = useState<string | null>(null);
   const [analysisAttachmentCardId, setAnalysisAttachmentCardId] = useState<string | null>(null);
@@ -418,7 +437,15 @@ export function ReplayV2Player({
           window.location.search,
           replayDurationMs(nextReplay),
         );
+        const sharedNotesLink = sharedReplayNotesFromHash(
+          window.location.hash,
+          replayId,
+          replayDurationMs(nextReplay),
+          locationSelection.clipRange,
+        );
         setClipRange(locationSelection.clipRange);
+        setSharedReplayNotesLink(sharedNotesLink);
+        if (sharedNotesLink.status !== "none") setActivityTab("notes");
         setClipDraft(null);
         setClipStartMarkMs(null);
         setClipEndMarkMs(null);
@@ -459,9 +486,22 @@ export function ReplayV2Player({
   const durationMs = replay ? replayDurationMs(replay) : 1;
   const playbackStartMs = clipRange?.startMs ?? 0;
   const playbackEndMs = clipRange?.endMs ?? durationMs;
-  const replayNotes = useMemo(() => (
+  const localReplayNotes = useMemo(() => (
     replayNotesProject.replayId === replayId ? replayNotesProject.notes : []
   ), [replayId, replayNotesProject]);
+  const sharedReplayNotes = useMemo<ReplayNote[]>(() => {
+    if (!replay || sharedReplayNotesLink.status !== "ready") return [];
+    return sharedReplayNotesLink.notes.map((note, index) => ({
+      id: `shared-url-${index}-${note.atMs}`,
+      ...replayNoteAnchorAt(replay, note.atMs),
+      title: note.title,
+      body: note.body,
+      createdAt: index,
+      updatedAt: index,
+    }));
+  }, [replay, sharedReplayNotesLink]);
+  const sharedReplayNotesActive = sharedReplayNotesLink.status === "ready";
+  const replayNotes = sharedReplayNotesActive ? sharedReplayNotes : localReplayNotes;
   const visibleReplayNotes = useMemo(() => replayNotes.filter((note) => (
     note.atMs <= durationMs && (
       !clipRange || (note.atMs >= playbackStartMs && note.atMs <= playbackEndMs)
@@ -471,16 +511,33 @@ export function ReplayV2Player({
 
   useEffect(() => {
     if (!sourceReplay) return;
-    const syncReplayLocation = (search: string) => {
+    const sharedNotesForLocation = (search: string, hash: string) => {
+      const locationSelection = replayLocationSelection(search, durationMs);
+      return sharedReplayNotesFromHash(
+        hash,
+        replayId,
+        durationMs,
+        locationSelection.clipRange,
+      );
+    };
+    const syncSharedNotesHash = (search: string, hash: string) => {
+      const sharedNotesLink = sharedNotesForLocation(search, hash);
+      setSharedReplayNotesLink(sharedNotesLink);
+      if (sharedNotesLink.status !== "none") setActivityTab("notes");
+    };
+    const syncReplayLocation = (search: string, hash: string) => {
       if (pendingSeekTimer.current) {
         clearTimeout(pendingSeekTimer.current);
         pendingSeekTimer.current = null;
       }
       const locationSelection = replayLocationSelection(search, durationMs);
+      const sharedNotesLink = sharedNotesForLocation(search, hash);
       const returnTarget = clipReturnFocusRef.current;
       clipReturnFocusRef.current = null;
       setPlaying(false);
       setClipRange(locationSelection.clipRange);
+      setSharedReplayNotesLink(sharedNotesLink);
+      if (sharedNotesLink.status !== "none") setActivityTab("notes");
       setClipDraft(null);
       setClipStartMarkMs(null);
       setClipEndMarkMs(null);
@@ -504,18 +561,40 @@ export function ReplayV2Player({
       setAnalysisDraggingCardId(null);
       requestAnimationFrame(() => returnTarget?.focus());
     };
-    const syncPoppedReplayLocation = () => syncReplayLocation(window.location.search);
+    let replayLocationKey = `${window.location.pathname}${window.location.search}`;
+    const syncPoppedReplayLocation = () => {
+      const nextLocationKey = `${window.location.pathname}${window.location.search}`;
+      if (nextLocationKey === replayLocationKey) {
+        syncSharedNotesHash(window.location.search, window.location.hash);
+        return;
+      }
+      replayLocationKey = nextLocationKey;
+      syncReplayLocation(window.location.search, window.location.hash);
+    };
+    const syncChangedHash = () => syncSharedNotesHash(
+      window.location.search,
+      window.location.hash,
+    );
     const syncRoutedReplayLocation = (url: string) => {
-      syncReplayLocation(new URL(url, window.location.href).search);
+      const routedUrl = new URL(url, window.location.href);
+      const nextLocationKey = `${routedUrl.pathname}${routedUrl.search}`;
+      if (nextLocationKey === replayLocationKey) {
+        syncSharedNotesHash(routedUrl.search, routedUrl.hash);
+        return;
+      }
+      replayLocationKey = nextLocationKey;
+      syncReplayLocation(routedUrl.search, routedUrl.hash);
     };
 
     window.addEventListener("popstate", syncPoppedReplayLocation);
+    window.addEventListener("hashchange", syncChangedHash);
     Router.events.on("routeChangeComplete", syncRoutedReplayLocation);
     return () => {
       window.removeEventListener("popstate", syncPoppedReplayLocation);
+      window.removeEventListener("hashchange", syncChangedHash);
       Router.events.off("routeChangeComplete", syncRoutedReplayLocation);
     };
-  }, [durationMs, sourceReplay]);
+  }, [durationMs, replayId, sourceReplay]);
 
   const presentationStages = presentation && replay
     ? preludeStagesForGame(replay, presentation.gameIndex)
@@ -674,6 +753,7 @@ export function ReplayV2Player({
     queueMicrotask(() => {
       if (cancelled) return;
       if (casterMode) {
+        setSharedReplayNotesLink({ status: "none", notes: [] });
         setSelectedReplayNoteId(null);
         setReplayNoteEditor(null);
         setActivityTab((current) => current === "notes" ? "chat" : current);
@@ -1045,27 +1125,19 @@ export function ReplayV2Player({
     );
   }, [durationMs, flashNotice, restoreClipTriggerFocus]);
 
-  const markClipEndAtCurrentFrame = useCallback((requestedMs: number) => {
-    if (clipStartMarkMs === null) {
-      flashNotice("Mark a clip start first");
+  const markClipEndAtCurrentFrame = useCallback((range: ReplayClipRange) => {
+    const normalizedRange = normalizeReplayClipRange(range, durationMs);
+    if (!normalizedRange) {
+      flashNotice("Choose an end after the clip start");
       return;
     }
-    const markedEndMs = Math.round(requestedMs);
-    if (
-      !Number.isFinite(markedEndMs) ||
-      markedEndMs < clipStartMarkMs + MIN_REPLAY_CLIP_MS ||
-      markedEndMs > durationMs
-    ) {
-      flashNotice(`Move after ${formatReplayClipTimecode(clipStartMarkMs + MIN_REPLAY_CLIP_MS)} to mark the clip end`);
-      return;
-    }
-    setClipEndMarkMs(markedEndMs);
-    setClipDraft(null);
-    restoreClipTriggerFocus();
+    setClipStartMarkMs(normalizedRange.startMs);
+    setClipEndMarkMs(normalizedRange.endMs);
+    setClipDraft(normalizedRange);
     flashNotice(
-      `Clip end marked at ${formatReplayClipTimecode(markedEndMs)} · reopen Clip to review or share`,
+      `Clip end set at ${formatReplayClipTimecode(normalizedRange.endMs)} · review or copy below`,
     );
-  }, [clipStartMarkMs, durationMs, flashNotice, restoreClipTriggerFocus]);
+  }, [durationMs, flashNotice]);
 
   const clearClipStartMark = useCallback(() => {
     setClipStartMarkMs(null);
@@ -1158,6 +1230,23 @@ export function ReplayV2Player({
     url.searchParams.delete("t");
     url.searchParams.set("start", String(normalizedRange.startMs / 1_000));
     url.searchParams.set("end", String(normalizedRange.endMs / 1_000));
+    if (sharedReplayNotesLink.status === "ready") {
+      const notesInsideClip = sharedReplayNotesLink.notes.filter((note) => (
+        note.atMs >= normalizedRange.startMs && note.atMs <= normalizedRange.endMs
+      ));
+      const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+      const payload = notesInsideClip.length
+        ? encodeSharedReplayNotesPayload(replayId, notesInsideClip)
+        : null;
+      if (payload) {
+        hashParams.set(SHARED_REPLAY_NOTES_HASH_PARAM, payload);
+        setSharedReplayNotesLink({ status: "ready", notes: notesInsideClip });
+      } else {
+        hashParams.delete(SHARED_REPLAY_NOTES_HASH_PARAM);
+        setSharedReplayNotesLink({ status: "none", notes: [] });
+      }
+      url.hash = hashParams.toString();
+    }
     window.history.replaceState(window.history.state, "", url);
     setMotionSuppressedBriefly();
     settleAnimations(play);
@@ -1167,8 +1256,10 @@ export function ReplayV2Player({
     clearAnalysis,
     durationMs,
     flashNotice,
+    replayId,
     restoreClipTriggerFocus,
     setMotionSuppressedBriefly,
+    sharedReplayNotesLink,
     settleAnimations,
   ]);
 
@@ -1182,12 +1273,16 @@ export function ReplayV2Player({
       await navigator.clipboard.writeText(
         replayClipUrl(window.location.origin, replayId, normalizedRange),
       );
-      activateReplayClip(normalizedRange, false);
-      flashNotice("Clip link copied");
+      setClipDraft(normalizedRange);
+      if (!clipRange) {
+        setClipStartMarkMs(normalizedRange.startMs);
+        setClipEndMarkMs(normalizedRange.endMs);
+      }
+      flashNotice("Clip link copied — this replay is unchanged");
     } catch {
       flashNotice("The browser blocked clip link copying");
     }
-  }, [activateReplayClip, durationMs, flashNotice, replayId]);
+  }, [clipRange, durationMs, flashNotice, replayId]);
 
   const clearReplayClip = useCallback(() => {
     if (pendingSeekTimer.current) {
@@ -1208,8 +1303,154 @@ export function ReplayV2Player({
     restoreClipTriggerFocus();
   }, [flashNotice, restoreClipTriggerFocus, settleAnimations]);
 
+  const removeSharedReplayNotesLink = useCallback(() => {
+    const url = new URL(window.location.href);
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+    hashParams.delete(SHARED_REPLAY_NOTES_HASH_PARAM);
+    url.hash = hashParams.toString();
+    window.history.replaceState(window.history.state, "", url);
+    setSharedReplayNotesLink({ status: "none", notes: [] });
+    setSelectedReplayNoteId(null);
+    setReplayNoteEditor(null);
+    requestAnimationFrame(() => {
+      shellRef.current?.querySelector<HTMLButtonElement>("[data-replay-notes-tab]")?.focus();
+    });
+  }, []);
+
+  const copyReplayNotesLink = useCallback(async () => {
+    if (!clipSharingEnabled) {
+      flashNotice("This local replay cannot be shared publicly");
+      return;
+    }
+    if (replayNoteEditor) {
+      flashNotice("Save or cancel the open note first");
+      return;
+    }
+    if (!visibleReplayNotes.length) {
+      flashNotice("Add a replay note before copying a notes link");
+      return;
+    }
+    const payload = encodeSharedReplayNotesPayload(
+      replayId,
+      visibleReplayNotes.map(({ atMs, title, body }) => ({ atMs, title, body })),
+    );
+    if (!payload) {
+      flashNotice("These notes are too large for one link — shorten or remove a note");
+      return;
+    }
+    const url = clipRange
+      ? new URL(replayClipUrl(window.location.origin, replayId, clipRange))
+      : new URL(`/replays/${encodeURIComponent(replayId)}`, window.location.origin);
+    if (!clipRange && currentMs > 500) {
+      url.searchParams.set("t", String(Math.round(currentMs / 1_000)));
+    }
+    const hashParams = new URLSearchParams();
+    hashParams.set(SHARED_REPLAY_NOTES_HASH_PARAM, payload);
+    url.hash = hashParams.toString();
+    if (new TextEncoder().encode(url.toString()).byteLength > MAX_SHARED_REPLAY_NOTES_URL_BYTES) {
+      flashNotice("These notes are too large for one link — shorten or remove a note");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      flashNotice(
+        `Link with ${visibleReplayNotes.length} ${visibleReplayNotes.length === 1 ? "note" : "notes"} copied — anyone with it can read them`,
+      );
+    } catch {
+      flashNotice("The browser blocked the notes link copying");
+    }
+  }, [
+    clipRange,
+    clipSharingEnabled,
+    currentMs,
+    flashNotice,
+    replayId,
+    replayNoteEditor,
+    visibleReplayNotes,
+  ]);
+
+  const saveSharedReplayNotesCopy = useCallback(() => {
+    if (!replay || sharedReplayNotesLink.status !== "ready") return;
+    const current = replayNotesProjectRef.current.replayId === replayId
+      ? replayNotesProjectRef.current
+      : createReplayNotesProject(replayId);
+    const existing = new Set(current.notes.flatMap((note) => {
+      const key = canonicalReplayNoteDedupeKey(note);
+      return key ? [key] : [];
+    }));
+    const newSharedNotes: SharedReplayNote[] = [];
+    let duplicates = 0;
+    for (const sharedNote of sharedReplayNotesLink.notes) {
+      const key = canonicalReplayNoteDedupeKey(sharedNote);
+      if (!key) {
+        flashNotice("These shared notes are invalid — the link is still open");
+        return;
+      }
+      if (existing.has(key)) {
+        duplicates += 1;
+        continue;
+      }
+      existing.add(key);
+      newSharedNotes.push(sharedNote);
+    }
+
+    const availableSlots = Math.max(0, MAX_REPLAY_NOTES - current.notes.length);
+    if (newSharedNotes.length > availableSlots) {
+      flashNotice(
+        `Not enough note space: ${newSharedNotes.length} new shared notes need saving, but ${availableSlots} ${availableSlots === 1 ? "slot is" : "slots are"} free — the link is still open`,
+      );
+      return;
+    }
+
+    let next = current;
+    const now = Date.now();
+    for (const [index, sharedNote] of newSharedNotes.entries()) {
+      const previousLength = next.notes.length;
+      next = addReplayNote(next, {
+        id: newReplayNoteId(),
+        ...replayNoteAnchorAt(replay, sharedNote.atMs),
+        title: sharedNote.title,
+        body: sharedNote.body,
+        createdAt: now + index,
+        updatedAt: now + index,
+      });
+      if (next.notes.length === previousLength) {
+        flashNotice("Shared notes could not be prepared safely — the link is still open");
+        return;
+      }
+    }
+    if (!saveReplayNotesProject(next)) {
+      flashNotice("Shared notes could not be saved to this browser — the link is still open");
+      return;
+    }
+    replayNotesProjectRef.current = next;
+    setReplayNotesProject(next);
+    removeSharedReplayNotesLink();
+    setActivityTab("notes");
+    flashNotice(newSharedNotes.length
+      ? `${newSharedNotes.length} shared ${newSharedNotes.length === 1 ? "note" : "notes"} saved to this browser${duplicates ? ` · ${duplicates} already saved` : ""}`
+      : "Those shared notes are already saved in this browser");
+  }, [
+    flashNotice,
+    removeSharedReplayNotesLink,
+    replay,
+    replayId,
+    sharedReplayNotesLink,
+  ]);
+
+  const dismissSharedReplayNotes = useCallback(() => {
+    removeSharedReplayNotesLink();
+    setActivityTab("notes");
+    flashNotice("Shared notes dismissed — your local notes are unchanged");
+  }, [flashNotice, removeSharedReplayNotesLink]);
+
   const openNewReplayNote = useCallback(() => {
     if (!replay || !state || casterMode) return;
+    if (sharedReplayNotesActive) {
+      flashNotice("Save a copy or dismiss the shared notes before adding your own");
+      setActivityTab("notes");
+      return;
+    }
     if (replayNoteEditor) {
       setActivityTab("notes");
       flashNotice("Save or cancel the open note first");
@@ -1228,7 +1469,7 @@ export function ReplayV2Player({
       body: "",
     });
     setActivityTab("notes");
-  }, [casterMode, currentEvent, currentMs, flashNotice, playbackEndMs, playbackStartMs, replay, replayNoteEditor, settleAnimations, state]);
+  }, [casterMode, currentEvent, currentMs, flashNotice, playbackEndMs, playbackStartMs, replay, replayNoteEditor, settleAnimations, sharedReplayNotesActive, state]);
 
   const selectReplayNote = useCallback((note: ReplayNote) => {
     if (replayNoteEditor) {
@@ -1256,6 +1497,7 @@ export function ReplayV2Player({
   }, [durationMs, flashNotice, playbackEndMs, playbackStartMs, replayNoteEditor, seekTo, settleAnimations]);
 
   const editReplayNote = useCallback((note: ReplayNote) => {
+    if (sharedReplayNotesActive) return;
     setPlaying(false);
     setSelectedReplayNoteId(note.id);
     setReplayNoteEditor({
@@ -1265,7 +1507,7 @@ export function ReplayV2Player({
       body: note.body,
     });
     setActivityTab("notes");
-  }, []);
+  }, [sharedReplayNotesActive]);
 
   const saveReplayNote = useCallback(() => {
     if (!replay || !replayNoteEditor) return;
@@ -1302,16 +1544,17 @@ export function ReplayV2Player({
   }, [flashNotice, persistReplayNotes, replay, replayNoteEditor]);
 
   const removeReplayNote = useCallback((noteId: string) => {
+    if (sharedReplayNotesActive) return;
     const outcome = persistReplayNotes((current) => deleteReplayNote(current, noteId));
     setReplayNoteEditor(null);
     setSelectedReplayNoteId((current) => current === noteId ? null : current);
     flashNotice(outcome.saved
       ? "Replay note deleted"
       : "Note removed for this session — browser storage is unavailable");
-  }, [flashNotice, persistReplayNotes]);
+  }, [flashNotice, persistReplayNotes, sharedReplayNotesActive]);
 
   const moveReplayNote = useCallback((noteId: string, requestedMs: number) => {
-    if (!replay) return;
+    if (!replay || sharedReplayNotesActive) return;
     const nextMs = Math.min(
       playbackEndMs,
       Math.max(playbackStartMs, Math.round(requestedMs / 50) * 50),
@@ -1329,10 +1572,10 @@ export function ReplayV2Player({
     setPlaying(false);
     setSelectedReplayNoteId(noteId);
     seekTo(nextMs, { immediate: true });
-  }, [playbackEndMs, playbackStartMs, replay, replayId, seekTo]);
+  }, [playbackEndMs, playbackStartMs, replay, replayId, seekTo, sharedReplayNotesActive]);
 
   const commitReplayNoteMove = useCallback((noteId: string, requestedMs: number) => {
-    if (!replay) return;
+    if (!replay || sharedReplayNotesActive) return;
     const nextMs = Math.min(
       playbackEndMs,
       Math.max(playbackStartMs, Math.round(requestedMs / 50) * 50),
@@ -1342,7 +1585,7 @@ export function ReplayV2Player({
     if (!outcome.saved) {
       flashNotice("Marker moved for this session — browser storage is unavailable");
     }
-  }, [flashNotice, persistReplayNotes, playbackEndMs, playbackStartMs, replay]);
+  }, [flashNotice, persistReplayNotes, playbackEndMs, playbackStartMs, replay, sharedReplayNotesActive]);
 
   const closeReplayNote = useCallback(() => {
     setReplayNoteEditor(null);
@@ -1968,18 +2211,23 @@ export function ReplayV2Player({
                 onCancelNote={cancelReplayNoteEditor}
                 onClip={openClipEditor}
                 onCloseNote={closeReplayNote}
+                onCopyNotes={() => void copyReplayNotesLink()}
                 onDeleteNote={removeReplayNote}
+                onDismissSharedNotes={dismissSharedReplayNotes}
                 onEditNote={editReplayNote}
                 onFullscreen={() => void toggleFullscreen()}
                 onHelp={() => setShowHelp(true)}
                 onNoteDraft={setReplayNoteEditor}
                 onSaveNote={saveReplayNote}
+                onSaveSharedNotes={saveSharedReplayNotesCopy}
                 onSelectNote={selectReplayNote}
                 onShare={() => void shareReplay()}
                 replay={replay}
                 replayNoteEditor={replayNoteEditor}
                 replayNotes={visibleReplayNotes}
                 selectedReplayNote={selectedReplayNote}
+                sharedNotes={sharedReplayNotesActive}
+                sharedNotesLinkInvalid={sharedReplayNotesLink.status === "invalid"}
                 state={state}
               />
               {casterMode && !casterClean ? (
@@ -2261,6 +2509,7 @@ export function ReplayV2Player({
                   }}
                   replay={replay}
                   replayNotes={casterMode ? [] : visibleReplayNotes}
+                  replayNotesReadOnly={sharedReplayNotesActive}
                   selectedReplayNoteId={selectedReplayNoteId}
                   playerNamesHidden={allowPlayerNameHiding ? hidePlayerNames : null}
                   showMore={showMore}
@@ -2313,7 +2562,7 @@ export function ReplayV2Player({
           active={Boolean(clipRange)}
           currentMs={currentMs}
           durationMs={durationMs}
-          focusEnd={Boolean(!clipRange && clipStartMarkMs !== null && clipEndMarkMs === null)}
+          focusEnd={Boolean(!clipRange && clipStartMarkMs !== null)}
           onChange={updateClipDraft}
           onClear={clearReplayClip}
           onClearStartMark={clearClipStartMark}
@@ -4693,18 +4942,23 @@ function InspectorRail({
   onCapture,
   onClip,
   onCloseNote,
+  onCopyNotes,
   onDeleteNote,
+  onDismissSharedNotes,
   onEditNote,
   onFullscreen,
   onHelp,
   onNoteDraft,
   onSaveNote,
+  onSaveSharedNotes,
   onSelectNote,
   onShare,
   replay,
   replayNoteEditor,
   replayNotes,
   selectedReplayNote,
+  sharedNotes,
+  sharedNotesLinkInvalid,
   state,
 }: {
   activityTab: ReplayActivityTab;
@@ -4726,21 +4980,27 @@ function InspectorRail({
   onCapture: () => void;
   onClip: () => void;
   onCloseNote: () => void;
+  onCopyNotes: () => void;
   onDeleteNote: (noteId: string) => void;
+  onDismissSharedNotes: () => void;
   onEditNote: (note: ReplayNote) => void;
   onFullscreen: () => void;
   onHelp: () => void;
   onNoteDraft: (draft: ReplayNoteEditorState | null) => void;
   onSaveNote: () => void;
+  onSaveSharedNotes: () => void;
   onSelectNote: (note: ReplayNote) => void;
   onShare: () => void;
   replay: CanonicalReplayV2;
   replayNoteEditor: ReplayNoteEditorState | null;
   replayNotes: ReplayNote[];
   selectedReplayNote: ReplayNote | null;
+  sharedNotes: boolean;
+  sharedNotesLinkInvalid: boolean;
   state: ReplayState;
 }) {
   const activityRef = useRef<HTMLDivElement>(null);
+  const notesSharingDisclosureId = useId();
   const cardImage = cardImageUrl(inspectedCard ?? undefined);
   const inspectedBattlefield = isBattlefieldCard(inspectedCard ?? undefined);
   const fields = inspectedCard ? visibleCardFields(inspectedCard) : [];
@@ -4754,6 +5014,10 @@ function InspectorRail({
       ? state.log.length
       : replayNotes.length;
   useEffect(() => {
+    if (visibleActivityTab === "notes") {
+      activityRef.current?.scrollTo({ top: 0 });
+      return;
+    }
     activityRef.current?.scrollTo({ top: activityRef.current.scrollHeight, behavior: "smooth" });
   }, [activityLength, visibleActivityTab]);
 
@@ -4771,7 +5035,7 @@ function InspectorRail({
         {!casterClean ? (
           <div className={styles.railActions}>
             <IconButton label="Capture replay frame" name="camera" onClick={onCapture} />
-            {allowNotes ? (
+            {allowNotes && !sharedNotes && !sharedNotesLinkInvalid ? (
               <IconButton
                 active={Boolean(replayNoteEditor || selectedReplayNote)}
                 label={`Add replay note at ${formatReplayClipTimecode(currentMs)}`}
@@ -4834,6 +5098,7 @@ function InspectorRail({
           onDelete={() => onDeleteNote(selectedReplayNote.id)}
           onEdit={() => onEditNote(selectedReplayNote)}
           onSeek={() => onSelectNote(selectedReplayNote)}
+          readOnly={sharedNotes}
         />
       ) : (
         <section className={styles.cardInspector} aria-live="polite" data-card-inspector>
@@ -4899,6 +5164,7 @@ function InspectorRail({
               <button
                 aria-selected={visibleActivityTab === "notes"}
                 className={visibleActivityTab === "notes" ? styles.activeActivityTab : ""}
+                data-replay-notes-tab
                 onClick={() => onActivityTab("notes")}
                 role="tab"
                 type="button"
@@ -4908,12 +5174,57 @@ function InspectorRail({
             ) : null}
           </div>
           {allowNotes && visibleActivityTab === "notes" ? (
-            <button className={styles.activityHeaderAction} onClick={onAddNote} type="button">
-              <Icon name="note" /> Add at {formatReplayClipTimecode(currentMs)}
-            </button>
+            <div className={styles.activityHeaderActions}>
+              {allowClipping && replayNotes.length ? (
+                <button
+                  aria-describedby={!sharedNotes && !sharedNotesLinkInvalid ? notesSharingDisclosureId : undefined}
+                  aria-label={`Copy link with ${replayNotes.length} ${replayNotes.length === 1 ? "note" : "notes"}`}
+                  className={styles.activityHeaderAction}
+                  onClick={onCopyNotes}
+                  title="Anyone with the copied link can read these notes"
+                  type="button"
+                >
+                  <Icon name="link" /> Share
+                </button>
+              ) : null}
+              {!sharedNotes && !sharedNotesLinkInvalid ? (
+                <button className={styles.activityHeaderAction} onClick={onAddNote} type="button">
+                  <Icon name="note" /> Add
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </header>
         <div className={styles.activityList} ref={activityRef} role="tabpanel">
+          {visibleActivityTab === "notes" && allowClipping && replayNotes.length && !sharedNotes && !sharedNotesLinkInvalid ? (
+            <p className={styles.replayNotesSharingDisclosure} id={notesSharingDisclosureId}>
+              Sharing puts every note shown here into the link. Anyone with that link can read them.
+            </p>
+          ) : null}
+          {visibleActivityTab === "notes" && sharedNotes ? (
+            <div
+              aria-live="polite"
+              className={styles.sharedReplayNotesBanner}
+              data-shared-replay-notes
+              role="status"
+            >
+              <div><Icon name="link" /><span><b>Shared notes</b> View-only notes carried by this link.</span></div>
+              <small>Anyone with this link can read them. They are not saved to your browser yet.</small>
+              <div>
+                <button onClick={onSaveSharedNotes} type="button">Save a copy</button>
+                <button onClick={onDismissSharedNotes} type="button">Dismiss</button>
+              </div>
+            </div>
+          ) : visibleActivityTab === "notes" && sharedNotesLinkInvalid ? (
+            <div
+              className={styles.sharedReplayNotesBanner}
+              data-shared-replay-notes-invalid
+              role="alert"
+            >
+              <div><Icon name="unlink" /><span><b>Notes link unavailable</b> This link is invalid or too large.</span></div>
+              <button onClick={onDismissSharedNotes} type="button">Dismiss</button>
+            </div>
+          ) : null}
           {visibleActivityTab === "chat"
             ? state.chat.slice(-120).map((entry) => (
                 <article className={styles.chatEntry} key={entry.id}>
@@ -4932,12 +5243,16 @@ function InspectorRail({
                   <button
                     aria-current={selectedReplayNote?.id === note.id ? "true" : undefined}
                     className={styles.replayNoteListItem}
+                    data-shared-note={sharedNotes ? "true" : undefined}
                     key={note.id}
                     onClick={() => onSelectNote(note)}
                     type="button"
                   >
                     <span>{formatReplayClipTimecode(note.atMs)}</span>
-                    <div><b>{replayNoteLabel(note)}</b><p>{note.body || "No note text"}</p></div>
+                    <div>
+                      <b>{replayNoteLabel(note)}{sharedNotes ? <em>Shared</em> : null}</b>
+                      <p>{note.body || "No note text"}</p>
+                    </div>
                   </button>
                 ))}
           {activityLength === 0 ? (
@@ -5019,32 +5334,40 @@ function ReplayNoteInspector({
   onDelete,
   onEdit,
   onSeek,
+  readOnly,
 }: {
   note: ReplayNote;
   onBack: () => void;
   onDelete: () => void;
   onEdit: () => void;
   onSeek: () => void;
+  readOnly: boolean;
 }) {
   const context = [
     note.gameNumber ? `Game ${note.gameNumber}` : "",
     note.turn !== null ? `Turn ${note.turn}` : "",
   ].filter(Boolean).join(" · ");
   return (
-    <section className={`${styles.cardInspector} ${styles.replayNoteInspector}`} data-replay-note-inspector>
+    <section
+      className={`${styles.cardInspector} ${styles.replayNoteInspector}`}
+      data-replay-note-inspector
+      data-shared-note={readOnly ? "true" : undefined}
+    >
       <div className={styles.replayNoteArt}>
         <Icon name="note" />
         <button onClick={onSeek} type="button">{formatReplayClipTimecode(note.atMs)}</button>
-        <small>{context || "Replay moment"}</small>
+        <small>{readOnly ? `${context ? `${context} · ` : ""}Shared link` : context || "Replay moment"}</small>
       </div>
       <div className={`${styles.inspectorDetails} ${styles.replayNoteDetails}`}>
-        <span className={styles.inspectorEyebrow}>Replay note</span>
+        <span className={styles.inspectorEyebrow}>{readOnly ? "Shared replay note" : "Replay note"}</span>
         <h2>{replayNoteLabel(note)}</h2>
         {note.body ? <p>{note.body}</p> : <p>No additional note text.</p>}
         <div className={styles.replayNoteActions}>
           <button onClick={onBack} type="button">Back to card details</button>
-          <button onClick={onEdit} type="button">Edit</button>
-          <button className={styles.replayNoteDeleteAction} onClick={onDelete} type="button">Delete</button>
+          {!readOnly ? <button onClick={onEdit} type="button">Edit</button> : null}
+          {!readOnly ? (
+            <button className={styles.replayNoteDeleteAction} onClick={onDelete} type="button">Delete</button>
+          ) : null}
         </div>
       </div>
     </section>
@@ -5832,6 +6155,7 @@ function TransportControls({
   presentationFrame,
   replay,
   replayNotes,
+  replayNotesReadOnly,
   selectedReplayNoteId,
   playerNamesHidden,
   showMore,
@@ -5878,6 +6202,7 @@ function TransportControls({
   presentationFrame: { index: number; label: string; total: number } | null;
   replay: CanonicalReplayV2;
   replayNotes: ReplayNote[];
+  replayNotesReadOnly: boolean;
   selectedReplayNoteId: string | null;
   playerNamesHidden: boolean | null;
   showMore: boolean;
@@ -6053,7 +6378,26 @@ function TransportControls({
           ))}
         </div>
       ) : null}
-      {replayNotes.map((note, index) => (
+      {replayNotes.map((note, index) => replayNotesReadOnly ? (
+        <button
+          aria-current={selectedReplayNoteId === note.id ? "true" : undefined}
+          aria-label={`Shared replay note ${index + 1}, ${replayNoteLabel(note)}, ${formatReplayClipTimecode(note.atMs)}`}
+          className={`${styles.sharedReplayNoteTimelineMarker} ${
+            selectedReplayNoteId === note.id ? styles.sharedReplayNoteTimelineMarkerSelected : ""
+          }`}
+          data-replay-note-marker={note.id}
+          key={note.id}
+          onClick={() => onSelectReplayNote(note)}
+          style={{
+            left: `${Math.min(100, Math.max(
+              0,
+              ((note.atMs - timelineStartMs) / timelineDurationMs) * 100,
+            ))}%`,
+          }}
+          title={`${replayNoteLabel(note)} · ${formatReplayClipTimecode(note.atMs)} · shared note`}
+          type="button"
+        />
+      ) : (
         <TimelineMarkerInput
           atMs={note.atMs}
           className={`${styles.replayNoteTimelineMarker} ${
@@ -6257,6 +6601,73 @@ function TimelineMarkerInput({
   );
 }
 
+function ReplayClipTimeInput({
+  ariaLabel,
+  inputRef,
+  invalid,
+  maxMs,
+  minMs,
+  onChange,
+  onValidityChange,
+  valueMs,
+}: {
+  ariaLabel: string;
+  inputRef: RefObject<HTMLInputElement | null>;
+  invalid: boolean;
+  maxMs: number;
+  minMs: number;
+  onChange: (milliseconds: number) => void;
+  onValidityChange: (valid: boolean) => void;
+  valueMs: number;
+}) {
+  const formattedValue = formatReplayClipMinutesSeconds(valueMs);
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const commit = () => {
+    const requestedMs = parseReplayClipTimecode(draft ?? formattedValue);
+    if (requestedMs === null) {
+      onValidityChange(false);
+      return;
+    }
+    const boundedMs = Math.min(maxMs, Math.max(minMs, requestedMs));
+    onValidityChange(true);
+    setDraft(null);
+    onChange(boundedMs);
+  };
+
+  return (
+    <label>
+      <span>Time (m:ss)</span>
+      <input
+        aria-invalid={invalid ? "true" : undefined}
+        aria-label={ariaLabel}
+        inputMode="decimal"
+        onBlur={commit}
+        onChange={(event) => {
+          const nextValue = event.currentTarget.value;
+          setDraft(nextValue);
+          onValidityChange(parseReplayClipTimecode(nextValue) !== null);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            setDraft(null);
+            onValidityChange(true);
+          }
+        }}
+        placeholder="0:00.000"
+        title="Enter minutes and seconds, for example 1:23.500"
+        type="text"
+        value={draft ?? formattedValue}
+        ref={inputRef}
+      />
+    </label>
+  );
+}
+
 function ReplayClipEditor({
   active,
   currentMs,
@@ -6284,7 +6695,7 @@ function ReplayClipEditor({
   onClearStartMark: () => void;
   onClose: () => void;
   onCopy: (range: ReplayClipRange) => void;
-  onMarkEnd: (atMs: number) => void;
+  onMarkEnd: (range: ReplayClipRange) => void;
   onMarkStart: (atMs: number) => void;
   onPreview: (range: ReplayClipRange) => void;
   notice: string;
@@ -6295,15 +6706,20 @@ function ReplayClipEditor({
   const headingId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLElement>(null);
-  const startInputRef = useRef<HTMLInputElement>(null);
-  const endInputRef = useRef<HTMLInputElement>(null);
+  const startSliderRef = useRef<HTMLInputElement>(null);
+  const endSliderRef = useRef<HTMLInputElement>(null);
+  const startTimeInputRef = useRef<HTMLInputElement>(null);
+  const endTimeInputRef = useRef<HTMLInputElement>(null);
   const endFrameButtonRef = useRef<HTMLButtonElement>(null);
+  const [startTimeValid, setStartTimeValid] = useState(true);
+  const [endTimeValid, setEndTimeValid] = useState(true);
+  const timeInputsValid = startTimeValid && endTimeValid;
   useEffect(() => {
     if (focusEnd) {
-      if (endFrameButtonRef.current?.disabled) endInputRef.current?.focus();
+      if (endFrameButtonRef.current?.disabled) endSliderRef.current?.focus();
       else endFrameButtonRef.current?.focus();
     }
-    else startInputRef.current?.focus();
+    else startSliderRef.current?.focus();
   }, [focusEnd]);
 
   const trapFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
@@ -6324,6 +6740,7 @@ function ReplayClipEditor({
   };
 
   const changeStart = (requestedMs: number) => {
+    setStartTimeValid(true);
     const startMs = Math.min(
       Math.max(0, requestedMs),
       Math.max(0, durationMs - MIN_REPLAY_CLIP_MS),
@@ -6334,6 +6751,7 @@ function ReplayClipEditor({
     });
   };
   const changeEnd = (requestedMs: number) => {
+    setEndTimeValid(true);
     const endMs = Math.min(
       durationMs,
       Math.max(range.startMs + MIN_REPLAY_CLIP_MS, requestedMs),
@@ -6342,6 +6760,31 @@ function ReplayClipEditor({
       startMs: range.startMs,
       endMs,
     });
+  };
+  const resolveEditedRange = (): ReplayClipRange | null => {
+    const requestedStartMs = parseReplayClipTimecode(
+      startTimeInputRef.current?.value ?? formatReplayClipMinutesSeconds(range.startMs),
+    );
+    const requestedEndMs = parseReplayClipTimecode(
+      endTimeInputRef.current?.value ?? formatReplayClipMinutesSeconds(range.endMs),
+    );
+    const nextStartValid = requestedStartMs !== null;
+    const nextEndValid = requestedEndMs !== null;
+    setStartTimeValid(nextStartValid);
+    setEndTimeValid(nextEndValid);
+    if (requestedStartMs === null || requestedEndMs === null) return null;
+
+    const startMs = Math.min(
+      Math.max(0, requestedStartMs),
+      Math.max(0, durationMs - MIN_REPLAY_CLIP_MS),
+    );
+    const endMs = Math.min(
+      durationMs,
+      Math.max(startMs + MIN_REPLAY_CLIP_MS, requestedEndMs),
+    );
+    const resolvedRange = { startMs, endMs };
+    onChange(resolvedRange);
+    return resolvedRange;
   };
   const currentFrameCanStart = currentMs <= durationMs - MIN_REPLAY_CLIP_MS;
   const currentFrameCanEnd = currentMs >= range.startMs + MIN_REPLAY_CLIP_MS;
@@ -6404,30 +6847,25 @@ function ReplayClipEditor({
               step={MIN_REPLAY_CLIP_MS}
               type="range"
               value={range.startMs}
-              ref={startInputRef}
+              ref={startSliderRef}
             />
             <div className={styles.clipEndpointActions}>
-              <label>
-                <span>Seconds</span>
-                <input
-                  aria-label="Clip start time in seconds"
-                  max={Math.max(0, durationMs - MIN_REPLAY_CLIP_MS) / 1_000}
-                  min={0}
-                  onChange={(event) => {
-                    if (Number.isFinite(event.currentTarget.valueAsNumber)) {
-                      changeStart(event.currentTarget.valueAsNumber * 1_000);
-                    }
-                  }}
-                  step={MIN_REPLAY_CLIP_MS / 1_000}
-                  type="number"
-                  value={formatReplayClipSeconds(range.startMs)}
-                />
-              </label>
+              <ReplayClipTimeInput
+                ariaLabel="Clip start time in minutes and seconds"
+                inputRef={startTimeInputRef}
+                invalid={!startTimeValid}
+                key={`clip-start-${range.startMs}`}
+                maxMs={Math.max(0, durationMs - MIN_REPLAY_CLIP_MS)}
+                minMs={0}
+                onChange={changeStart}
+                onValidityChange={setStartTimeValid}
+                valueMs={range.startMs}
+              />
               <button
                 aria-label={active
                   ? `Use current frame as clip start, ${formatReplayClipTimecode(currentMs)}`
                   : `Mark current frame as clip start and return to replay, ${formatReplayClipTimecode(currentMs)}`}
-                disabled={!currentFrameCanStart}
+                disabled={!currentFrameCanStart || !timeInputsValid}
                 onClick={() => active ? changeStart(currentMs) : onMarkStart(currentMs)}
                 type="button"
               >
@@ -6465,38 +6903,46 @@ function ReplayClipEditor({
               max={durationMs}
               min={MIN_REPLAY_CLIP_MS}
               onChange={(event) => changeEnd(Number(event.currentTarget.value))}
-              ref={endInputRef}
+              ref={endSliderRef}
               step={MIN_REPLAY_CLIP_MS}
               type="range"
               value={range.endMs}
             />
             <div className={styles.clipEndpointActions}>
-              <label>
-                <span>Seconds</span>
-                <input
-                  aria-label="Clip end time in seconds"
-                  max={durationMs / 1_000}
-                  min={MIN_REPLAY_CLIP_MS / 1_000}
-                  onChange={(event) => {
-                    if (Number.isFinite(event.currentTarget.valueAsNumber)) {
-                      changeEnd(event.currentTarget.valueAsNumber * 1_000);
-                    }
-                  }}
-                  step={MIN_REPLAY_CLIP_MS / 1_000}
-                  type="number"
-                  value={formatReplayClipSeconds(range.endMs)}
-                />
-              </label>
+              <ReplayClipTimeInput
+                ariaLabel="Clip end time in minutes and seconds"
+                inputRef={endTimeInputRef}
+                invalid={!endTimeValid}
+                key={`clip-end-${range.endMs}`}
+                maxMs={durationMs}
+                minMs={range.startMs + MIN_REPLAY_CLIP_MS}
+                onChange={changeEnd}
+                onValidityChange={setEndTimeValid}
+                valueMs={range.endMs}
+              />
               <button
-                aria-label={active
-                  ? `Use current frame as clip end, ${formatReplayClipTimecode(currentMs)}`
-                  : `Mark current frame as clip end and return to replay, ${formatReplayClipTimecode(currentMs)}`}
-                disabled={!currentFrameCanEnd}
-                onClick={() => active ? changeEnd(currentMs) : onMarkEnd(currentMs)}
+                aria-label={`Use current frame as clip end, ${formatReplayClipTimecode(currentMs)}`}
+                disabled={!currentFrameCanEnd || !timeInputsValid}
+                onClick={() => {
+                  const editedRange = resolveEditedRange();
+                  if (!editedRange) return;
+                  const nextRange = { startMs: editedRange.startMs, endMs: currentMs };
+                  if (active) {
+                    setEndTimeValid(true);
+                    onChange({
+                      startMs: editedRange.startMs,
+                      endMs: Math.min(
+                        durationMs,
+                        Math.max(editedRange.startMs + MIN_REPLAY_CLIP_MS, currentMs),
+                      ),
+                    });
+                  }
+                  else onMarkEnd(nextRange);
+                }}
                 ref={endFrameButtonRef}
                 type="button"
               >
-                {active ? "Use current frame" : endMarked ? "Replace end & return" : "Mark end & return"}
+                {endMarked ? "Replace end" : "Use current frame"}
                 {` · ${formatReplayClipTimecode(currentMs)}`}
               </button>
             </div>
@@ -6536,10 +6982,25 @@ function ReplayClipEditor({
             ) : null}
           </div>
           <div>
-            <button onClick={() => onPreview(range)} type="button">
+            <button
+              disabled={!timeInputsValid}
+              onClick={() => {
+                const editedRange = resolveEditedRange();
+                if (editedRange) onPreview(editedRange);
+              }}
+              type="button"
+            >
               <Icon name="play" /> Preview clip
             </button>
-            <button className={styles.clipPrimaryAction} onClick={() => onCopy(range)} type="button">
+            <button
+              className={styles.clipPrimaryAction}
+              disabled={!timeInputsValid}
+              onClick={() => {
+                const editedRange = resolveEditedRange();
+                if (editedRange) onCopy(editedRange);
+              }}
+              type="button"
+            >
               <Icon name="link" /> Copy clip link
             </button>
           </div>
@@ -7319,6 +7780,45 @@ function replayNoteAnchorAt(
       turn: null,
     };
   }
+}
+
+function sharedReplayNotesFromHash(
+  hash: string,
+  replayId: string,
+  durationMs: number,
+  clipRange: ReplayClipRange | null,
+): SharedReplayNotesLinkState {
+  const fragment = hash.replace(/^#/, "");
+  if (!fragment) return { status: "none", notes: [] };
+  const containsSharedNotesKey = new RegExp(
+    `(?:^|&)${SHARED_REPLAY_NOTES_HASH_PARAM}(?:=|&|$)`,
+  ).test(fragment);
+  if (
+    fragment.length > MAX_SHARED_REPLAY_NOTES_URL_BYTES ||
+    new TextEncoder().encode(fragment).byteLength > MAX_SHARED_REPLAY_NOTES_URL_BYTES
+  ) {
+    return containsSharedNotesKey
+      ? { status: "invalid", notes: [] }
+      : { status: "none", notes: [] };
+  }
+
+  const payloads = fragment.split("&").flatMap((part) => {
+    const separatorIndex = part.indexOf("=");
+    const rawKey = separatorIndex < 0 ? part : part.slice(0, separatorIndex);
+    if (rawKey !== SHARED_REPLAY_NOTES_HASH_PARAM) return [];
+    return [separatorIndex < 0 ? "" : part.slice(separatorIndex + 1)];
+  });
+  if (!payloads.length) return { status: "none", notes: [] };
+  if (payloads.length !== 1) return { status: "invalid", notes: [] };
+  const notes = decodeSharedReplayNotesPayload(payloads[0] ?? "", replayId);
+  if (!notes || notes.some((note) => (
+    note.atMs > durationMs || (
+      clipRange !== null && (note.atMs < clipRange.startMs || note.atMs > clipRange.endMs)
+    )
+  ))) {
+    return { status: "invalid", notes: [] };
+  }
+  return { status: "ready", notes };
 }
 
 function newReplayNoteId(): string {
