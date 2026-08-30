@@ -2574,6 +2574,7 @@ button.cardPile { cursor: pointer; }
 }
 
 .iconButton:hover, .iconButton:focus-visible { border-color: rgba(120,201,238,.2); outline: none; background: rgba(104,190,235,.08); color: #d4efff; }
+.iconButtonActive { border-color: rgba(117,241,229,.34); background: rgba(75,190,190,.12); color: #a8fff6; }
 .iconButton svg { width: 16px; height: 16px; }
 
 .replayMeta { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(130,186,226,.08); color: #64778d; font-size: 8px; font-weight: 720; letter-spacing: .1em; padding: 0 14px; text-transform: uppercase; }
@@ -2598,14 +2599,38 @@ button.cardPile { cursor: pointer; }
 .inspectorDetails dt { color: #52677e; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
 .inspectorDetails dd { overflow: hidden; margin: 2px 0 0; color: #aabed1; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 
+.replayNoteInspector { grid-template-rows: 218px minmax(0,1fr); background: linear-gradient(180deg,rgba(72,52,18,.14),transparent 48%); }
+.replayNoteArt { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; overflow: hidden; color: #f1c66d; }
+.replayNoteArt::before { position: absolute; width: 230px; height: 230px; border-radius: 50%; background: rgba(241,198,109,.1); content: ""; filter: blur(36px); }
+.replayNoteArt svg { position: relative; width: 52px; height: 52px; }
+.replayNoteArt > span, .replayNoteArt > button { position: relative; border: 0; background: transparent; color: #ffe4a0; cursor: pointer; font-family: ui-monospace,Consolas,monospace; font-size: 15px; font-weight: 800; }
+.replayNoteArt > span { cursor: default; }
+.replayNoteArt > button:hover, .replayNoteArt > button:focus-visible { outline: none; color: #fff4d5; text-decoration: underline; }
+.replayNoteArt small { position: relative; color: #756a54; font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.replayNoteDetails h2 { white-space: normal; }
+.replayNoteDetails > p { max-height: 150px; overflow: auto; color: #b9b2a0; line-height: 1.55; white-space: pre-wrap; }
+.replayNoteEditorFields { display: flex; flex-direction: column; gap: 8px; }
+.replayNoteEditorFields > label { display: flex; flex-direction: column; gap: 4px; }
+.replayNoteEditorFields > label > span { color: #6c7f8f; font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.replayNoteEditorFields input, .replayNoteEditorFields textarea { width: 100%; border: 1px solid rgba(241,198,109,.2); border-radius: 8px; outline: none; background: rgba(5,13,22,.76); color: #e7edf2; font: inherit; font-size: 10px; padding: 8px 9px; resize: vertical; }
+.replayNoteEditorFields input:focus, .replayNoteEditorFields textarea:focus { border-color: rgba(241,198,109,.55); box-shadow: 0 0 0 2px rgba(241,198,109,.08); }
+.replayNoteActions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: auto; padding-top: 5px; }
+.replayNoteActions button { min-height: 29px; border: 1px solid rgba(133,177,203,.16); border-radius: 7px; background: rgba(80,129,157,.08); color: #91a6b7; cursor: pointer; font-size: 8px; font-weight: 760; padding: 0 9px; }
+.replayNoteActions button:hover, .replayNoteActions button:focus-visible { border-color: rgba(241,198,109,.38); outline: none; color: #f8e4b1; }
+.replayNoteActions .replayNotePrimaryAction { border-color: rgba(241,198,109,.42); background: linear-gradient(135deg,#c9943b,#ebbf69); color: #1b160d; }
+.replayNoteActions .replayNoteDeleteAction { margin-left: auto; color: #d78e91; }
+
 .activityPanel { display: grid; min-height: 0; grid-template-rows: 39px minmax(0,1fr); }
-.activityPanel > header { border-bottom: 1px solid rgba(130,186,226,.08); }
-.activityTabs { display: flex; height: 39px; }
+.activityPanel > header { display: flex; align-items: center; border-bottom: 1px solid rgba(130,186,226,.08); }
+.activityTabs { display: flex; height: 39px; flex: 1; }
 .activityTabs button { position: relative; flex: 1; border: 0; background: transparent; color: #64778d; cursor: pointer; font-size: 9px; font-weight: 700; letter-spacing: .05em; }
 .activityTabs button::after { position: absolute; right: 18px; bottom: 0; left: 18px; height: 2px; background: var(--replay-cyan); content: ""; opacity: 0; transform: scaleX(.5); transition: 180ms ease; }
 .activityTabs button span { display: inline-grid; min-width: 18px; height: 18px; place-items: center; margin-left: 4px; border-radius: 99px; background: rgba(110,177,218,.09); font-size: 8px; }
 .activityTabs .activeActivityTab { color: #d8efff; }
 .activityTabs .activeActivityTab::after { opacity: 1; transform: scaleX(1); }
+.activityHeaderAction { display: flex; height: 27px; align-items: center; gap: 4px; margin-right: 8px; border: 1px solid rgba(241,198,109,.22); border-radius: 7px; background: rgba(241,198,109,.07); color: #b5a77e; cursor: pointer; font-size: 7px; font-weight: 750; padding: 0 7px; }
+.activityHeaderAction:hover, .activityHeaderAction:focus-visible { border-color: rgba(241,198,109,.45); outline: none; color: #ffe4a0; }
+.activityHeaderAction svg { width: 12px; }
 
 .activityList { min-height: 0; overflow-y: auto; padding: 8px 12px 15px; scrollbar-color: rgba(103,178,218,.25) transparent; scrollbar-width: thin; }
 .chatEntry, .logEntry { display: grid; grid-template-columns: 38px 1fr; gap: 8px; border-bottom: 1px solid rgba(129,182,218,.05); padding: 8px 1px; }
@@ -2613,6 +2638,12 @@ button.cardPile { cursor: pointer; }
 .chatEntry b { color: #8ddce2; font-size: 9px; }
 .chatEntry p, .logEntry p { margin: 2px 0 0; color: #9aabba; font-size: 9px; line-height: 1.38; overflow-wrap: anywhere; }
 .logEntry p { margin: 0; color: #7f93a8; }
+.replayNoteListItem { display: grid; width: 100%; grid-template-columns: 62px minmax(0,1fr); gap: 8px; border: 0; border-bottom: 1px solid rgba(241,198,109,.08); background: transparent; cursor: pointer; padding: 8px 4px; text-align: left; }
+.replayNoteListItem > span { color: #8f7847; font-family: ui-monospace,Consolas,monospace; font-size: 8px; padding-top: 2px; }
+.replayNoteListItem b { display: block; overflow: hidden; color: #d9c898; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.replayNoteListItem p { display: -webkit-box; overflow: hidden; margin: 3px 0 0; color: #827c70; font-size: 8px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.replayNoteListItem:hover, .replayNoteListItem:focus-visible, .replayNoteListItem[aria-current="true"] { outline: none; background: rgba(241,198,109,.07); }
+.replayNoteListItem[aria-current="true"] { box-shadow: inset 2px 0 #f1c66d; }
 .emptyActivity { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: #43576c; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
 .emptyActivity svg { width: 28px; }
 
@@ -2889,6 +2920,50 @@ button.cardPile { cursor: pointer; }
   content: "";
 }
 
+.clipStartChip {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 18px;
+  z-index: 5;
+  display: flex;
+  height: 38px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(117,241,229,.34);
+  border-radius: 11px;
+  background: rgba(8,24,34,.96);
+  color: #a7bccc;
+  box-shadow: 0 12px 28px rgba(0,0,0,.34), 0 0 24px rgba(75,190,190,.09);
+  font-size: 10px;
+  padding: 0 7px 0 12px;
+}
+.clipStartChip span { white-space: nowrap; }
+.clipStartChip b { color: #d9fffb; font-family: ui-monospace,Consolas,monospace; font-variant-numeric: tabular-nums; }
+.clipStartChip button { height: 27px; border: 1px solid rgba(117,241,229,.18); border-radius: 7px; background: rgba(75,190,190,.08); color: #91a9bb; cursor: pointer; font-size: 9px; font-weight: 720; padding: 0 9px; }
+.clipStartChip button:hover, .clipStartChip button:focus-visible { border-color: rgba(117,241,229,.4); outline: none; color: #ddfffb; }
+.clipStartTimelineMarker { position: absolute; top: -22px; z-index: 4; width: 16px; height: 20px; border: 0; background: transparent; cursor: pointer; transform: translateX(-50%); }
+.clipStartTimelineMarker::before { position: absolute; bottom: 2px; left: 4px; width: 8px; height: 13px; border: 1px solid rgba(117,241,229,.82); border-radius: 3px 3px 5px 5px; background: #48cfc5; box-shadow: 0 0 14px rgba(117,241,229,.62); clip-path: polygon(0 0,100% 0,100% 72%,50% 100%,0 72%); content: ""; }
+.clipStartTimelineMarker:focus-visible { outline: 2px solid #d9fffb; outline-offset: 2px; }
+
+.clipDraftTimelineRange { position: absolute; top: -3px; z-index: 3; height: 3px; min-width: 2px; background: linear-gradient(90deg,#48cfc5,#a68bff); box-shadow: 0 0 12px rgba(117,241,229,.38); pointer-events: none; }
+.timelineMarkerInput { position: absolute; top: -25px; left: 0; z-index: 5; width: 100%; height: 25px; margin: 0; appearance: none; background: transparent; pointer-events: none; }
+.timelineMarkerInput::-webkit-slider-runnable-track { height: 1px; background: transparent; }
+.timelineMarkerInput::-moz-range-track { height: 1px; background: transparent; }
+.timelineMarkerInput::-webkit-slider-thumb { width: 16px; height: 20px; margin-top: -10px; appearance: none; border: 1px solid rgba(117,241,229,.9); border-radius: 4px 4px 8px 8px; background: #48cfc5; box-shadow: 0 0 15px rgba(117,241,229,.58); clip-path: polygon(0 0,100% 0,100% 72%,50% 100%,0 72%); cursor: ew-resize; pointer-events: auto; }
+.timelineMarkerInput::-moz-range-thumb { width: 14px; height: 18px; border: 1px solid rgba(117,241,229,.9); border-radius: 4px 4px 8px 8px; background: #48cfc5; box-shadow: 0 0 15px rgba(117,241,229,.58); clip-path: polygon(0 0,100% 0,100% 72%,50% 100%,0 72%); cursor: ew-resize; pointer-events: auto; }
+.timelineMarkerInput.clipStartTimelineMarker { top: -25px; left: 0; width: 100%; height: 25px; transform: none; }
+.timelineMarkerInput.clipEndTimelineMarker { top: -25px; z-index: 5; }
+.timelineMarkerInput.clipEndTimelineMarker::-webkit-slider-thumb { border-color: rgba(190,173,255,.94); background: #9d83f5; box-shadow: 0 0 15px rgba(157,131,245,.62); }
+.timelineMarkerInput.clipEndTimelineMarker::-moz-range-thumb { border-color: rgba(190,173,255,.94); background: #9d83f5; box-shadow: 0 0 15px rgba(157,131,245,.62); }
+.timelineMarkerInput.replayNoteTimelineMarker { top: -14px; z-index: 4; height: 16px; }
+.timelineMarkerInput.replayNoteTimelineMarker::-webkit-slider-thumb { width: 11px; height: 11px; margin-top: -5px; border: 1px solid rgba(255,227,155,.8); border-radius: 2px; background: #e4b85e; box-shadow: 0 0 10px rgba(241,198,109,.45); clip-path: polygon(50% 0,100% 50%,50% 100%,0 50%); }
+.timelineMarkerInput.replayNoteTimelineMarker::-moz-range-thumb { width: 10px; height: 10px; border: 1px solid rgba(255,227,155,.8); border-radius: 2px; background: #e4b85e; box-shadow: 0 0 10px rgba(241,198,109,.45); clip-path: polygon(50% 0,100% 50%,50% 100%,0 50%); }
+.timelineMarkerInput.replayNoteTimelineMarkerSelected::-webkit-slider-thumb { background: #ffe09a; box-shadow: 0 0 0 3px rgba(241,198,109,.18),0 0 16px rgba(241,198,109,.78); }
+.timelineMarkerInput.replayNoteTimelineMarkerSelected::-moz-range-thumb { background: #ffe09a; box-shadow: 0 0 0 3px rgba(241,198,109,.18),0 0 16px rgba(241,198,109,.78); }
+.timelineMarkerInput:focus-visible { outline: none; }
+.timelineMarkerInput:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(223,250,255,.3),0 0 17px currentColor; }
+.timelineMarkerInput:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px rgba(223,250,255,.3),0 0 17px currentColor; }
+
 .progressRange::-webkit-slider-runnable-track { height: 3px; background: linear-gradient(90deg,var(--replay-cyan) var(--progress),rgba(91,123,151,.24) var(--progress)); }
 .progressRange::-moz-range-track { height: 3px; background: rgba(91,123,151,.24); }
 .progressRange::-moz-range-progress { height: 3px; background: var(--replay-cyan); }
@@ -3032,6 +3107,12 @@ button.cardPile { cursor: pointer; }
   animation: shadeIn 180ms ease both;
 }
 
+.clipBackdrop {
+  position: fixed;
+  z-index: 600;
+  padding: 16px;
+}
+
 .discardModal, .helpModal { overflow: hidden; border: 1px solid rgba(126,204,239,.24); border-radius: 24px; background: linear-gradient(145deg,rgba(14,27,43,.99),rgba(6,12,22,.99)); box-shadow: 0 40px 120px rgba(0,0,0,.62); animation: modalIn 320ms cubic-bezier(.16,1,.3,1) both; }
 .discardModal { display: grid; width: 1320px; height: 760px; grid-template-rows: 96px 1fr; }
 .discardModal > header, .helpModal > header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(126,187,223,.12); padding: 0 26px; }
@@ -3049,6 +3130,61 @@ button.cardPile { cursor: pointer; }
 
 .helpModal { width: 760px; padding-bottom: 24px; }
 .helpModal > header { height: 92px; }
+.clipModal { --replay-cyan: #75f1e5; width: min(720px,calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; border: 1px solid rgba(117,241,229,.28); border-radius: 24px; background: linear-gradient(145deg,rgba(14,29,43,.995),rgba(6,12,22,.995)); box-shadow: 0 40px 120px rgba(0,0,0,.68), 0 0 54px rgba(74,210,204,.08); animation: modalIn 320ms cubic-bezier(.16,1,.3,1) both; }
+.clipModal > header { display: flex; height: 112px; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(126,187,223,.12); padding: 0 28px; }
+.clipModal > header > div { display: flex; flex-direction: column; }
+.clipModal > header > button { min-width: 44px; min-height: 44px; }
+.clipModal > header span { color: var(--replay-cyan); font-size: 11px; font-weight: 780; letter-spacing: .17em; text-transform: uppercase; }
+.clipModal h2 { margin: 6px 0 0; color: #f4fbff; font-size: 25px; letter-spacing: -.025em; }
+.clipModal header p { margin: 5px 0 0; color: #71869a; font-size: 13px; }
+.clipEditorBody { display: grid; gap: 18px; padding: 26px 28px 24px; }
+.clipSummary { display: grid; grid-template-columns: 1fr 26px 1fr 26px 1fr; align-items: center; border: 1px solid rgba(117,241,229,.12); border-radius: 15px; background: linear-gradient(90deg,rgba(72,181,185,.08),rgba(76,104,181,.06)); padding: 14px 18px; }
+.clipSummary > div { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.clipSummary span { color: #667d92; font-size: 10px; font-weight: 760; letter-spacing: .14em; text-transform: uppercase; }
+.clipSummary b { color: #ddfffb; font-family: ui-monospace,Consolas,monospace; font-size: 17px; font-variant-numeric: tabular-nums; }
+.clipSummary i { height: 1px; background: linear-gradient(90deg,transparent,rgba(117,241,229,.32),transparent); }
+.clipEndpoint { display: grid; grid-template-columns: minmax(0,1fr) 250px; align-items: center; gap: 10px 18px; border: 1px solid rgba(126,187,223,.11); border-radius: 13px; background: rgba(58,106,138,.055); padding: 14px 15px; }
+.clipEndpoint > header { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; }
+.clipEndpoint header span { color: #9aafc1; font-size: 11px; font-weight: 760; letter-spacing: .1em; text-transform: uppercase; }
+.clipEndpoint header b { color: #dff7ff; font-family: ui-monospace,Consolas,monospace; font-size: 13px; font-variant-numeric: tabular-nums; }
+.clipEndpoint > input { width: 100%; accent-color: var(--replay-cyan); cursor: pointer; }
+.clipEndpointActions { display: grid; grid-template-columns: 78px minmax(0,1fr); align-items: end; gap: 8px; }
+.clipEndpointActions label { display: grid; gap: 4px; }
+.clipEndpointActions label span { color: #60788e; font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.clipEndpointActions input { width: 100%; height: 44px; border: 1px solid rgba(125,190,224,.16); border-radius: 9px; outline: none; background: rgba(3,10,18,.46); color: #dff7ff; font-family: ui-monospace,Consolas,monospace; font-size: 12px; padding: 0 8px; }
+.clipEndpointActions input:focus { border-color: rgba(117,241,229,.48); box-shadow: 0 0 0 2px rgba(117,241,229,.08); }
+.clipEndpoint button, .clipModal > footer button { min-height: 44px; border: 1px solid rgba(125,190,224,.16); border-radius: 9px; background: rgba(72,134,170,.08); color: #91a9bb; cursor: pointer; font-size: 12px; font-weight: 720; }
+.clipEndpoint button:hover, .clipEndpoint button:focus-visible, .clipModal > footer button:hover, .clipModal > footer button:focus-visible { border-color: rgba(117,241,229,.34); outline: none; background: rgba(69,178,181,.11); color: #ddfffb; }
+.clipEndpoint button:disabled { cursor: not-allowed; opacity: .42; }
+.clipEndpoint button:disabled:hover { border-color: rgba(125,190,224,.16); background: rgba(72,134,170,.08); color: #91a9bb; }
+.clipNudgeActions { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(70px,1fr) repeat(4,64px); align-items: center; gap: 7px; }
+.clipNudgeActions > span { color: #60788e; font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.clipNudgeActions button { min-height: 34px; }
+.clipEndpointHint { grid-column: 1 / -1; color: #7990a3; font-size: 10px; line-height: 1.45; }
+.clipNotice { margin: -5px 28px 18px; border: 1px solid rgba(117,241,229,.22); border-radius: 9px; background: rgba(69,178,181,.08); color: #c9faf6; font-size: 12px; font-weight: 650; padding: 10px 12px; text-align: center; }
+.clipModal > footer { display: flex; min-height: 76px; align-items: center; justify-content: space-between; border-top: 1px solid rgba(126,187,223,.1); padding: 0 28px; }
+.clipModal > footer > div { display: flex; gap: 9px; }
+.clipModal > footer button { display: inline-flex; min-width: 128px; align-items: center; justify-content: center; gap: 7px; padding: 0 15px; }
+.clipModal > footer button svg { width: 15px; height: 15px; }
+.clipModal > footer .clipPrimaryAction { border-color: rgba(117,241,229,.4); background: linear-gradient(135deg,rgba(54,174,177,.28),rgba(55,111,166,.2)); color: #d9fffb; box-shadow: 0 0 22px rgba(73,204,199,.08); }
+
+@media (max-width: 600px) {
+  .clipModal { border-radius: 18px; }
+  .clipModal > header { height: auto; min-height: 104px; padding: 18px 20px; }
+  .clipModal h2 { font-size: 22px; }
+  .clipEditorBody { gap: 12px; padding: 18px 20px; }
+  .clipSummary { grid-template-columns: 1fr 10px 1fr 10px 1fr; padding: 12px 8px; }
+  .clipSummary b { font-size: 12px; }
+  .clipEndpoint { grid-template-columns: 1fr; gap: 10px; padding: 13px; }
+  .clipEndpoint > header { grid-column: 1; }
+  .clipEndpointActions { grid-template-columns: 88px minmax(0,1fr); }
+  .clipNudgeActions { grid-template-columns: repeat(4,minmax(0,1fr)); }
+  .clipNudgeActions > span { grid-column: 1 / -1; }
+  .clipNotice { margin: -3px 20px 14px; }
+  .clipModal > footer { min-height: 0; flex-direction: column-reverse; align-items: stretch; gap: 9px; padding: 15px 20px 18px; }
+  .clipModal > footer > div { width: 100%; }
+  .clipModal > footer button { min-width: 0; flex: 1; }
+}
 .shortcutGrid { display: grid; grid-template-columns: repeat(2,1fr); gap: 9px; padding: 25px 27px 15px; }
 .shortcutGrid > div { display: flex; height: 49px; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid rgba(124,184,219,.1); border-radius: 11px; background: rgba(63,111,141,.06); padding: 0 13px; }
 .shortcutGrid kbd { min-width: 95px; border: 1px solid rgba(137,210,242,.18); border-radius: 7px; background: #0a1625; color: #bce7f6; font-family: ui-monospace,Consolas,monospace; font-size: 10px; padding: 6px 8px; text-align: center; }

@@ -4,6 +4,7 @@ import {
   createContext,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
@@ -11,6 +12,7 @@ import {
   useContext,
   useDeferredValue,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -18,8 +20,10 @@ import {
 } from "react";
 import { getAuth } from "firebase/auth";
 import Link from "next/link";
+import Router from "next/router";
 
 import {
+  eventIndexAtTime,
   seekReplay,
   seekReplayByEventIndex,
   type CanonicalReplayV2,
@@ -59,6 +63,17 @@ import {
   projectReplayCardsUp,
   type ReplayCardsUpProjectionCache,
 } from "./cards-up";
+import {
+  MIN_REPLAY_CLIP_MS,
+  defaultReplayClipRange,
+  formatReplayClipSeconds,
+  formatReplayClipTimecode,
+  normalizeReplayClipRange,
+  replayClipDraftFromMarkedStart,
+  replayClipUrl,
+  replayLocationSelection,
+  type ReplayClipRange,
+} from "./clip";
 import { buildDeckPeekPresentation, type DeckPeekPresentation } from "./deck-peek";
 import { anonymizeReplayPlayerNames } from "./player-anonymization";
 import {
@@ -118,6 +133,17 @@ import {
   type CasterBookmark,
   type CasterProjectV1,
 } from "./caster/caster-project";
+import {
+  addReplayNote,
+  createReplayNotesProject,
+  deleteReplayNote,
+  loadReplayNotesProject,
+  replayNoteLabel,
+  saveReplayNotesProject,
+  updateReplayNote,
+  type ReplayNote,
+  type ReplayNotesProjectV1,
+} from "./replay-notes";
 
 const DESIGN_WIDTH = 1_920;
 const DESIGN_HEIGHT = 1_080;
@@ -261,6 +287,15 @@ type ReplayAnalysisContextMenuState = {
   y: number;
 } | null;
 
+type ReplayActivityTab = "chat" | "log" | "notes";
+
+type ReplayNoteEditorState = {
+  id: string | null;
+  atMs: number;
+  title: string;
+  body: string;
+};
+
 export function ReplayV2Player({
   replayId,
   embed = false,
@@ -270,9 +305,14 @@ export function ReplayV2Player({
   allowPlayerNameHiding = false,
 }: ReplayV2PlayerProps) {
   const casterMode = mode === "caster";
+  const clipSharingEnabled = apiBasePath === "/api/v2/replays";
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const [currentMs, setCurrentMs] = useState(0);
+  const [clipRange, setClipRange] = useState<ReplayClipRange | null>(null);
+  const [clipDraft, setClipDraft] = useState<ReplayClipRange | null>(null);
+  const [clipStartMarkMs, setClipStartMarkMs] = useState<number | null>(null);
+  const [clipEndMarkMs, setClipEndMarkMs] = useState<number | null>(null);
   const [manualEventIndex, setManualEventIndex] = useState<number | null>(null);
   const [presentation, setPresentation] = useState<PresentationCursor | null>(null);
   const [completedPreludeGameId, setCompletedPreludeGameId] = useState<string | null>(null);
@@ -287,7 +327,7 @@ export function ReplayV2Player({
   const [banishedOverlay, setBanishedOverlay] = useState<BanishedOverlayState>(null);
   const [hoveredCard, setHoveredCard] = useState<ReplayCardState | null>(null);
   const [selectedCard, setSelectedCard] = useState<ReplayCardState | null>(null);
-  const [activityTab, setActivityTab] = useState<"chat" | "log">("chat");
+  const [activityTab, setActivityTab] = useState<ReplayActivityTab>("chat");
   const [suppressMotion, setSuppressMotion] = useState(false);
   const [notice, setNotice] = useState("");
   const [casterClean, setCasterClean] = useState(false);
@@ -297,6 +337,12 @@ export function ReplayV2Player({
   );
   const [casterBookmarkTitle, setCasterBookmarkTitle] = useState("");
   const [casterBookmarkNote, setCasterBookmarkNote] = useState("");
+  const [replayNotesProject, setReplayNotesProject] = useState<ReplayNotesProjectV1>(() =>
+    createReplayNotesProject(replayId),
+  );
+  const replayNotesProjectRef = useRef(replayNotesProject);
+  const [selectedReplayNoteId, setSelectedReplayNoteId] = useState<string | null>(null);
+  const [replayNoteEditor, setReplayNoteEditor] = useState<ReplayNoteEditorState | null>(null);
   const [analysisSession, setAnalysisSession] = useState<ReplayAnalysisSession | null>(null);
   const [analysisSelectedCardId, setAnalysisSelectedCardId] = useState<string | null>(null);
   const [analysisAttachmentCardId, setAnalysisAttachmentCardId] = useState<string | null>(null);
@@ -312,6 +358,7 @@ export function ReplayV2Player({
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const casterCursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const casterNoteRef = useRef<HTMLTextAreaElement>(null);
+  const clipReturnFocusRef = useRef<HTMLElement | null>(null);
   const analysisDraggingCardIdRef = useRef<string | null>(null);
   const hidePlayerNames = allowPlayerNameHiding && playerNamePrivacy.replayId === replayId
     ? playerNamePrivacy.hidden
@@ -367,10 +414,22 @@ export function ReplayV2Player({
         const nextReplay = unwrapCanonicalReplay(body);
         if (controller.signal.aborted) return;
         setLoadState({ status: "ready", replay: nextReplay });
-        const sharedSeconds = Number(new URLSearchParams(window.location.search).get("t"));
-        const sharedMs = Number.isFinite(sharedSeconds) && sharedSeconds > 0 ? sharedSeconds * 1_000 : 0;
-        setCurrentMs(Math.min(replayDurationMs(nextReplay), sharedMs));
-        setPresentation(sharedMs > 0 ? null : { gameIndex: 0, stageIndex: 0 });
+        const locationSelection = replayLocationSelection(
+          window.location.search,
+          replayDurationMs(nextReplay),
+        );
+        setClipRange(locationSelection.clipRange);
+        setClipDraft(null);
+        setClipStartMarkMs(null);
+        setClipEndMarkMs(null);
+        setSelectedReplayNoteId(null);
+        setReplayNoteEditor(null);
+        setCurrentMs(locationSelection.initialMs);
+        setPresentation(
+          locationSelection.clipRange || locationSelection.initialMs > 0
+            ? null
+            : { gameIndex: 0, stageIndex: 0 },
+        );
         setCompletedPreludeGameId(null);
         setPlaying(false);
         setAnalysisSession(null);
@@ -398,6 +457,66 @@ export function ReplayV2Player({
   }, [apiBasePath, reloadToken, replayId]);
 
   const durationMs = replay ? replayDurationMs(replay) : 1;
+  const playbackStartMs = clipRange?.startMs ?? 0;
+  const playbackEndMs = clipRange?.endMs ?? durationMs;
+  const replayNotes = useMemo(() => (
+    replayNotesProject.replayId === replayId ? replayNotesProject.notes : []
+  ), [replayId, replayNotesProject]);
+  const visibleReplayNotes = useMemo(() => replayNotes.filter((note) => (
+    note.atMs <= durationMs && (
+      !clipRange || (note.atMs >= playbackStartMs && note.atMs <= playbackEndMs)
+    )
+  )), [clipRange, durationMs, playbackEndMs, playbackStartMs, replayNotes]);
+  const selectedReplayNote = visibleReplayNotes.find((note) => note.id === selectedReplayNoteId) ?? null;
+
+  useEffect(() => {
+    if (!sourceReplay) return;
+    const syncReplayLocation = (search: string) => {
+      if (pendingSeekTimer.current) {
+        clearTimeout(pendingSeekTimer.current);
+        pendingSeekTimer.current = null;
+      }
+      const locationSelection = replayLocationSelection(search, durationMs);
+      const returnTarget = clipReturnFocusRef.current;
+      clipReturnFocusRef.current = null;
+      setPlaying(false);
+      setClipRange(locationSelection.clipRange);
+      setClipDraft(null);
+      setClipStartMarkMs(null);
+      setClipEndMarkMs(null);
+      setSelectedReplayNoteId(null);
+      setReplayNoteEditor(null);
+      setCurrentMs(locationSelection.initialMs);
+      setPresentation(
+        locationSelection.clipRange || locationSelection.initialMs > 0
+          ? null
+          : { gameIndex: 0, stageIndex: 0 },
+      );
+      setCompletedPreludeGameId(null);
+      setManualEventIndex(null);
+      setSelectedCard(null);
+      setAnalysisSession(null);
+      setAnalysisSelectedCardId(null);
+      setAnalysisAttachmentCardId(null);
+      setAnalysisTargetChainEntryId(null);
+      setAnalysisContextMenu(null);
+      analysisDraggingCardIdRef.current = null;
+      setAnalysisDraggingCardId(null);
+      requestAnimationFrame(() => returnTarget?.focus());
+    };
+    const syncPoppedReplayLocation = () => syncReplayLocation(window.location.search);
+    const syncRoutedReplayLocation = (url: string) => {
+      syncReplayLocation(new URL(url, window.location.href).search);
+    };
+
+    window.addEventListener("popstate", syncPoppedReplayLocation);
+    Router.events.on("routeChangeComplete", syncRoutedReplayLocation);
+    return () => {
+      window.removeEventListener("popstate", syncPoppedReplayLocation);
+      Router.events.off("routeChangeComplete", syncRoutedReplayLocation);
+    };
+  }, [durationMs, sourceReplay]);
+
   const presentationStages = presentation && replay
     ? preludeStagesForGame(replay, presentation.gameIndex)
     : null;
@@ -434,11 +553,23 @@ export function ReplayV2Player({
   );
   const eventIndex = projection?.eventIndex ?? -1;
   const combinedReplay = replay ? isConsentedDualPerspectiveReplay(replay) : false;
+  const knowledgeReplay = useMemo(() => {
+    if (!replay || !clipRange) return replay;
+    let finalEventIndex = -1;
+    for (let index = 0; index < replay.events.length; index += 1) {
+      if (replay.events[index].atMs > clipRange.endMs) break;
+      finalEventIndex = index;
+    }
+    return {
+      ...replay,
+      events: replay.events.slice(0, finalEventIndex + 1),
+    };
+  }, [clipRange, replay]);
   const cardsUpProjectionCache = useMemo<ReplayCardsUpProjectionCache | null>(() => (
-    deferredCardsUp && !casterMode && !combinedReplay && replay
-      ? createReplayCardsUpProjectionCache(replay)
+    deferredCardsUp && !casterMode && !combinedReplay && knowledgeReplay
+      ? createReplayCardsUpProjectionCache(knowledgeReplay)
       : null
-  ), [casterMode, combinedReplay, deferredCardsUp, replay]);
+  ), [casterMode, combinedReplay, deferredCardsUp, knowledgeReplay]);
   const cardsUpProjection = useMemo(() => {
     if (!cardsUpProjectionCache || eventIndex < 0) return null;
     try {
@@ -476,8 +607,8 @@ export function ReplayV2Player({
         lastPaint = now;
         setManualEventIndex(null);
         setCurrentMs((value) => {
-          const next = Math.min(durationMs, value + elapsed * speed);
-          if (next >= durationMs) setPlaying(false);
+          const next = Math.min(playbackEndMs, value + elapsed * speed);
+          if (next >= playbackEndMs) setPlaying(false);
           return next;
         });
       }
@@ -485,7 +616,7 @@ export function ReplayV2Player({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [durationMs, playing, presentation, replay, speed]);
+  }, [playbackEndMs, playing, presentation, replay, speed]);
 
   useEffect(() => {
     return () => {
@@ -538,6 +669,40 @@ export function ReplayV2Player({
     });
   }, [replayId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (casterMode) {
+        setSelectedReplayNoteId(null);
+        setReplayNoteEditor(null);
+        setActivityTab((current) => current === "notes" ? "chat" : current);
+        return;
+      }
+      const loadedProject = loadReplayNotesProject(replayId);
+      replayNotesProjectRef.current = loadedProject;
+      setReplayNotesProject(loadedProject);
+      setSelectedReplayNoteId(null);
+      setReplayNoteEditor(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [casterMode, replayId]);
+
+  const persistReplayNotes = useCallback((
+    update: (current: ReplayNotesProjectV1) => ReplayNotesProjectV1,
+  ) => {
+    const current = replayNotesProjectRef.current;
+    const scoped = current.replayId === replayId
+      ? current
+      : createReplayNotesProject(replayId);
+    const next = update(scoped);
+    replayNotesProjectRef.current = next;
+    setReplayNotesProject(next);
+    return { project: next, saved: saveReplayNotesProject(next) };
+  }, [replayId]);
+
   const flashNotice = useCallback((message: string) => {
     setNotice(message);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -578,27 +743,39 @@ export function ReplayV2Player({
   const seekTo = useCallback(
     (targetMs: number, options?: { immediate?: boolean; eventIndex?: number }) => {
       if (!replay) return;
-      const target = Math.min(durationMs, Math.max(0, targetMs));
+      if (pendingSeekTimer.current) {
+        clearTimeout(pendingSeekTimer.current);
+        pendingSeekTimer.current = null;
+      }
+      const target = Math.min(playbackEndMs, Math.max(playbackStartMs, targetMs));
+      const targetEventIndex = target === targetMs ? options?.eventIndex : undefined;
       const backwards = target < currentMs;
       const apply = () => {
+        pendingSeekTimer.current = null;
         if (backwards || options?.immediate) setMotionSuppressedBriefly();
         clearAnalysis();
         setPresentation(null);
-        setManualEventIndex(options?.eventIndex ?? null);
+        setManualEventIndex(targetEventIndex ?? null);
         setCurrentMs(target);
       };
 
       if (!backwards && !options?.immediate) {
         const remaining = animationLockedUntil.current - performance.now();
         if (remaining > 12) {
-          if (pendingSeekTimer.current) clearTimeout(pendingSeekTimer.current);
           pendingSeekTimer.current = setTimeout(apply, remaining);
           return;
         }
       }
       apply();
     },
-    [clearAnalysis, currentMs, durationMs, replay, setMotionSuppressedBriefly],
+    [
+      clearAnalysis,
+      currentMs,
+      playbackEndMs,
+      playbackStartMs,
+      replay,
+      setMotionSuppressedBriefly,
+    ],
   );
 
   const beginGamePresentation = useCallback(
@@ -606,6 +783,11 @@ export function ReplayV2Player({
       if (!replay) return;
       const gameIndex = Math.min(Math.max(0, requestedIndex), Math.max(0, replay.series.games.length - 1));
       const game = replay.series.games[gameIndex];
+      if (clipRange) {
+        setPlaying(false);
+        seekTo(game ? replayGamePlaybackStartMs(game) : playbackStartMs, { immediate: true });
+        return;
+      }
       setPlaying(false);
       setManualEventIndex(null);
       setCurrentMs(game?.startedAtMs ?? 0);
@@ -614,7 +796,14 @@ export function ReplayV2Player({
       clearAnalysis();
       setMotionSuppressedBriefly();
     },
-    [clearAnalysis, replay, setMotionSuppressedBriefly],
+    [
+      clearAnalysis,
+      clipRange,
+      playbackStartMs,
+      replay,
+      seekTo,
+      setMotionSuppressedBriefly,
+    ],
   );
 
   const advancePresentation = useCallback(
@@ -655,7 +844,10 @@ export function ReplayV2Player({
       settleAnimations(false);
       return;
     }
-    if (!presentation && currentMs >= durationMs) beginGamePresentation(0);
+    if (!presentation && currentMs >= playbackEndMs) {
+      if (clipRange) seekTo(playbackStartMs, { immediate: true });
+      else beginGamePresentation(0);
+    }
     setManualEventIndex(null);
     settleAnimations(true);
     setPlaying(true);
@@ -663,11 +855,14 @@ export function ReplayV2Player({
     analysisSession,
     beginGamePresentation,
     clearAnalysis,
+    clipRange,
     currentMs,
-    durationMs,
+    playbackEndMs,
+    playbackStartMs,
     playing,
     presentation,
     replay,
+    seekTo,
     settleAnimations,
   ]);
 
@@ -680,7 +875,7 @@ export function ReplayV2Player({
         return;
       }
       if (!replay.events.length) return;
-      if (direction < 0 && state) {
+      if (!clipRange && direction < 0 && state) {
         const currentGame = gameForState(replay, state);
         const gameIndex = currentGame
           ? replay.series.games.findIndex((game) => game.id === currentGame.id)
@@ -697,9 +892,23 @@ export function ReplayV2Player({
         : replayActionStepIndex(replay, eventIndex, direction);
       if (targetIndex === undefined) return;
       const target = replay.events[targetIndex];
+      if (clipRange && (target.atMs < playbackStartMs || target.atMs > playbackEndMs)) return;
       seekTo(target.atMs, { immediate: direction < 0, eventIndex: targetIndex });
     },
-    [advancePresentation, casterMode, currentMs, eventIndex, presentation, replay, seekTo, setMotionSuppressedBriefly, state],
+    [
+      advancePresentation,
+      casterMode,
+      clipRange,
+      currentMs,
+      eventIndex,
+      playbackEndMs,
+      playbackStartMs,
+      presentation,
+      replay,
+      seekTo,
+      setMotionSuppressedBriefly,
+      state,
+    ],
   );
 
   const stepGame = useCallback(
@@ -710,9 +919,15 @@ export function ReplayV2Player({
         ? replay.series.games.findIndex((game) => game.id === currentGame.id)
         : 0;
       const nextIndex = Math.min(replay.series.games.length - 1, Math.max(0, currentIndex + direction));
+      const nextGame = replay.series.games[nextIndex];
+      const nextGameMs = nextGame ? replayGamePlaybackStartMs(nextGame) : null;
+      if (
+        clipRange &&
+        (nextGameMs === null || nextGameMs < playbackStartMs || nextGameMs > playbackEndMs)
+      ) return;
       beginGamePresentation(nextIndex);
     },
-    [beginGamePresentation, replay, state],
+    [beginGamePresentation, clipRange, playbackEndMs, playbackStartMs, replay, state],
   );
 
   const stepTurn = useCallback(
@@ -723,10 +938,11 @@ export function ReplayV2Player({
           ? turns.find((turn) => turn.atMs > currentMs + 1)
           : [...turns].reverse().find((turn) => turn.atMs < currentMs - 1);
       if (!next) return;
+      if (clipRange && (next.atMs < playbackStartMs || next.atMs > playbackEndMs)) return;
       setPlaying(false);
       seekTo(next.atMs, { immediate: direction < 0, eventIndex: next.eventIndex });
     },
-    [currentMs, seekTo, turns],
+    [clipRange, currentMs, playbackEndMs, playbackStartMs, seekTo, turns],
   );
 
   const changeSpeed = useCallback((value: number) => {
@@ -797,9 +1013,358 @@ export function ReplayV2Player({
     }
   }, [flashNotice]);
 
+  const restoreClipTriggerFocus = useCallback(() => {
+    const returnTarget = clipReturnFocusRef.current;
+    clipReturnFocusRef.current = null;
+    requestAnimationFrame(() => returnTarget?.focus());
+  }, []);
+
+  const closeClipEditor = useCallback(() => {
+    setClipDraft(null);
+    restoreClipTriggerFocus();
+  }, [restoreClipTriggerFocus]);
+
+  const markClipStartAtCurrentFrame = useCallback((requestedMs: number) => {
+    const markedStartMs = Math.round(requestedMs);
+    if (
+      !Number.isFinite(markedStartMs) ||
+      markedStartMs < 0 ||
+      markedStartMs > durationMs - MIN_REPLAY_CLIP_MS
+    ) {
+      flashNotice("Move before the replay end to mark a clip start");
+      return;
+    }
+    setClipStartMarkMs(markedStartMs);
+    setClipEndMarkMs((current) => (
+      current !== null && current >= markedStartMs + MIN_REPLAY_CLIP_MS ? current : null
+    ));
+    setClipDraft(null);
+    restoreClipTriggerFocus();
+    flashNotice(
+      `Clip start marked at ${formatReplayClipTimecode(markedStartMs)} · move to the end, then reopen Clip`,
+    );
+  }, [durationMs, flashNotice, restoreClipTriggerFocus]);
+
+  const markClipEndAtCurrentFrame = useCallback((requestedMs: number) => {
+    if (clipStartMarkMs === null) {
+      flashNotice("Mark a clip start first");
+      return;
+    }
+    const markedEndMs = Math.round(requestedMs);
+    if (
+      !Number.isFinite(markedEndMs) ||
+      markedEndMs < clipStartMarkMs + MIN_REPLAY_CLIP_MS ||
+      markedEndMs > durationMs
+    ) {
+      flashNotice(`Move after ${formatReplayClipTimecode(clipStartMarkMs + MIN_REPLAY_CLIP_MS)} to mark the clip end`);
+      return;
+    }
+    setClipEndMarkMs(markedEndMs);
+    setClipDraft(null);
+    restoreClipTriggerFocus();
+    flashNotice(
+      `Clip end marked at ${formatReplayClipTimecode(markedEndMs)} · reopen Clip to review or share`,
+    );
+  }, [clipStartMarkMs, durationMs, flashNotice, restoreClipTriggerFocus]);
+
+  const clearClipStartMark = useCallback(() => {
+    setClipStartMarkMs(null);
+    setClipEndMarkMs(null);
+    setClipDraft(defaultReplayClipRange(currentMs, durationMs));
+    flashNotice("Clip markers cleared");
+  }, [currentMs, durationMs, flashNotice]);
+
+  const moveClipStartMark = useCallback((requestedMs: number) => {
+    if (clipStartMarkMs === null) return;
+    const maxStartMs = Math.max(0, (clipEndMarkMs ?? durationMs) - MIN_REPLAY_CLIP_MS);
+    const nextMs = Math.min(maxStartMs, Math.max(0, Math.round(requestedMs / 50) * 50));
+    setPlaying(false);
+    setClipStartMarkMs(nextMs);
+    seekTo(nextMs, { immediate: true });
+  }, [clipEndMarkMs, clipStartMarkMs, durationMs, seekTo]);
+
+  const moveClipEndMark = useCallback((requestedMs: number) => {
+    if (clipStartMarkMs === null || clipEndMarkMs === null) return;
+    const minEndMs = clipStartMarkMs + MIN_REPLAY_CLIP_MS;
+    const nextMs = Math.min(durationMs, Math.max(minEndMs, Math.round(requestedMs / 50) * 50));
+    setPlaying(false);
+    setClipEndMarkMs(nextMs);
+    seekTo(nextMs, { immediate: true });
+  }, [clipEndMarkMs, clipStartMarkMs, durationMs, seekTo]);
+
+  const updateClipDraft = useCallback((range: ReplayClipRange) => {
+    setClipDraft(range);
+  }, []);
+
+  const openClipEditor = useCallback(() => {
+    if (replayNoteEditor) {
+      flashNotice("Save or cancel the open note first");
+      requestAnimationFrame(() => {
+        shellRef.current?.querySelector<HTMLTextAreaElement>("[data-replay-note-editor] textarea")?.focus();
+      });
+      return;
+    }
+    const draft = clipRange ?? (
+      clipStartMarkMs === null
+        ? defaultReplayClipRange(currentMs, durationMs)
+        : clipEndMarkMs !== null
+          ? normalizeReplayClipRange({ startMs: clipStartMarkMs, endMs: clipEndMarkMs }, durationMs)
+          : replayClipDraftFromMarkedStart(clipStartMarkMs, currentMs, durationMs)
+    );
+    if (!draft) {
+      flashNotice("This replay is too short to clip");
+      return;
+    }
+    if (noticeTimer.current) {
+      clearTimeout(noticeTimer.current);
+      noticeTimer.current = null;
+    }
+    setNotice("");
+    clipReturnFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setPlaying(false);
+    settleAnimations(false);
+    setShowMore(false);
+    setShowHelp(false);
+    setDiscardOverlay(null);
+    setBanishedOverlay(null);
+    setHoveredCard(null);
+    setClipDraft(draft);
+  }, [clipEndMarkMs, clipRange, clipStartMarkMs, currentMs, durationMs, flashNotice, replayNoteEditor, settleAnimations]);
+
+  const activateReplayClip = useCallback((range: ReplayClipRange, play: boolean) => {
+    const normalizedRange = normalizeReplayClipRange(range, durationMs);
+    if (!normalizedRange) {
+      flashNotice("Choose an end after the clip start");
+      return;
+    }
+    if (pendingSeekTimer.current) {
+      clearTimeout(pendingSeekTimer.current);
+      pendingSeekTimer.current = null;
+    }
+    clearAnalysis();
+    setClipRange(normalizedRange);
+    setClipDraft(null);
+    setClipStartMarkMs(null);
+    setClipEndMarkMs(null);
+    setPresentation(null);
+    setManualEventIndex(null);
+    setCurrentMs(normalizedRange.startMs);
+    setSelectedCard(null);
+    setSelectedReplayNoteId(null);
+    setReplayNoteEditor(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("t");
+    url.searchParams.set("start", String(normalizedRange.startMs / 1_000));
+    url.searchParams.set("end", String(normalizedRange.endMs / 1_000));
+    window.history.replaceState(window.history.state, "", url);
+    setMotionSuppressedBriefly();
+    settleAnimations(play);
+    setPlaying(play);
+    restoreClipTriggerFocus();
+  }, [
+    clearAnalysis,
+    durationMs,
+    flashNotice,
+    restoreClipTriggerFocus,
+    setMotionSuppressedBriefly,
+    settleAnimations,
+  ]);
+
+  const copyReplayClip = useCallback(async (range: ReplayClipRange) => {
+    const normalizedRange = normalizeReplayClipRange(range, durationMs);
+    if (!normalizedRange) {
+      flashNotice("Choose an end after the clip start");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(
+        replayClipUrl(window.location.origin, replayId, normalizedRange),
+      );
+      activateReplayClip(normalizedRange, false);
+      flashNotice("Clip link copied");
+    } catch {
+      flashNotice("The browser blocked clip link copying");
+    }
+  }, [activateReplayClip, durationMs, flashNotice, replayId]);
+
+  const clearReplayClip = useCallback(() => {
+    if (pendingSeekTimer.current) {
+      clearTimeout(pendingSeekTimer.current);
+      pendingSeekTimer.current = null;
+    }
+    setPlaying(false);
+    settleAnimations(false);
+    setClipRange(null);
+    setClipDraft(null);
+    setClipStartMarkMs(null);
+    setClipEndMarkMs(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("start");
+    url.searchParams.delete("end");
+    window.history.replaceState(window.history.state, "", url);
+    flashNotice("Full replay restored");
+    restoreClipTriggerFocus();
+  }, [flashNotice, restoreClipTriggerFocus, settleAnimations]);
+
+  const openNewReplayNote = useCallback(() => {
+    if (!replay || !state || casterMode) return;
+    if (replayNoteEditor) {
+      setActivityTab("notes");
+      flashNotice("Save or cancel the open note first");
+      requestAnimationFrame(() => {
+        shellRef.current?.querySelector<HTMLTextAreaElement>("[data-replay-note-editor] textarea")?.focus();
+      });
+      return;
+    }
+    setPlaying(false);
+    settleAnimations(false);
+    setSelectedReplayNoteId(null);
+    setReplayNoteEditor({
+      id: null,
+      atMs: Math.round(Math.min(playbackEndMs, Math.max(playbackStartMs, currentMs))),
+      title: eventLabel(currentEvent),
+      body: "",
+    });
+    setActivityTab("notes");
+  }, [casterMode, currentEvent, currentMs, flashNotice, playbackEndMs, playbackStartMs, replay, replayNoteEditor, settleAnimations, state]);
+
+  const selectReplayNote = useCallback((note: ReplayNote) => {
+    if (replayNoteEditor) {
+      flashNotice("Save or cancel the open note first");
+      requestAnimationFrame(() => {
+        shellRef.current?.querySelector<HTMLTextAreaElement>("[data-replay-note-editor] textarea")?.focus();
+      });
+      return;
+    }
+    if (
+      note.atMs < playbackStartMs ||
+      note.atMs > playbackEndMs ||
+      note.atMs > durationMs
+    ) {
+      flashNotice("That note is outside this replay clip");
+      return;
+    }
+    setPlaying(false);
+    settleAnimations(false);
+    setReplayNoteEditor(null);
+    setSelectedReplayNoteId(note.id);
+    setHoveredCard(null);
+    setActivityTab("notes");
+    seekTo(note.atMs, { immediate: true });
+  }, [durationMs, flashNotice, playbackEndMs, playbackStartMs, replayNoteEditor, seekTo, settleAnimations]);
+
+  const editReplayNote = useCallback((note: ReplayNote) => {
+    setPlaying(false);
+    setSelectedReplayNoteId(note.id);
+    setReplayNoteEditor({
+      id: note.id,
+      atMs: note.atMs,
+      title: note.title,
+      body: note.body,
+    });
+    setActivityTab("notes");
+  }, []);
+
+  const saveReplayNote = useCallback(() => {
+    if (!replay || !replayNoteEditor) return;
+    const title = replayNoteEditor.title.trim();
+    const body = replayNoteEditor.body.trim();
+    if (!title && !body) {
+      flashNotice("Add a title or note before saving");
+      return;
+    }
+    const anchor = replayNoteAnchorAt(replay, replayNoteEditor.atMs);
+    const noteId = replayNoteEditor.id ?? newReplayNoteId();
+    const outcome = replayNoteEditor.id
+      ? persistReplayNotes((current) => updateReplayNote(current, noteId, {
+        ...anchor,
+        title,
+        body,
+      }))
+      : persistReplayNotes((current) => addReplayNote(current, {
+        id: noteId,
+        ...anchor,
+        title,
+        body,
+      }));
+    if (!outcome.project.notes.some((note) => note.id === noteId)) {
+      flashNotice("Replay note limit reached — delete a note before adding another");
+      return;
+    }
+    setReplayNoteEditor(null);
+    setSelectedReplayNoteId(noteId);
+    setActivityTab("notes");
+    flashNotice(outcome.saved
+      ? "Replay note saved locally"
+      : "Replay note kept for this session — browser storage is unavailable");
+  }, [flashNotice, persistReplayNotes, replay, replayNoteEditor]);
+
+  const removeReplayNote = useCallback((noteId: string) => {
+    const outcome = persistReplayNotes((current) => deleteReplayNote(current, noteId));
+    setReplayNoteEditor(null);
+    setSelectedReplayNoteId((current) => current === noteId ? null : current);
+    flashNotice(outcome.saved
+      ? "Replay note deleted"
+      : "Note removed for this session — browser storage is unavailable");
+  }, [flashNotice, persistReplayNotes]);
+
+  const moveReplayNote = useCallback((noteId: string, requestedMs: number) => {
+    if (!replay) return;
+    const nextMs = Math.min(
+      playbackEndMs,
+      Math.max(playbackStartMs, Math.round(requestedMs / 50) * 50),
+    );
+    const current = replayNotesProjectRef.current;
+    const scoped = current.replayId === replayId
+      ? current
+      : createReplayNotesProject(replayId);
+    const next = updateReplayNote(scoped, noteId, { atMs: nextMs });
+    replayNotesProjectRef.current = next;
+    setReplayNotesProject(next);
+    setReplayNoteEditor((current) => (
+      current?.id === noteId ? { ...current, atMs: nextMs } : current
+    ));
+    setPlaying(false);
+    setSelectedReplayNoteId(noteId);
+    seekTo(nextMs, { immediate: true });
+  }, [playbackEndMs, playbackStartMs, replay, replayId, seekTo]);
+
+  const commitReplayNoteMove = useCallback((noteId: string, requestedMs: number) => {
+    if (!replay) return;
+    const nextMs = Math.min(
+      playbackEndMs,
+      Math.max(playbackStartMs, Math.round(requestedMs / 50) * 50),
+    );
+    const anchor = replayNoteAnchorAt(replay, nextMs);
+    const outcome = persistReplayNotes((current) => updateReplayNote(current, noteId, anchor));
+    if (!outcome.saved) {
+      flashNotice("Marker moved for this session — browser storage is unavailable");
+    }
+  }, [flashNotice, persistReplayNotes, playbackEndMs, playbackStartMs, replay]);
+
+  const closeReplayNote = useCallback(() => {
+    setReplayNoteEditor(null);
+    setSelectedReplayNoteId(null);
+  }, []);
+
+  const cancelReplayNoteEditor = useCallback(() => {
+    setReplayNoteEditor(null);
+    setSelectedReplayNoteId(replayNoteEditor?.id ?? null);
+  }, [replayNoteEditor]);
+
   useEffect(() => {
     const handleKeyDown = (keyboardEvent: KeyboardEvent) => {
-      if (keyboardEvent.defaultPrevented || isTypingTarget(keyboardEvent.target)) return;
+      if (keyboardEvent.defaultPrevented) return;
+      if (clipDraft) {
+        if (keyboardEvent.key === "Escape") {
+          keyboardEvent.preventDefault();
+          closeClipEditor();
+        }
+        return;
+      }
+      if (isTypingTarget(keyboardEvent.target)) return;
       const isArrowShortcut = keyboardEvent.key === "ArrowLeft" || keyboardEvent.key === "ArrowRight";
       if (
         keyboardEvent.ctrlKey ||
@@ -904,6 +1469,8 @@ export function ReplayV2Player({
     casterClean,
     casterMode,
     changeSpeed,
+    closeClipEditor,
+    clipDraft,
     flashNotice,
     fullscreen,
     stepAction,
@@ -914,21 +1481,28 @@ export function ReplayV2Player({
   ]);
 
   const shareReplay = useCallback(async () => {
-    const url = new URL(`/replays/${encodeURIComponent(replayId)}`, window.location.origin);
-    if (currentMs > 500) url.searchParams.set("t", String(Math.round(currentMs / 1_000)));
+    const url = clipRange
+      ? new URL(replayClipUrl(window.location.origin, replayId, clipRange))
+      : new URL(`/replays/${encodeURIComponent(replayId)}`, window.location.origin);
+    if (!clipRange && currentMs > 500) {
+      url.searchParams.set("t", String(Math.round(currentMs / 1_000)));
+    }
     try {
       if (navigator.share) {
-        await navigator.share({ title: "RiftLite Replay", url: url.toString() });
-        flashNotice("Replay shared");
+        await navigator.share({
+          title: clipRange ? "RiftLite Replay Clip" : "RiftLite Replay",
+          url: url.toString(),
+        });
+        flashNotice(clipRange ? "Clip shared" : "Replay shared");
       } else {
         await navigator.clipboard.writeText(url.toString());
-        flashNotice("Replay link copied");
+        flashNotice(clipRange ? "Clip link copied" : "Replay link copied");
       }
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       flashNotice("Could not share this replay");
     }
-  }, [currentMs, flashNotice, replayId]);
+  }, [clipRange, currentMs, flashNotice, replayId]);
 
   const captureFrame = useCallback(async () => {
     if (!navigator.mediaDevices?.getDisplayMedia) {
@@ -988,8 +1562,17 @@ export function ReplayV2Player({
   }, [flashNotice, replayId]);
 
   const startAnalysis = useCallback(() => {
-    if (casterMode || !replay || !canonicalState || eventIndex < 0) return;
-    const anchorMs = replay.events[eventIndex]?.atMs ?? currentMs;
+    if (
+      casterMode ||
+      !replay ||
+      !knowledgeReplay ||
+      !canonicalState ||
+      eventIndex < 0 ||
+      eventIndex >= knowledgeReplay.events.length
+    ) return;
+    const anchorMs = clipRange
+      ? Math.min(playbackEndMs, Math.max(playbackStartMs, currentMs))
+      : replay.events[eventIndex]?.atMs ?? currentMs;
     setPlaying(false);
     settleAnimations(false);
     setPresentation(null);
@@ -1003,14 +1586,26 @@ export function ReplayV2Player({
     setAnalysisSelectedCardId(null);
     setAnalysisAttachmentCardId(null);
     setAnalysisTargetChainEntryId(null);
-    const session = createReplayAnalysisSession(replay, eventIndex, canonicalState);
+    const session = createReplayAnalysisSession(knowledgeReplay, eventIndex, canonicalState);
     setAnalysisSession(session);
     flashNotice(
       session.inferredCardIds.length
         ? `Analysis started · ${session.inferredCardIds.length} later-revealed ${session.inferredCardIds.length === 1 ? "card" : "cards"} identified`
         : "Analysis started · changes are temporary",
     );
-  }, [canonicalState, casterMode, currentMs, eventIndex, flashNotice, replay, settleAnimations]);
+  }, [
+    canonicalState,
+    casterMode,
+    clipRange,
+    currentMs,
+    eventIndex,
+    flashNotice,
+    knowledgeReplay,
+    playbackEndMs,
+    playbackStartMs,
+    replay,
+    settleAnimations,
+  ]);
 
   const toggleAnalysis = useCallback(() => {
     if (analysisSession) clearAnalysis(true);
@@ -1142,6 +1737,15 @@ export function ReplayV2Player({
   }, [analysisSession, redoAnalysis, undoAnalysis]);
 
   const handleCardSelect = useCallback((card: ReplayCardState) => {
+    if (replayNoteEditor) {
+      flashNotice("Save or cancel the open note first");
+      requestAnimationFrame(() => {
+        shellRef.current?.querySelector<HTMLTextAreaElement>("[data-replay-note-editor] textarea")?.focus();
+      });
+      return;
+    }
+    setReplayNoteEditor(null);
+    setSelectedReplayNoteId(null);
     if (analysisSession && analysisTargetChainEntryId) {
       if (
         !replayAnalysisCanAddChainTarget(
@@ -1203,6 +1807,7 @@ export function ReplayV2Player({
     analysisSession,
     analysisTargetChainEntryId,
     flashNotice,
+    replayNoteEditor,
   ]);
 
   const analysisSelectedCard = useMemo(
@@ -1271,10 +1876,18 @@ export function ReplayV2Player({
       ref={shellRef}
       data-caster-clean={casterClean ? "true" : undefined}
       data-caster-mode={casterMode ? "true" : undefined}
+      data-replay-clip={clipRange ? "true" : undefined}
+      data-replay-clip-end-marked={clipEndMarkMs !== null ? "true" : undefined}
+      data-replay-clip-start-marked={clipStartMarkMs !== null ? "true" : undefined}
       data-fullscreen={fullscreen ? "true" : undefined}
       data-replay-player="v2"
     >
-      <div className={styles.scaleHost} ref={hostRef}>
+      <div
+        aria-hidden={clipDraft ? "true" : undefined}
+        className={styles.scaleHost}
+        inert={clipDraft ? true : undefined}
+        ref={hostRef}
+      >
         <div className={styles.canvas} ref={canvasRef} style={canvasStyle}>
           {loadState.status === "loading" ? (
             <StatusScreen title="Preparing replay" detail="Loading the canonical match timeline…" busy />
@@ -1337,18 +1950,36 @@ export function ReplayV2Player({
               />
               <InspectorRail
                 activityTab={activityTab}
+                allowClipping={clipSharingEnabled}
+                allowNotes={!casterMode}
                 casterClean={casterMode && casterClean}
+                clipEditorOpen={Boolean(clipDraft)}
+                clipEndMarkMs={clipEndMarkMs}
+                clipRange={clipRange}
+                clipStartMarkMs={clipStartMarkMs}
                 currentEventLabel={presentationStage ? presentationStageLabel(presentationStage) : eventLabel(currentEvent)}
                 currentMs={currentMs}
                 embed={embed}
                 fullscreen={fullscreen}
                 inspectedCard={inspectedCard}
                 onActivityTab={setActivityTab}
+                onAddNote={openNewReplayNote}
                 onCapture={() => void captureFrame()}
+                onCancelNote={cancelReplayNoteEditor}
+                onClip={openClipEditor}
+                onCloseNote={closeReplayNote}
+                onDeleteNote={removeReplayNote}
+                onEditNote={editReplayNote}
                 onFullscreen={() => void toggleFullscreen()}
                 onHelp={() => setShowHelp(true)}
+                onNoteDraft={setReplayNoteEditor}
+                onSaveNote={saveReplayNote}
+                onSelectNote={selectReplayNote}
                 onShare={() => void shareReplay()}
                 replay={replay}
+                replayNoteEditor={replayNoteEditor}
+                replayNotes={visibleReplayNotes}
+                selectedReplayNote={selectedReplayNote}
                 state={state}
               />
               {casterMode && !casterClean ? (
@@ -1568,11 +2199,20 @@ export function ReplayV2Player({
                   analysisActive={Boolean(analysisSession)}
                   bookmarks={casterMode ? casterProject.bookmarks : []}
                   cardsUp={cardsUp && !combinedReplay}
+                  clipEndMarkMs={clipEndMarkMs}
+                  clipRange={clipRange}
+                  clipStartMarkMs={clipStartMarkMs}
                   currentMs={currentMs}
                   durationMs={durationMs}
                   eventIndex={eventIndex}
                   fullscreen={fullscreen}
                   onChangeSpeed={changeSpeed}
+                  onCommitReplayNote={commitReplayNoteMove}
+                  onClearClipStartMark={() => {
+                    setClipStartMarkMs(null);
+                    setClipEndMarkMs(null);
+                    flashNotice("Clip markers cleared");
+                  }}
                   onFrame={(index) => {
                     const event = replay.events[index];
                     if (event) seekTo(event.atMs, { immediate: index < eventIndex, eventIndex: index });
@@ -1581,7 +2221,12 @@ export function ReplayV2Player({
                   onHelp={() => setShowHelp(true)}
                   onFullscreen={() => void toggleFullscreen()}
                   onJumpBookmark={jumpToCasterBookmark}
+                  onMoveClipEndMark={moveClipEndMark}
+                  onMoveClipStartMark={moveClipStartMark}
+                  onMoveReplayNote={moveReplayNote}
+                  onReviewClip={openClipEditor}
                   onSeek={seekTo}
+                  onSelectReplayNote={selectReplayNote}
                   onStepAction={stepAction}
                   onStepGame={stepGame}
                   onStepTurn={stepTurn}
@@ -1615,6 +2260,8 @@ export function ReplayV2Player({
                     });
                   }}
                   replay={replay}
+                  replayNotes={casterMode ? [] : visibleReplayNotes}
+                  selectedReplayNoteId={selectedReplayNoteId}
                   playerNamesHidden={allowPlayerNameHiding ? hidePlayerNames : null}
                   showMore={showMore}
                   speed={speed}
@@ -1626,7 +2273,7 @@ export function ReplayV2Player({
                 <DiscardOverlay
                   cards={discardOverlay.cards}
                   onCardHover={setHoveredCard}
-                  onCardSelect={setSelectedCard}
+                  onCardSelect={handleCardSelect}
                   onClose={() => {
                     setHoveredCard(null);
                     setDiscardOverlay(null);
@@ -1638,7 +2285,7 @@ export function ReplayV2Player({
                 <BanishedOverlay
                   cards={banishedOverlay.cards}
                   onCardHover={setHoveredCard}
-                  onCardSelect={setSelectedCard}
+                  onCardSelect={handleCardSelect}
                   onClose={() => {
                     setHoveredCard(null);
                     setBanishedOverlay(null);
@@ -1661,6 +2308,26 @@ export function ReplayV2Player({
           )}
         </div>
       </div>
+      {clipDraft ? (
+        <ReplayClipEditor
+          active={Boolean(clipRange)}
+          currentMs={currentMs}
+          durationMs={durationMs}
+          focusEnd={Boolean(!clipRange && clipStartMarkMs !== null && clipEndMarkMs === null)}
+          onChange={updateClipDraft}
+          onClear={clearReplayClip}
+          onClearStartMark={clearClipStartMark}
+          onClose={closeClipEditor}
+          onCopy={(range) => void copyReplayClip(range)}
+          onMarkEnd={markClipEndAtCurrentFrame}
+          onMarkStart={markClipStartAtCurrentFrame}
+          onPreview={(range) => activateReplayClip(range, true)}
+          notice={notice}
+          range={clipDraft}
+          markedEndMs={clipRange ? null : clipEndMarkMs}
+          markedStartMs={clipRange ? null : clipStartMarkMs}
+        />
+      ) : null}
     </div>
   );
 }
@@ -4008,33 +4675,69 @@ function HoverCardPreview({
 
 function InspectorRail({
   activityTab,
+  allowClipping,
+  allowNotes,
   casterClean,
+  clipEditorOpen,
+  clipEndMarkMs,
+  clipRange,
+  clipStartMarkMs,
   currentEventLabel,
   currentMs,
   embed,
   fullscreen,
   inspectedCard,
   onActivityTab,
+  onAddNote,
+  onCancelNote,
   onCapture,
+  onClip,
+  onCloseNote,
+  onDeleteNote,
+  onEditNote,
   onFullscreen,
   onHelp,
+  onNoteDraft,
+  onSaveNote,
+  onSelectNote,
   onShare,
   replay,
+  replayNoteEditor,
+  replayNotes,
+  selectedReplayNote,
   state,
 }: {
-  activityTab: "chat" | "log";
+  activityTab: ReplayActivityTab;
+  allowClipping: boolean;
+  allowNotes: boolean;
   casterClean: boolean;
+  clipEditorOpen: boolean;
+  clipEndMarkMs: number | null;
+  clipRange: ReplayClipRange | null;
+  clipStartMarkMs: number | null;
   currentEventLabel: string;
   currentMs: number;
   embed: boolean;
   fullscreen: boolean;
   inspectedCard: ReplayCardState | null;
-  onActivityTab: (tab: "chat" | "log") => void;
+  onActivityTab: (tab: ReplayActivityTab) => void;
+  onAddNote: () => void;
+  onCancelNote: () => void;
   onCapture: () => void;
+  onClip: () => void;
+  onCloseNote: () => void;
+  onDeleteNote: (noteId: string) => void;
+  onEditNote: (note: ReplayNote) => void;
   onFullscreen: () => void;
   onHelp: () => void;
+  onNoteDraft: (draft: ReplayNoteEditorState | null) => void;
+  onSaveNote: () => void;
+  onSelectNote: (note: ReplayNote) => void;
   onShare: () => void;
   replay: CanonicalReplayV2;
+  replayNoteEditor: ReplayNoteEditorState | null;
+  replayNotes: ReplayNote[];
+  selectedReplayNote: ReplayNote | null;
   state: ReplayState;
 }) {
   const activityRef = useRef<HTMLDivElement>(null);
@@ -4044,10 +4747,15 @@ function InspectorRail({
   const displayFields = casterClean
     ? fields.filter(([label]) => !/^(?:Id|Name|Source|Owner Player Id|Exhausted|Created At|Card Code)$/i.test(label))
     : fields;
-  const activityLength = activityTab === "chat" ? state.chat.length : state.log.length;
+  const visibleActivityTab = allowNotes || activityTab !== "notes" ? activityTab : "chat";
+  const activityLength = visibleActivityTab === "chat"
+    ? state.chat.length
+    : visibleActivityTab === "log"
+      ? state.log.length
+      : replayNotes.length;
   useEffect(() => {
     activityRef.current?.scrollTo({ top: activityRef.current.scrollHeight, behavior: "smooth" });
-  }, [activityLength, activityTab]);
+  }, [activityLength, visibleActivityTab]);
 
   return (
     <aside
@@ -4063,6 +4771,31 @@ function InspectorRail({
         {!casterClean ? (
           <div className={styles.railActions}>
             <IconButton label="Capture replay frame" name="camera" onClick={onCapture} />
+            {allowNotes ? (
+              <IconButton
+                active={Boolean(replayNoteEditor || selectedReplayNote)}
+                label={`Add replay note at ${formatReplayClipTimecode(currentMs)}`}
+                name="note"
+                onClick={onAddNote}
+              />
+            ) : null}
+            {allowClipping ? (
+              <IconButton
+                active={Boolean(clipRange || clipStartMarkMs !== null)}
+                dataControl="clip"
+                expanded={clipEditorOpen}
+                hasPopup="dialog"
+                label={clipRange
+                  ? "Edit replay clip"
+                  : clipStartMarkMs !== null
+                    ? clipEndMarkMs !== null
+                      ? `Review draft replay clip — ${formatReplayClipTimecode(clipStartMarkMs)} to ${formatReplayClipTimecode(clipEndMarkMs)}`
+                      : `Finish replay clip — start marked at ${formatReplayClipTimecode(clipStartMarkMs)}`
+                    : "Clip replay"}
+                name="scissors"
+                onClick={onClip}
+              />
+            ) : null}
             <IconButton label="Share replay" name="share" onClick={onShare} />
             <IconButton label={fullscreen ? "Exit player fullscreen" : "Player fullscreen"} name="fullscreen" onClick={onFullscreen} />
             <IconButton label="Keyboard shortcuts" name="help" onClick={onHelp} />
@@ -4070,54 +4803,83 @@ function InspectorRail({
         ) : <span className={styles.casterLiveBadge}>CLEAN FEED</span>}
       </div>
       <div className={styles.replayMeta}>
-        <span>{casterClean ? "Commentary view" : embed ? "Desktop embed" : "Web replay"}</span>
+        <span>
+          {clipRange
+            ? `Clip ${formatClock(clipRange.startMs)}–${formatClock(clipRange.endMs)}`
+            : clipStartMarkMs !== null
+              ? clipEndMarkMs !== null
+                ? `Draft ${formatReplayClipTimecode(clipStartMarkMs)}–${formatReplayClipTimecode(clipEndMarkMs)}`
+                : `Start marked ${formatReplayClipTimecode(clipStartMarkMs)}`
+            : casterClean
+              ? "Commentary view"
+              : embed
+                ? "Desktop embed"
+                : "Web replay"}
+        </span>
         <span>Game {state.room.gameNumber || state.gameOrdinal || 1}</span>
         <span>Turn {state.room.turnNumber ?? "—"}</span>
       </div>
 
-      <section className={styles.cardInspector} aria-live="polite" data-card-inspector>
-        <div className={`${styles.inspectorArt} ${!cardImage ? styles.inspectorArtEmpty : ""}`}>
-          {cardImage ? (
-            <span
-              className={`${styles.inspectorArtFrame} ${
-                inspectedBattlefield ? styles.inspectorArtFrameBattlefield : ""
-              }`}
-              data-inspector-art-frame
-              data-inspector-battlefield={inspectedBattlefield ? "true" : undefined}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={inspectedCard ? cardName(inspectedCard) : ""} src={cardImage} />
-            </span>
-          ) : (
-            <><Icon name="card" /><span>Hover a card</span></>
-          )}
-        </div>
-        <div className={styles.inspectorDetails}>
-          <span className={styles.inspectorEyebrow}>{casterClean ? "Card spotlight" : "Current card"}</span>
-          <h2>{inspectedCard ? cardName(inspectedCard) : "No card selected"}</h2>
-          {inspectedCard?.cardCode ? <code>{inspectedCard.cardCode}</code> : null}
-          {displayFields.length ? (
-            <dl>
-              {displayFields.map(([label, value]) => (
-                <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
-              ))}
-            </dl>
-          ) : (
-            <p>{inspectedCard
-              ? casterClean
-                ? "Hover to preview another card. Click a card to keep it in the spotlight."
-                : "No additional public card details at this frame."
-              : "Hover or focus a card on the board to inspect it."}</p>
-          )}
-        </div>
-      </section>
+      {allowNotes && replayNoteEditor ? (
+        <ReplayNoteEditorPanel
+          draft={replayNoteEditor}
+          onCancel={onCancelNote}
+          onChange={onNoteDraft}
+          onSave={onSaveNote}
+        />
+      ) : allowNotes && selectedReplayNote ? (
+        <ReplayNoteInspector
+          note={selectedReplayNote}
+          onBack={onCloseNote}
+          onDelete={() => onDeleteNote(selectedReplayNote.id)}
+          onEdit={() => onEditNote(selectedReplayNote)}
+          onSeek={() => onSelectNote(selectedReplayNote)}
+        />
+      ) : (
+        <section className={styles.cardInspector} aria-live="polite" data-card-inspector>
+          <div className={`${styles.inspectorArt} ${!cardImage ? styles.inspectorArtEmpty : ""}`}>
+            {cardImage ? (
+              <span
+                className={`${styles.inspectorArtFrame} ${
+                  inspectedBattlefield ? styles.inspectorArtFrameBattlefield : ""
+                }`}
+                data-inspector-art-frame
+                data-inspector-battlefield={inspectedBattlefield ? "true" : undefined}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img alt={inspectedCard ? cardName(inspectedCard) : ""} src={cardImage} />
+              </span>
+            ) : (
+              <><Icon name="card" /><span>Hover a card</span></>
+            )}
+          </div>
+          <div className={styles.inspectorDetails}>
+            <span className={styles.inspectorEyebrow}>{casterClean ? "Card spotlight" : "Current card"}</span>
+            <h2>{inspectedCard ? cardName(inspectedCard) : "No card selected"}</h2>
+            {inspectedCard?.cardCode ? <code>{inspectedCard.cardCode}</code> : null}
+            {displayFields.length ? (
+              <dl>
+                {displayFields.map(([label, value]) => (
+                  <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+                ))}
+              </dl>
+            ) : (
+              <p>{inspectedCard
+                ? casterClean
+                  ? "Hover to preview another card. Click a card to keep it in the spotlight."
+                  : "No additional public card details at this frame."
+                : "Hover or focus a card on the board to inspect it."}</p>
+            )}
+          </div>
+        </section>
+      )}
 
       {!casterClean ? <section className={styles.activityPanel} data-activity-panel>
         <header>
           <div className={styles.activityTabs} role="tablist" aria-label="Replay activity">
             <button
-              aria-selected={activityTab === "chat"}
-              className={activityTab === "chat" ? styles.activeActivityTab : ""}
+              aria-selected={visibleActivityTab === "chat"}
+              className={visibleActivityTab === "chat" ? styles.activeActivityTab : ""}
               onClick={() => onActivityTab("chat")}
               role="tab"
               type="button"
@@ -4125,32 +4887,64 @@ function InspectorRail({
               Chat <span>{state.chat.length}</span>
             </button>
             <button
-              aria-selected={activityTab === "log"}
-              className={activityTab === "log" ? styles.activeActivityTab : ""}
+              aria-selected={visibleActivityTab === "log"}
+              className={visibleActivityTab === "log" ? styles.activeActivityTab : ""}
               onClick={() => onActivityTab("log")}
               role="tab"
               type="button"
             >
               Match log <span>{state.log.length}</span>
             </button>
+            {allowNotes ? (
+              <button
+                aria-selected={visibleActivityTab === "notes"}
+                className={visibleActivityTab === "notes" ? styles.activeActivityTab : ""}
+                onClick={() => onActivityTab("notes")}
+                role="tab"
+                type="button"
+              >
+                Notes <span>{replayNotes.length}</span>
+              </button>
+            ) : null}
           </div>
+          {allowNotes && visibleActivityTab === "notes" ? (
+            <button className={styles.activityHeaderAction} onClick={onAddNote} type="button">
+              <Icon name="note" /> Add at {formatReplayClipTimecode(currentMs)}
+            </button>
+          ) : null}
         </header>
         <div className={styles.activityList} ref={activityRef} role="tabpanel">
-          {activityTab === "chat"
+          {visibleActivityTab === "chat"
             ? state.chat.slice(-120).map((entry) => (
                 <article className={styles.chatEntry} key={entry.id}>
                   <span>{relativeReplayTime(replay, entry.at)}</span>
                   <div><b>{entry.author || "Player"}</b><p>{entry.text}</p></div>
                 </article>
               ))
-            : state.log.slice(-160).map((entry) => (
-                <article className={styles.logEntry} key={entry.id}>
-                  <span>{relativeReplayTime(replay, entry.at)}</span>
-                  <p>{entry.text}</p>
-                </article>
-              ))}
+            : visibleActivityTab === "log"
+              ? state.log.slice(-160).map((entry) => (
+                  <article className={styles.logEntry} key={entry.id}>
+                    <span>{relativeReplayTime(replay, entry.at)}</span>
+                    <p>{entry.text}</p>
+                  </article>
+                ))
+              : replayNotes.map((note) => (
+                  <button
+                    aria-current={selectedReplayNote?.id === note.id ? "true" : undefined}
+                    className={styles.replayNoteListItem}
+                    key={note.id}
+                    onClick={() => onSelectNote(note)}
+                    type="button"
+                  >
+                    <span>{formatReplayClipTimecode(note.atMs)}</span>
+                    <div><b>{replayNoteLabel(note)}</b><p>{note.body || "No note text"}</p></div>
+                  </button>
+                ))}
           {activityLength === 0 ? (
-            <div className={styles.emptyActivity}><Icon name={activityTab === "chat" ? "chat" : "list"} /><span>No {activityTab} entries yet</span></div>
+            <div className={styles.emptyActivity}>
+              <Icon name={visibleActivityTab === "chat" ? "chat" : visibleActivityTab === "notes" ? "note" : "list"} />
+              <span>{visibleActivityTab === "notes" ? "No replay notes yet" : `No ${visibleActivityTab} entries yet`}</span>
+            </div>
           ) : null}
         </div>
       </section> : null}
@@ -4159,6 +4953,101 @@ function InspectorRail({
         <div><small>{formatClock(currentMs)}</small><b>{currentEventLabel}</b></div>
       </div>
     </aside>
+  );
+}
+
+function ReplayNoteEditorPanel({
+  draft,
+  onCancel,
+  onChange,
+  onSave,
+}: {
+  draft: ReplayNoteEditorState;
+  onCancel: () => void;
+  onChange: (draft: ReplayNoteEditorState) => void;
+  onSave: () => void;
+}) {
+  return (
+    <section className={`${styles.cardInspector} ${styles.replayNoteInspector}`} data-replay-note-editor>
+      <div className={styles.replayNoteArt}>
+        <Icon name="note" />
+        <span>{formatReplayClipTimecode(draft.atMs)}</span>
+        <small>Saved only in this browser</small>
+      </div>
+      <form
+        className={`${styles.inspectorDetails} ${styles.replayNoteEditorFields}`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave();
+        }}
+      >
+        <span className={styles.inspectorEyebrow}>{draft.id ? "Edit replay note" : "New replay note"}</span>
+        <label>
+          <span>Title</span>
+          <input
+            aria-label="Replay note title"
+            maxLength={160}
+            onChange={(event) => onChange({ ...draft, title: event.currentTarget.value })}
+            placeholder="What should the viewer notice?"
+            value={draft.title}
+          />
+        </label>
+        <label>
+          <span>Note</span>
+          <textarea
+            aria-label="Replay note"
+            autoFocus
+            maxLength={4_000}
+            onChange={(event) => onChange({ ...draft, body: event.currentTarget.value })}
+            placeholder="Explain the decision, puzzle, or coaching point…"
+            rows={5}
+            value={draft.body}
+          />
+        </label>
+        <div className={styles.replayNoteActions}>
+          <button onClick={onCancel} type="button">Cancel</button>
+          <button className={styles.replayNotePrimaryAction} type="submit">Save note</button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function ReplayNoteInspector({
+  note,
+  onBack,
+  onDelete,
+  onEdit,
+  onSeek,
+}: {
+  note: ReplayNote;
+  onBack: () => void;
+  onDelete: () => void;
+  onEdit: () => void;
+  onSeek: () => void;
+}) {
+  const context = [
+    note.gameNumber ? `Game ${note.gameNumber}` : "",
+    note.turn !== null ? `Turn ${note.turn}` : "",
+  ].filter(Boolean).join(" · ");
+  return (
+    <section className={`${styles.cardInspector} ${styles.replayNoteInspector}`} data-replay-note-inspector>
+      <div className={styles.replayNoteArt}>
+        <Icon name="note" />
+        <button onClick={onSeek} type="button">{formatReplayClipTimecode(note.atMs)}</button>
+        <small>{context || "Replay moment"}</small>
+      </div>
+      <div className={`${styles.inspectorDetails} ${styles.replayNoteDetails}`}>
+        <span className={styles.inspectorEyebrow}>Replay note</span>
+        <h2>{replayNoteLabel(note)}</h2>
+        {note.body ? <p>{note.body}</p> : <p>No additional note text.</p>}
+        <div className={styles.replayNoteActions}>
+          <button onClick={onBack} type="button">Back to card details</button>
+          <button onClick={onEdit} type="button">Edit</button>
+          <button className={styles.replayNoteDeleteAction} onClick={onDelete} type="button">Delete</button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -4909,18 +5798,28 @@ function TransportControls({
   analysisActive,
   bookmarks,
   cardsUp,
+  clipEndMarkMs,
+  clipRange,
+  clipStartMarkMs,
   currentMs,
   durationMs,
   eventIndex,
   fullscreen,
   onChangeSpeed,
+  onCommitReplayNote,
+  onClearClipStartMark,
   onFrame,
   onGame,
   onHelp,
   onFullscreen,
   onJumpBookmark,
+  onMoveClipEndMark,
+  onMoveClipStartMark,
+  onMoveReplayNote,
   onPresentationFrame,
+  onReviewClip,
   onSeek,
+  onSelectReplayNote,
   onStepAction,
   onStepGame,
   onStepTurn,
@@ -4932,6 +5831,8 @@ function TransportControls({
   playing,
   presentationFrame,
   replay,
+  replayNotes,
+  selectedReplayNoteId,
   playerNamesHidden,
   showMore,
   speed,
@@ -4943,18 +5844,28 @@ function TransportControls({
   analysisActive: boolean;
   bookmarks: CasterBookmark[];
   cardsUp: boolean;
+  clipEndMarkMs: number | null;
+  clipRange: ReplayClipRange | null;
+  clipStartMarkMs: number | null;
   currentMs: number;
   durationMs: number;
   eventIndex: number;
   fullscreen: boolean;
   onChangeSpeed: (speed: number) => void;
+  onCommitReplayNote: (noteId: string, atMs: number) => void;
+  onClearClipStartMark: () => void;
   onFrame: (index: number) => void;
   onGame: (gameIndex: number) => void;
   onHelp: () => void;
   onFullscreen: () => void;
   onJumpBookmark: (bookmark: CasterBookmark) => void;
+  onMoveClipEndMark: (atMs: number) => void;
+  onMoveClipStartMark: (atMs: number) => void;
+  onMoveReplayNote: (noteId: string, atMs: number) => void;
   onPresentationFrame: (stageIndex: number) => void;
+  onReviewClip: () => void;
   onSeek: (atMs: number, options?: { immediate?: boolean; eventIndex?: number }) => void;
+  onSelectReplayNote: (note: ReplayNote) => void;
   onStepAction: (direction: -1 | 1) => void;
   onStepGame: (direction: -1 | 1) => void;
   onStepTurn: (direction: -1 | 1) => void;
@@ -4966,6 +5877,8 @@ function TransportControls({
   playing: boolean;
   presentationFrame: { index: number; label: string; total: number } | null;
   replay: CanonicalReplayV2;
+  replayNotes: ReplayNote[];
+  selectedReplayNoteId: string | null;
   playerNamesHidden: boolean | null;
   showMore: boolean;
   speed: number;
@@ -4974,59 +5887,76 @@ function TransportControls({
 }) {
   const currentGame = gameForState(replay, state);
   const currentTurnIndex = lastTurnIndexAtTime(turns, currentMs);
+  const timelineStartMs = clipRange?.startMs ?? 0;
+  const timelineEndMs = clipRange?.endMs ?? durationMs;
+  const timelineDurationMs = Math.max(1, timelineEndMs - timelineStartMs);
   return (
     <footer className={styles.transport} aria-label="Replay controls">
       {showMore ? (
         <div className={styles.morePanel} data-control="more-panel">
-          <section>
-            <header>
-              <span>{presentationFrame ? "Opening frame" : "Frame"}</span>
-              <b>
-                {presentationFrame
-                  ? `${presentationFrame.index + 1} / ${presentationFrame.total}`
-                  : `${Math.max(0, eventIndex + 1)} / ${replay.events.length}`}
-              </b>
-            </header>
-            <input
-              aria-label={presentationFrame ? "Opening sequence frame" : "Replay frame"}
-              data-control="frame-navigator"
-              max={presentationFrame ? Math.max(0, presentationFrame.total - 1) : Math.max(0, replay.events.length - 1)}
-              min={0}
-              onChange={(event) => {
-                const value = Number(event.currentTarget.value);
-                if (presentationFrame) onPresentationFrame(value);
-                else onFrame(value);
-              }}
-              step={1}
-              type="range"
-              value={presentationFrame ? presentationFrame.index : Math.max(0, eventIndex)}
-            />
-            {presentationFrame ? <small className={styles.presentationFrameLabel}>{presentationFrame.label}</small> : null}
-          </section>
-          <section>
-            <header><span>Game</span><b>{currentGame?.gameNumber ?? 1}</b></header>
-            <div className={styles.navigatorButtons}>
-              <ControlButton label="Previous game" name="previous" onClick={() => onStepGame(-1)} small />
-              {replay.series.games.map((game, gameIndex) => (
-                <button
-                  aria-current={currentGame?.id === game.id ? "true" : undefined}
-                  className={currentGame?.id === game.id ? styles.activeNavigatorButton : ""}
-                  key={game.id}
-                  onClick={() => onGame(gameIndex)}
-                  type="button"
-                >G{game.gameNumber}</button>
-              ))}
-              <ControlButton label="Next game" name="next" onClick={() => onStepGame(1)} small />
-            </div>
-          </section>
-          <section>
-            <header><span>Turn</span><b>{currentTurnIndex >= 0 ? turns[currentTurnIndex]?.turn : state.room.turnNumber ?? "—"}</b></header>
-            <div className={styles.navigatorButtons}>
-              <ControlButton label="Previous turn" name="previous" onClick={() => onStepTurn(-1)} small />
-              <span>{turns.length ? `${currentTurnIndex + 1} of ${turns.length}` : "No turn markers"}</span>
-              <ControlButton label="Next turn" name="next" onClick={() => onStepTurn(1)} small />
-            </div>
-          </section>
+          {clipRange ? (
+            <section>
+              <header>
+                <span>Clip</span>
+                <b>{formatClock(timelineStartMs)}–{formatClock(timelineEndMs)}</b>
+              </header>
+              <small className={styles.presentationFrameLabel}>
+                Full-replay frame, game, and turn controls are hidden for shared clips.
+              </small>
+            </section>
+          ) : (
+            <>
+              <section>
+                <header>
+                  <span>{presentationFrame ? "Opening frame" : "Frame"}</span>
+                  <b>
+                    {presentationFrame
+                      ? `${presentationFrame.index + 1} / ${presentationFrame.total}`
+                      : `${Math.max(0, eventIndex + 1)} / ${replay.events.length}`}
+                  </b>
+                </header>
+                <input
+                  aria-label={presentationFrame ? "Opening sequence frame" : "Replay frame"}
+                  data-control="frame-navigator"
+                  max={presentationFrame ? Math.max(0, presentationFrame.total - 1) : Math.max(0, replay.events.length - 1)}
+                  min={0}
+                  onChange={(event) => {
+                    const value = Number(event.currentTarget.value);
+                    if (presentationFrame) onPresentationFrame(value);
+                    else onFrame(value);
+                  }}
+                  step={1}
+                  type="range"
+                  value={presentationFrame ? presentationFrame.index : Math.max(0, eventIndex)}
+                />
+                {presentationFrame ? <small className={styles.presentationFrameLabel}>{presentationFrame.label}</small> : null}
+              </section>
+              <section>
+                <header><span>Game</span><b>{currentGame?.gameNumber ?? 1}</b></header>
+                <div className={styles.navigatorButtons}>
+                  <ControlButton label="Previous game" name="previous" onClick={() => onStepGame(-1)} small />
+                  {replay.series.games.map((game, gameIndex) => (
+                    <button
+                      aria-current={currentGame?.id === game.id ? "true" : undefined}
+                      className={currentGame?.id === game.id ? styles.activeNavigatorButton : ""}
+                      key={game.id}
+                      onClick={() => onGame(gameIndex)}
+                      type="button"
+                    >G{game.gameNumber}</button>
+                  ))}
+                  <ControlButton label="Next game" name="next" onClick={() => onStepGame(1)} small />
+                </div>
+              </section>
+              <section>
+                <header><span>Turn</span><b>{currentTurnIndex >= 0 ? turns[currentTurnIndex]?.turn : state.room.turnNumber ?? "—"}</b></header>
+                <div className={styles.navigatorButtons}>
+                  <ControlButton label="Previous turn" name="previous" onClick={() => onStepTurn(-1)} small />
+                  <span>{turns.length ? `${currentTurnIndex + 1} of ${turns.length}` : "No turn markers"}</span>
+                  <ControlButton label="Next turn" name="next" onClick={() => onStepTurn(1)} small />
+                </div>
+              </section>
+            </>
+          )}
           <section>
             <header><span>Speed</span><b>{speed}×</b></header>
             <div className={styles.speedButtons}>
@@ -5045,35 +5975,122 @@ function TransportControls({
           </section>
         </div>
       ) : null}
+      {clipStartMarkMs !== null && !clipRange ? (
+        <>
+          {clipEndMarkMs !== null ? (
+            <span
+              aria-hidden="true"
+              className={styles.clipDraftTimelineRange}
+              style={{
+                left: `${(clipStartMarkMs / durationMs) * 100}%`,
+                width: `${((clipEndMarkMs - clipStartMarkMs) / durationMs) * 100}%`,
+              }}
+            />
+          ) : null}
+          <div className={styles.clipStartChip} data-clip-start-chip>
+            <span>
+              {clipEndMarkMs !== null ? "Draft clip" : "Clip start"} · <b>{formatReplayClipTimecode(clipStartMarkMs)}</b>
+              {clipEndMarkMs !== null ? <> → <b>{formatReplayClipTimecode(clipEndMarkMs)}</b></> : null}
+            </span>
+            <button
+              onClick={() => onSeek(clipStartMarkMs, { immediate: true })}
+              type="button"
+            >
+              Go start
+            </button>
+            {clipEndMarkMs !== null ? (
+              <>
+                <button onClick={() => onSeek(clipEndMarkMs, { immediate: true })} type="button">Go end</button>
+                <button onClick={onReviewClip} type="button">Review</button>
+              </>
+            ) : null}
+            <button onClick={onClearClipStartMark} type="button">Discard</button>
+          </div>
+          <TimelineMarkerInput
+            atMs={clipStartMarkMs}
+            clampMaxMs={Math.max(0, (clipEndMarkMs ?? durationMs) - MIN_REPLAY_CLIP_MS)}
+            className={styles.clipStartTimelineMarker}
+            data-clip-start-marker
+            label="Clip start marker"
+            maxMs={durationMs}
+            minMs={0}
+            onActivate={(atMs) => onSeek(atMs, { immediate: true })}
+            onMove={onMoveClipStartMark}
+          />
+          {clipEndMarkMs !== null ? (
+            <TimelineMarkerInput
+              atMs={clipEndMarkMs}
+              clampMinMs={clipStartMarkMs + MIN_REPLAY_CLIP_MS}
+              className={styles.clipEndTimelineMarker}
+              data-clip-end-marker
+              label="Clip end marker"
+              maxMs={durationMs}
+              minMs={0}
+              onActivate={(atMs) => onSeek(atMs, { immediate: true })}
+              onMove={onMoveClipEndMark}
+            />
+          ) : null}
+        </>
+      ) : null}
       {bookmarks.length ? (
         <div aria-label="Caster bookmark markers" className={styles.casterTimelineMarkers}>
-          {bookmarks.map((bookmark, index) => (
+          {bookmarks.filter((bookmark) => (
+            bookmark.atMs >= timelineStartMs && bookmark.atMs <= timelineEndMs
+          )).map((bookmark, index) => (
             <button
               aria-label={`Jump to caster bookmark ${index + 1}`}
               key={bookmark.id}
               onClick={() => onJumpBookmark(bookmark)}
-              style={{ left: `${Math.min(100, Math.max(0, (bookmark.atMs / durationMs) * 100))}%` }}
+              style={{
+                left: `${Math.min(100, Math.max(
+                  0,
+                  ((bookmark.atMs - timelineStartMs) / timelineDurationMs) * 100,
+                ))}%`,
+              }}
               title={`${formatClock(bookmark.atMs)} · ${bookmark.title || bookmark.note || "Replay moment"}`}
               type="button"
             />
           ))}
         </div>
       ) : null}
+      {replayNotes.map((note, index) => (
+        <TimelineMarkerInput
+          atMs={note.atMs}
+          className={`${styles.replayNoteTimelineMarker} ${
+            selectedReplayNoteId === note.id ? styles.replayNoteTimelineMarkerSelected : ""
+          }`}
+          data-replay-note-marker={note.id}
+          key={note.id}
+          label={`Replay note ${index + 1}, ${replayNoteLabel(note)}`}
+          maxMs={timelineEndMs}
+          minMs={timelineStartMs}
+          onActivate={(atMs) => onSelectReplayNote({ ...note, atMs })}
+          onCommit={(atMs) => onCommitReplayNote(note.id, atMs)}
+          onMove={(atMs) => onMoveReplayNote(note.id, atMs)}
+        />
+      ))}
       <input
         aria-label="Replay progress"
         className={styles.progressRange}
         data-control="timeline"
-        max={durationMs}
-        min={0}
+        max={timelineEndMs}
+        min={timelineStartMs}
         onChange={(event) => onSeek(Number(event.currentTarget.value), { immediate: Number(event.currentTarget.value) < currentMs })}
         step={50}
-        style={{ "--progress": `${(currentMs / durationMs) * 100}%` } as CSSProperties}
+        style={{
+          "--progress": `${((currentMs - timelineStartMs) / timelineDurationMs) * 100}%`,
+        } as CSSProperties}
         type="range"
-        value={Math.min(durationMs, currentMs)}
+        value={Math.min(timelineEndMs, Math.max(timelineStartMs, currentMs))}
       />
       <div className={styles.transportInner}>
         <div className={styles.transportGroup}>
-          <ControlButton dataControl="start" label="Replay beginning" name="skipStart" onClick={() => onSeek(0, { immediate: true })} />
+          <ControlButton
+            dataControl="start"
+            label={clipRange ? "Clip beginning" : "Replay beginning"}
+            name="skipStart"
+            onClick={() => onSeek(timelineStartMs, { immediate: true })}
+          />
           <ControlButton dataControl="previous-action" label="Previous action" name="previous" onClick={() => onStepAction(-1)} />
           <ControlButton dataControl="rewind-15" label="Rewind 15 seconds" name="rewind" onClick={() => onSeek(currentMs - 15_000, { immediate: true })} text="15" />
         </div>
@@ -5089,10 +6106,15 @@ function TransportControls({
         <div className={styles.transportGroup}>
           <ControlButton dataControl="forward-15" label="Forward 15 seconds" name="forward" onClick={() => onSeek(currentMs + 15_000)} text="15" />
           <ControlButton dataControl="next-action" label="Next action" name="next" onClick={() => onStepAction(1)} />
-          <ControlButton dataControl="end" label="Replay end" name="skipEnd" onClick={() => onSeek(durationMs)} />
+          <ControlButton
+            dataControl="end"
+            label={clipRange ? "Clip end" : "Replay end"}
+            name="skipEnd"
+            onClick={() => onSeek(timelineEndMs)}
+          />
         </div>
         <div className={styles.timeReadout}>
-          <b>{formatClock(currentMs)}</b><span>/ {formatClock(durationMs)}</span>
+          <b>{formatClock(currentMs)}</b><span>/ {formatClock(timelineEndMs)}</span>
         </div>
         <button className={styles.speedControl} data-control="speed" onClick={() => onChangeSpeed(nextPlaybackSpeed(speed))} type="button">
           {speed}×
@@ -5158,6 +6180,372 @@ function TransportControls({
         </button> : null}
       </div>
     </footer>
+  );
+}
+
+function TimelineMarkerInput({
+  atMs,
+  clampMaxMs,
+  clampMinMs,
+  className,
+  label,
+  maxMs,
+  minMs,
+  onActivate,
+  onCommit,
+  onMove,
+  ...dataAttributes
+}: {
+  atMs: number;
+  clampMaxMs?: number;
+  clampMinMs?: number;
+  className: string;
+  label: string;
+  maxMs: number;
+  minMs: number;
+  onActivate: (atMs: number) => void;
+  onCommit?: (atMs: number) => void;
+  onMove: (atMs: number) => void;
+  "data-clip-end-marker"?: boolean;
+  "data-clip-start-marker"?: boolean;
+  "data-replay-note-marker"?: string;
+}) {
+  const clampMarkerMs = (requestedMs: number) => Math.min(
+    clampMaxMs ?? maxMs,
+    Math.max(clampMinMs ?? minMs, requestedMs),
+  );
+  const commitMarker = (requestedMs: number) => {
+    onCommit?.(clampMarkerMs(requestedMs));
+  };
+  const moveByKeyboard = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onActivate(atMs);
+      return;
+    }
+    let nextMs: number | null = null;
+    if (event.key === "Home") nextMs = clampMinMs ?? minMs;
+    else if (event.key === "End") nextMs = clampMaxMs ?? maxMs;
+    else if (event.shiftKey && event.key === "ArrowLeft") nextMs = atMs - 1_000;
+    else if (event.shiftKey && event.key === "ArrowRight") nextMs = atMs + 1_000;
+    if (nextMs === null) return;
+    event.preventDefault();
+    onMove(clampMarkerMs(nextMs));
+  };
+  return (
+    <input
+      {...dataAttributes}
+      aria-label={`${label}, ${formatReplayClipTimecode(atMs)}`}
+      aria-valuemax={clampMaxMs ?? maxMs}
+      aria-valuemin={clampMinMs ?? minMs}
+      aria-valuetext={formatReplayClipTimecode(atMs)}
+      className={`${styles.timelineMarkerInput} ${className}`}
+      max={maxMs}
+      min={minMs}
+      onChange={(event) => onMove(clampMarkerMs(Number(event.currentTarget.value)))}
+      onClick={(event) => onActivate(clampMarkerMs(Number(event.currentTarget.value)))}
+      onBlur={(event) => commitMarker(Number(event.currentTarget.value))}
+      onKeyDown={moveByKeyboard}
+      onKeyUp={(event) => commitMarker(Number(event.currentTarget.value))}
+      onPointerCancel={(event) => commitMarker(Number(event.currentTarget.value))}
+      onPointerUp={(event) => commitMarker(Number(event.currentTarget.value))}
+      step={50}
+      title={`${label} · ${formatReplayClipTimecode(atMs)} · drag to move`}
+      type="range"
+      value={atMs}
+    />
+  );
+}
+
+function ReplayClipEditor({
+  active,
+  currentMs,
+  durationMs,
+  focusEnd,
+  onChange,
+  onClear,
+  onClearStartMark,
+  onClose,
+  onCopy,
+  onMarkEnd,
+  onMarkStart,
+  onPreview,
+  notice,
+  range,
+  markedEndMs,
+  markedStartMs,
+}: {
+  active: boolean;
+  currentMs: number;
+  durationMs: number;
+  focusEnd: boolean;
+  onChange: (range: ReplayClipRange) => void;
+  onClear: () => void;
+  onClearStartMark: () => void;
+  onClose: () => void;
+  onCopy: (range: ReplayClipRange) => void;
+  onMarkEnd: (atMs: number) => void;
+  onMarkStart: (atMs: number) => void;
+  onPreview: (range: ReplayClipRange) => void;
+  notice: string;
+  range: ReplayClipRange;
+  markedEndMs: number | null;
+  markedStartMs: number | null;
+}) {
+  const headingId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLElement>(null);
+  const startInputRef = useRef<HTMLInputElement>(null);
+  const endInputRef = useRef<HTMLInputElement>(null);
+  const endFrameButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (focusEnd) {
+      if (endFrameButtonRef.current?.disabled) endInputRef.current?.focus();
+      else endFrameButtonRef.current?.focus();
+    }
+    else startInputRef.current?.focus();
+  }, [focusEnd]);
+
+  const trapFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ) ?? []);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  };
+
+  const changeStart = (requestedMs: number) => {
+    const startMs = Math.min(
+      Math.max(0, requestedMs),
+      Math.max(0, durationMs - MIN_REPLAY_CLIP_MS),
+    );
+    onChange({
+      startMs,
+      endMs: Math.min(durationMs, Math.max(range.endMs, startMs + MIN_REPLAY_CLIP_MS)),
+    });
+  };
+  const changeEnd = (requestedMs: number) => {
+    const endMs = Math.min(
+      durationMs,
+      Math.max(range.startMs + MIN_REPLAY_CLIP_MS, requestedMs),
+    );
+    onChange({
+      startMs: range.startMs,
+      endMs,
+    });
+  };
+  const currentFrameCanStart = currentMs <= durationMs - MIN_REPLAY_CLIP_MS;
+  const currentFrameCanEnd = currentMs >= range.startMs + MIN_REPLAY_CLIP_MS;
+  const nudgeValues = [-1_000, -100, 100, 1_000];
+  const startMarked = markedStartMs !== null;
+  const endMarked = markedEndMs !== null;
+
+  return (
+    <div
+      className={`${styles.modalBackdrop} ${styles.clipBackdrop}`}
+      role="presentation"
+      onMouseDown={onClose}
+    >
+      <section
+        aria-describedby={descriptionId}
+        aria-labelledby={headingId}
+        aria-modal="true"
+        className={styles.clipModal}
+        data-replay-clip-editor
+        onKeyDown={trapFocus}
+        onMouseDown={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+      >
+        <header>
+          <div>
+            <span>Share a moment</span>
+            <h2 id={headingId}>
+              {active ? "Edit replay clip" : endMarked ? "Review draft clip" : startMarked ? "Set clip end" : "Create replay clip"}
+            </h2>
+            <p id={descriptionId}>
+              {endMarked && markedStartMs !== null
+                ? `Start ${formatReplayClipTimecode(markedStartMs)} and end ${formatReplayClipTimecode(markedEndMs)} are remembered.`
+                : startMarked
+                ? `Start remembered at ${formatReplayClipTimecode(markedStartMs)}. Use the current frame for the end.`
+                : "The shared replay stays inside this start and end range."}
+            </p>
+          </div>
+          <IconButton label="Close replay clip editor" name="close" onClick={onClose} />
+        </header>
+
+        <div className={styles.clipEditorBody}>
+          <div className={styles.clipSummary} aria-label="Clip range summary">
+            <div><span>Start</span><b>{formatReplayClipTimecode(range.startMs)}</b></div>
+            <i />
+            <div><span>Length</span><b>{formatReplayClipTimecode(range.endMs - range.startMs)}</b></div>
+            <i />
+            <div><span>End</span><b>{formatReplayClipTimecode(range.endMs)}</b></div>
+          </div>
+
+          <section className={styles.clipEndpoint}>
+            <header><span>Clip start</span><b>{formatReplayClipTimecode(range.startMs)}</b></header>
+            <input
+              aria-label="Clip start"
+              aria-valuetext={formatReplayClipTimecode(range.startMs)}
+              data-control="clip-start"
+              max={Math.max(0, durationMs - MIN_REPLAY_CLIP_MS)}
+              min={0}
+              onChange={(event) => changeStart(Number(event.currentTarget.value))}
+              step={MIN_REPLAY_CLIP_MS}
+              type="range"
+              value={range.startMs}
+              ref={startInputRef}
+            />
+            <div className={styles.clipEndpointActions}>
+              <label>
+                <span>Seconds</span>
+                <input
+                  aria-label="Clip start time in seconds"
+                  max={Math.max(0, durationMs - MIN_REPLAY_CLIP_MS) / 1_000}
+                  min={0}
+                  onChange={(event) => {
+                    if (Number.isFinite(event.currentTarget.valueAsNumber)) {
+                      changeStart(event.currentTarget.valueAsNumber * 1_000);
+                    }
+                  }}
+                  step={MIN_REPLAY_CLIP_MS / 1_000}
+                  type="number"
+                  value={formatReplayClipSeconds(range.startMs)}
+                />
+              </label>
+              <button
+                aria-label={active
+                  ? `Use current frame as clip start, ${formatReplayClipTimecode(currentMs)}`
+                  : `Mark current frame as clip start and return to replay, ${formatReplayClipTimecode(currentMs)}`}
+                disabled={!currentFrameCanStart}
+                onClick={() => active ? changeStart(currentMs) : onMarkStart(currentMs)}
+                type="button"
+              >
+                {active ? "Use current frame" : startMarked ? "Replace start & return" : "Mark start & return"}
+                {` · ${formatReplayClipTimecode(currentMs)}`}
+              </button>
+            </div>
+            <div aria-label="Fine tune clip start" className={styles.clipNudgeActions}>
+              <span>Fine tune</span>
+              {nudgeValues.map((delta) => (
+                <button
+                  aria-label={`Move clip start ${delta < 0 ? "back" : "forward"} ${Math.abs(delta) / 1_000} seconds`}
+                  disabled={range.startMs + delta < 0 || range.startMs + delta > durationMs - MIN_REPLAY_CLIP_MS}
+                  key={delta}
+                  onClick={() => changeStart(range.startMs + delta)}
+                  type="button"
+                >
+                  {delta < 0 ? "−" : "+"}{Math.abs(delta) / 1_000}s
+                </button>
+              ))}
+            </div>
+            {!currentFrameCanStart ? (
+              <small className={styles.clipEndpointHint}>
+                Move before {formatReplayClipTimecode(durationMs - MIN_REPLAY_CLIP_MS)} to mark a clip start.
+              </small>
+            ) : null}
+          </section>
+
+          <section className={styles.clipEndpoint}>
+            <header><span>Clip end</span><b>{formatReplayClipTimecode(range.endMs)}</b></header>
+            <input
+              aria-label="Clip end"
+              aria-valuetext={formatReplayClipTimecode(range.endMs)}
+              data-control="clip-end"
+              max={durationMs}
+              min={MIN_REPLAY_CLIP_MS}
+              onChange={(event) => changeEnd(Number(event.currentTarget.value))}
+              ref={endInputRef}
+              step={MIN_REPLAY_CLIP_MS}
+              type="range"
+              value={range.endMs}
+            />
+            <div className={styles.clipEndpointActions}>
+              <label>
+                <span>Seconds</span>
+                <input
+                  aria-label="Clip end time in seconds"
+                  max={durationMs / 1_000}
+                  min={MIN_REPLAY_CLIP_MS / 1_000}
+                  onChange={(event) => {
+                    if (Number.isFinite(event.currentTarget.valueAsNumber)) {
+                      changeEnd(event.currentTarget.valueAsNumber * 1_000);
+                    }
+                  }}
+                  step={MIN_REPLAY_CLIP_MS / 1_000}
+                  type="number"
+                  value={formatReplayClipSeconds(range.endMs)}
+                />
+              </label>
+              <button
+                aria-label={active
+                  ? `Use current frame as clip end, ${formatReplayClipTimecode(currentMs)}`
+                  : `Mark current frame as clip end and return to replay, ${formatReplayClipTimecode(currentMs)}`}
+                disabled={!currentFrameCanEnd}
+                onClick={() => active ? changeEnd(currentMs) : onMarkEnd(currentMs)}
+                ref={endFrameButtonRef}
+                type="button"
+              >
+                {active ? "Use current frame" : endMarked ? "Replace end & return" : "Mark end & return"}
+                {` · ${formatReplayClipTimecode(currentMs)}`}
+              </button>
+            </div>
+            <div aria-label="Fine tune clip end" className={styles.clipNudgeActions}>
+              <span>Fine tune</span>
+              {nudgeValues.map((delta) => (
+                <button
+                  aria-label={`Move clip end ${delta < 0 ? "back" : "forward"} ${Math.abs(delta) / 1_000} seconds`}
+                  disabled={
+                    range.endMs + delta < range.startMs + MIN_REPLAY_CLIP_MS ||
+                    range.endMs + delta > durationMs
+                  }
+                  key={delta}
+                  onClick={() => changeEnd(range.endMs + delta)}
+                  type="button"
+                >
+                  {delta < 0 ? "−" : "+"}{Math.abs(delta) / 1_000}s
+                </button>
+              ))}
+            </div>
+            {!currentFrameCanEnd ? (
+              <small className={styles.clipEndpointHint}>
+                Move after {formatReplayClipTimecode(range.startMs + MIN_REPLAY_CLIP_MS)} to use the current frame as the end.
+              </small>
+            ) : null}
+          </section>
+        </div>
+
+        {notice ? <div className={styles.clipNotice} role="status">{notice}</div> : null}
+
+        <footer>
+          <div>
+            {active ? (
+              <button onClick={onClear} type="button">Watch full replay</button>
+            ) : startMarked ? (
+              <button onClick={onClearStartMark} type="button">Clear clip markers</button>
+            ) : null}
+          </div>
+          <div>
+            <button onClick={() => onPreview(range)} type="button">
+              <Icon name="play" /> Preview clip
+            </button>
+            <button className={styles.clipPrimaryAction} onClick={() => onCopy(range)} type="button">
+              <Icon name="link" /> Copy clip link
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -5335,9 +6723,35 @@ function ControlButton({
   );
 }
 
-function IconButton({ label, name, onClick }: { label: string; name: IconName; onClick: () => void }) {
+function IconButton({
+  active,
+  dataControl,
+  expanded,
+  hasPopup,
+  label,
+  name,
+  onClick,
+}: {
+  active?: boolean;
+  dataControl?: string;
+  expanded?: boolean;
+  hasPopup?: "dialog";
+  label: string;
+  name: IconName;
+  onClick: () => void;
+}) {
   return (
-    <button aria-label={label} className={styles.iconButton} onClick={onClick} title={label} type="button">
+    <button
+      aria-label={label}
+      aria-expanded={expanded}
+      aria-haspopup={hasPopup}
+      className={`${styles.iconButton} ${active ? styles.iconButtonActive : ""}`}
+      data-active={active ? "true" : undefined}
+      data-control={dataControl}
+      onClick={onClick}
+      title={label}
+      type="button"
+    >
       <Icon name={name} />
     </button>
   );
@@ -5877,6 +7291,47 @@ function jsonStringList(value: JsonValue | undefined): string[] {
   ))];
 }
 
+function replayNoteAnchorAt(
+  replay: CanonicalReplayV2,
+  requestedMs: number,
+): Pick<ReplayNote, "atMs" | "eventId" | "eventIndex" | "gameId" | "gameNumber" | "turn"> {
+  const atMs = Math.max(0, Math.round(requestedMs));
+  const eventIndex = eventIndexAtTime(replay, atMs);
+  const event = replay.events[eventIndex];
+  try {
+    const projectedState = seekReplay(replay, atMs).state;
+    const game = gameForState(replay, projectedState);
+    return {
+      atMs,
+      eventId: event?.id ?? "",
+      eventIndex,
+      gameId: projectedState.gameId ?? game?.id ?? "",
+      gameNumber: game?.gameNumber ?? projectedState.room.gameNumber ?? projectedState.gameOrdinal ?? null,
+      turn: projectedState.room.turnNumber ?? null,
+    };
+  } catch {
+    return {
+      atMs,
+      eventId: event?.id ?? "",
+      eventIndex,
+      gameId: event?.gameId ?? "",
+      gameNumber: null,
+      turn: null,
+    };
+  }
+}
+
+function newReplayNoteId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return `note-${crypto.randomUUID()}`;
+    }
+  } catch {
+    // Fall through to a time-based local identifier.
+  }
+  return `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 function relativeReplayTime(replay: CanonicalReplayV2, at: number | undefined): string {
   if (at === undefined) return "--:--";
   const relative = at > replay.series.startedAt ? at - replay.series.startedAt : at;
@@ -5949,13 +7404,16 @@ type IconName =
   | "fullscreen"
   | "help"
   | "keyboard"
+  | "link"
   | "list"
   | "lock"
   | "next"
+  | "note"
   | "pause"
   | "play"
   | "previous"
   | "rewind"
+  | "scissors"
   | "share"
   | "skipEnd"
   | "skipStart"
@@ -5980,13 +7438,16 @@ function Icon({ name }: { name: IconName }) {
     fullscreen: <><path d="M8 4H4v4" /><path d="M16 4h4v4" /><path d="M20 16v4h-4" /><path d="M4 16v4h4" /></>,
     help: <><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.4 2.4 0 1 1 3.2 2.3c-.7.3-1 .8-1 1.7" /><path d="M12 17h.01" /></>,
     keyboard: <><rect height="14" rx="2" width="20" x="2" y="5" /><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M7 13h10" /></>,
+    link: <><path d="M10 13a5 5 0 0 0 7.1.1l1.4-1.4a5 5 0 0 0-7.1-7.1L10.6 5.4" /><path d="M14 11a5 5 0 0 0-7.1-.1l-1.4 1.4a5 5 0 0 0 7.1 7.1l.8-.8" /></>,
     list: <><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6h.01M4 12h.01M4 18h.01" /></>,
     lock: <><rect height="10" rx="2" width="14" x="5" y="10" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
     next: <><path d="m9 6 6 6-6 6" /><path d="M18 6v12" /></>,
+    note: <><path d="M5 3h14v13l-5 5H5z" /><path d="M14 21v-5h5M8 8h8M8 12h6" /></>,
     pause: <><path d="M9 5v14" /><path d="M15 5v14" /></>,
     play: <path d="m8 5 11 7-11 7z" />,
     previous: <><path d="m15 6-6 6 6 6" /><path d="M6 6v12" /></>,
     rewind: <><path d="m11 7-5 5 5 5" /><path d="M18 7v10" /></>,
+    scissors: <><circle cx="6" cy="7" r="3" /><circle cx="6" cy="17" r="3" /><path d="m8.7 8.4 10.8 6.1M8.7 15.6 19.5 9.5" /></>,
     share: <><circle cx="18" cy="5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="19" r="2.5" /><path d="m8.2 10.8 7.5-4.4M8.2 13.2l7.5 4.4" /></>,
     skipEnd: <><path d="m7 6 7 6-7 6z" /><path d="M18 5v14" /></>,
     skipStart: <><path d="M6 5v14" /><path d="m17 6-7 6 7 6z" /></>,

@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import Router from "next/router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -18,6 +19,7 @@ import {
   replayCardMotionLayoutSignature,
   replayGamePlaybackStartMs,
 } from "./ReplayV2Player";
+import { replayNotesStorageKey } from "./replay-notes";
 
 class TestResizeObserver {
   observe() {}
@@ -51,6 +53,499 @@ describe("ReplayV2Player presentation prelude", () => {
     });
     expect(view.getByRole("button", { name: "Play replay" })).toBeInTheDocument();
     expect(view.queryByText("Sideboarding")).not.toBeInTheDocument();
+  });
+
+  it("creates a precise clip link from the top-right replay control", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const shareDescriptor = Object.getOwnPropertyDescriptor(navigator, "share");
+    const writeText = vi.fn(async () => undefined);
+    window.history.replaceState({}, "", "/replays/rp_clip?t=12");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    Reflect.deleteProperty(navigator, "share");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: replayWithDuration(120_000),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_clip" }));
+
+    try {
+      fireEvent.click(await view.findByRole("button", { name: "Harnessed Dragon" }));
+      expect(view.container.querySelector("[data-card-inspector]"))
+        .toHaveTextContent("Harnessed Dragon");
+      fireEvent.click(view.container.querySelector<HTMLButtonElement>('[data-control="speed"]')!);
+      expect(view.getByRole("status")).toHaveTextContent("2× playback");
+      fireEvent.click(await view.findByRole("button", { name: "Clip replay" }));
+      const dialog = view.getByRole("dialog", { name: "Create replay clip" });
+      expect(dialog).toHaveTextContent("0:12");
+      expect(view.queryByText("2× playback")).not.toBeInTheDocument();
+      const startSlider = view.getByRole("slider", { name: "Clip start" });
+      expect(startSlider).toHaveFocus();
+      expect(startSlider).toHaveAttribute("aria-valuetext", "0:12.000");
+      expect(view.container.querySelector("[inert]")).toBeInTheDocument();
+      expect(view.container.querySelector('[data-control="clip"]'))
+        .toHaveAttribute("aria-expanded", "true");
+      let copyButton = view.getByRole("button", { name: "Copy clip link" });
+      copyButton.focus();
+      fireEvent.keyDown(copyButton, { key: "Tab" });
+      expect(view.getByRole("button", { name: "Close replay clip editor" })).toHaveFocus();
+
+      fireEvent.click(view.getByRole("button", {
+        name: "Mark current frame as clip start and return to replay, 0:12.000",
+      }));
+      expect(view.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(window.location.search).toBe("?t=12");
+      expect(view.getByRole("button", { name: /Finish replay clip/ }))
+        .toHaveAccessibleName("Finish replay clip — start marked at 0:12.000");
+      expect(view.getByRole("slider", { name: "Clip start marker, 0:12.000" }))
+        .toHaveValue("12000");
+      expect(view.container.querySelector("[data-clip-start-chip]"))
+        .toHaveTextContent("Clip start · 0:12.000");
+
+      const timeline = view.getByRole("slider", { name: "Replay progress" });
+      fireEvent.change(timeline, { target: { value: "45550" } });
+      await waitFor(() => expect(timeline).toHaveValue("45550"));
+      fireEvent.click(view.getByRole("button", { name: /Finish replay clip/ }));
+
+      expect(view.getByRole("dialog", { name: "Set clip end" })).toHaveTextContent(
+        "Start remembered at 0:12.000",
+      );
+      expect(view.getByRole("slider", { name: "Clip start" })).toHaveValue("12000");
+      expect(view.getByRole("slider", { name: "Clip end" })).toHaveValue("45550");
+      expect(view.getByRole("button", {
+        name: "Mark current frame as clip end and return to replay, 0:45.550",
+      })).toHaveFocus();
+      fireEvent.click(view.getByRole("button", {
+        name: "Move clip end back 0.1 seconds",
+      }));
+      expect(view.getByRole("slider", { name: "Clip end" })).toHaveValue("45450");
+      fireEvent.click(view.getByRole("button", {
+        name: "Move clip end forward 0.1 seconds",
+      }));
+      fireEvent.click(view.getByRole("button", {
+        name: "Mark current frame as clip end and return to replay, 0:45.550",
+      }));
+      expect(view.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(window.location.search).toBe("?t=12");
+      expect(view.getByRole("slider", { name: "Clip start marker, 0:12.000" }))
+        .toHaveValue("12000");
+      expect(view.getByRole("slider", { name: "Clip end marker, 0:45.550" }))
+        .toHaveValue("45550");
+      expect(view.container.querySelector("[data-clip-start-chip]"))
+        .toHaveTextContent("Draft clip · 0:12.000 → 0:45.550");
+
+      fireEvent.click(view.getByRole("button", { name: /Review draft replay clip/ }));
+      expect(view.getByRole("dialog", { name: "Review draft clip" })).toHaveTextContent(
+        "Start 0:12.000 and end 0:45.550 are remembered",
+      );
+      copyButton = view.getByRole("button", { name: "Copy clip link" });
+      fireEvent.click(copyButton);
+
+      await waitFor(() => {
+        expect(writeText).toHaveBeenCalledWith(
+          `${window.location.origin}/replays/rp_clip?start=12&end=45.55`,
+        );
+      });
+      expect(view.container.querySelector('[data-replay-clip="true"]')).toBeInTheDocument();
+      expect(view.getByRole("button", { name: "Edit replay clip" }))
+        .toHaveAttribute("data-active", "true");
+      expect(view.getByRole("button", { name: "Edit replay clip" }))
+        .toHaveAttribute("aria-haspopup", "dialog");
+      expect(view.getByRole("slider", { name: "Replay progress" })).toHaveAttribute("min", "12000");
+      expect(view.getByRole("slider", { name: "Replay progress" })).toHaveAttribute("max", "45550");
+      expect(window.location.search).toBe("?start=12&end=45.55");
+      expect(view.container.querySelector("[data-card-inspector]"))
+        .not.toHaveTextContent("Harnessed Dragon");
+
+      fireEvent.click(view.getByRole("button", { name: "Share replay" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+      expect(writeText).toHaveBeenLastCalledWith(
+        `${window.location.origin}/replays/rp_clip?start=12&end=45.55`,
+      );
+
+      fireEvent.click(view.getByRole("button", { name: "More" }));
+      const morePanel = view.container.querySelector<HTMLElement>('[data-control="more-panel"]');
+      expect(morePanel).toHaveTextContent(
+        "Full-replay frame, game, and turn controls are hidden for shared clips.",
+      );
+      expect(morePanel?.querySelector('[data-control="frame-navigator"]')).not.toBeInTheDocument();
+      expect(morePanel?.querySelector('[aria-label="Previous game"]')).not.toBeInTheDocument();
+      expect(morePanel?.querySelector('[aria-label="Next turn"]')).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl || "/");
+      if (clipboardDescriptor) Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+      else Reflect.deleteProperty(navigator, "clipboard");
+      if (shareDescriptor) Object.defineProperty(navigator, "share", shareDescriptor);
+      else Reflect.deleteProperty(navigator, "share");
+    }
+  });
+
+  it("keeps a marked clip start when the playhead moves earlier", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/replays/rp_clip_mark?t=40");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: replayWithDuration(120_000),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_clip_mark" }));
+
+    try {
+      fireEvent.click(await view.findByRole("button", { name: "Clip replay" }));
+      fireEvent.click(view.getByRole("button", {
+        name: "Mark current frame as clip start and return to replay, 0:40.000",
+      }));
+
+      const timeline = view.getByRole("slider", { name: "Replay progress" });
+      fireEvent.change(timeline, { target: { value: "20000" } });
+      await waitFor(() => expect(timeline).toHaveValue("20000"));
+      fireEvent.click(view.getByRole("button", { name: /Finish replay clip/ }));
+
+      expect(view.getByRole("slider", { name: "Clip start" })).toHaveValue("40000");
+      expect(view.getByRole("slider", { name: "Clip end" })).toHaveValue("70000");
+      expect(view.getByRole("button", {
+        name: "Mark current frame as clip end and return to replay, 0:20.000",
+      })).toBeDisabled();
+      expect(view.getByText(/Move after 0:40.050/)).toBeInTheDocument();
+      expect(view.getByRole("slider", { name: "Clip end" })).toHaveFocus();
+
+      fireEvent.click(view.getByRole("button", {
+        name: "Move clip start forward 0.1 seconds",
+      }));
+      expect(view.getByRole("slider", { name: "Clip start" })).toHaveValue("40100");
+      expect(view.getByText(/Start remembered at 0:40.000/)).toBeInTheDocument();
+      fireEvent.click(view.getByRole("button", { name: "Close replay clip editor" }));
+      expect(view.getByRole("button", { name: /Finish replay clip/ }))
+        .toHaveAccessibleName("Finish replay clip — start marked at 0:40.000");
+      fireEvent.click(view.getByRole("button", { name: /Finish replay clip/ }));
+      expect(view.getByRole("slider", { name: "Clip start" })).toHaveValue("40000");
+
+      fireEvent.click(view.getByRole("button", { name: "Clear clip markers" }));
+      expect(view.getByRole("dialog", { name: "Create replay clip" })).toBeInTheDocument();
+      expect(view.queryByText("Start remembered at 0:40.000")).not.toBeInTheDocument();
+      fireEvent.click(view.getByRole("button", { name: "Close replay clip editor" }));
+      expect(view.getByRole("button", { name: "Clip replay" })).toBeInTheDocument();
+      expect(view.container.querySelector("[data-clip-start-marker]"))
+        .not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl || "/");
+    }
+  });
+
+  it("remembers a marked clip end and lets both draft markers be dragged on the timeline", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/replays/rp_clip_drag?t=10.5");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: replayWithDuration(120_000),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_clip_drag" }));
+
+    try {
+      fireEvent.click(await view.findByRole("button", { name: "Clip replay" }));
+      fireEvent.click(view.getByRole("button", {
+        name: "Mark current frame as clip start and return to replay, 0:10.500",
+      }));
+
+      const timeline = view.getByRole("slider", { name: "Replay progress" });
+      fireEvent.change(timeline, { target: { value: "30250" } });
+      await waitFor(() => expect(timeline).toHaveValue("30250"));
+      fireEvent.click(view.getByRole("button", { name: /Finish replay clip/ }));
+      fireEvent.click(view.getByRole("button", {
+        name: "Mark current frame as clip end and return to replay, 0:30.250",
+      }));
+
+      expect(view.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(window.location.search).toBe("?t=10.5");
+      let startMarker = view.getByRole("slider", {
+        name: "Clip start marker, 0:10.500",
+      });
+      let endMarker = view.getByRole("slider", {
+        name: "Clip end marker, 0:30.250",
+      });
+      expect(startMarker).toHaveAttribute("max", "120000");
+      expect(endMarker).toHaveAttribute("min", "0");
+
+      fireEvent.change(startMarker, { target: { value: "12550" } });
+      await waitFor(() => expect(timeline).toHaveValue("12550"));
+      startMarker = view.getByRole("slider", {
+        name: "Clip start marker, 0:12.550",
+      });
+      expect(startMarker).toHaveValue("12550");
+
+      fireEvent.change(endMarker, { target: { value: "28250" } });
+      await waitFor(() => expect(timeline).toHaveValue("28250"));
+      endMarker = view.getByRole("slider", {
+        name: "Clip end marker, 0:28.250",
+      });
+      expect(endMarker).toHaveValue("28250");
+      expect(window.location.search).toBe("?t=10.5");
+
+      fireEvent.change(startMarker, { target: { value: "99999" } });
+      await waitFor(() => expect(timeline).toHaveValue("28200"));
+      startMarker = view.getByRole("slider", {
+        name: "Clip start marker, 0:28.200",
+      });
+      endMarker = view.getByRole("slider", {
+        name: "Clip end marker, 0:28.250",
+      });
+      expect(startMarker).toHaveValue("28200");
+
+      fireEvent.change(endMarker, { target: { value: "0" } });
+      await waitFor(() => expect(timeline).toHaveValue("28250"));
+      expect(view.getByRole("slider", {
+        name: "Clip end marker, 0:28.250",
+      })).toHaveValue("28250");
+
+      fireEvent.click(view.getByRole("button", { name: /Review draft replay clip/ }));
+      expect(view.getByRole("dialog", { name: "Review draft clip" })).toBeInTheDocument();
+      expect(view.getByRole("slider", { name: "Clip start" })).toHaveValue("28200");
+      expect(view.getByRole("slider", { name: "Clip end" })).toHaveValue("28250");
+      expect(window.location.search).toBe("?t=10.5");
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl || "/");
+    }
+  });
+
+  it("adds, selects, and drags an exact timestamped replay note in place of card details", async () => {
+    const replayId = "rp_replay_notes";
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const storageKey = replayNotesStorageKey(replayId);
+    window.localStorage.removeItem(storageKey);
+    window.history.replaceState({}, "", `/replays/${replayId}?t=12.345`);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: replayWithDuration(120_000),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId }));
+
+    try {
+      fireEvent.click(await view.findByRole("button", { name: "Harnessed Dragon" }));
+      expect(view.container.querySelector("[data-card-inspector]"))
+        .toHaveTextContent("Harnessed Dragon");
+
+      fireEvent.click(view.getByRole("button", {
+        name: "Add replay note at 0:12.345",
+      }));
+      expect(view.container.querySelector("[data-replay-note-editor]"))
+        .toHaveTextContent("0:12.345");
+      fireEvent.change(view.getByRole("textbox", { name: "Replay note title" }), {
+        target: { value: "Lethal check" },
+      });
+      fireEvent.change(view.getByRole("textbox", { name: "Replay note" }), {
+        target: { value: "Count available runes before committing." },
+      });
+      fireEvent.click(view.getByRole("button", {
+        name: "Add replay note at 0:12.345",
+      }));
+      expect(view.getByRole("textbox", { name: "Replay note" }))
+        .toHaveValue("Count available runes before committing.");
+      expect(view.getByText("Save or cancel the open note first")).toBeInTheDocument();
+      fireEvent.click(view.getByRole("button", { name: "Save note" }));
+
+      await waitFor(() => {
+        expect(view.container.querySelector("[data-replay-note-inspector]"))
+          .toHaveTextContent("Lethal check");
+      });
+      expect(view.container.querySelector("[data-card-inspector]"))
+        .not.toBeInTheDocument();
+      expect(view.container.querySelector("[data-replay-note-inspector]"))
+        .toHaveTextContent("Count available runes before committing.");
+      const noteListItem = view.getByRole("button", {
+        name: /0:12\.345 Lethal check Count available runes before committing\./,
+      });
+      expect(noteListItem).toHaveAttribute("aria-current", "true");
+      expect(view.getByRole("slider", {
+        name: "Replay note 1, Lethal check, 0:12.345",
+      })).toHaveValue("12345");
+
+      fireEvent.click(view.getByRole("button", { name: "Back to card details" }));
+      expect(view.container.querySelector("[data-replay-note-inspector]"))
+        .not.toBeInTheDocument();
+      expect(view.container.querySelector("[data-card-inspector]"))
+        .toHaveTextContent("Harnessed Dragon");
+
+      const timeline = view.getByRole("slider", { name: "Replay progress" });
+      fireEvent.change(timeline, { target: { value: "45000" } });
+      await waitFor(() => expect(timeline).toHaveValue("45000"));
+      fireEvent.click(noteListItem);
+      await waitFor(() => expect(timeline).toHaveValue("12345"));
+      expect(noteListItem).toHaveAttribute("aria-current", "true");
+      expect(view.container.querySelector("[data-replay-note-inspector]"))
+        .toHaveTextContent("Lethal check");
+      expect(view.container.querySelector("[data-card-inspector]"))
+        .not.toBeInTheDocument();
+
+      const noteMarker = view.getByRole("slider", {
+        name: "Replay note 1, Lethal check, 0:12.345",
+      });
+      fireEvent.change(noteMarker, { target: { value: "15550" } });
+      fireEvent.pointerUp(noteMarker, { target: { value: "15550" } });
+      await waitFor(() => expect(timeline).toHaveValue("15550"));
+      expect(view.getByRole("slider", {
+        name: "Replay note 1, Lethal check, 0:15.550",
+      })).toHaveValue("15550");
+      expect(view.container.querySelector("[data-replay-note-inspector]"))
+        .toHaveTextContent("0:15.550");
+      expect(window.location.search).toBe("?t=12.345");
+      expect(window.localStorage.getItem(storageKey)).toContain('"atMs":15550');
+    } finally {
+      view.unmount();
+      window.localStorage.removeItem(storageKey);
+      window.history.replaceState({}, "", previousUrl || "/");
+    }
+  });
+
+  it("updates clip bounds when browser history changes the same replay URL", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/replays/rp_clip_history?start=10&end=20");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: replayWithDuration(120_000),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_clip_history" }));
+
+    try {
+      const timeline = await view.findByRole("slider", { name: "Replay progress" });
+      expect(timeline).toHaveAttribute("min", "10000");
+      expect(timeline).toHaveAttribute("max", "20000");
+      const clipTrigger = view.getByRole("button", { name: "Edit replay clip" });
+      clipTrigger.focus();
+      fireEvent.click(clipTrigger);
+      expect(view.getByRole("dialog", { name: "Edit replay clip" })).toBeInTheDocument();
+
+      act(() => {
+        window.history.pushState({}, "", "/replays/rp_clip_history?start=30&end=45.5");
+        Router.events.emit(
+          "routeChangeComplete",
+          "/replays/rp_clip_history?start=30&end=45.5",
+          { shallow: true },
+        );
+      });
+      await waitFor(() => {
+        expect(timeline).toHaveAttribute("min", "30000");
+        expect(timeline).toHaveAttribute("max", "45500");
+        expect(timeline).toHaveValue("30000");
+        expect(clipTrigger).toHaveFocus();
+      });
+
+      act(() => {
+        window.history.pushState({}, "", "/replays/rp_clip_history?t=35");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+      await waitFor(() => {
+        expect(timeline).toHaveAttribute("min", "0");
+        expect(timeline).toHaveAttribute("max", "120000");
+        expect(timeline).toHaveValue("35000");
+      });
+      expect(view.container.querySelector('[data-replay-clip="true"]')).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl || "/");
+    }
+  });
+
+  it("plays a shared zero-start clip only to its end, then replays from its start", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    window.history.replaceState({}, "", "/replays/rp_clip_zero?start=0&end=0.1");
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
+      frameId += 1;
+      queuedFrames.set(frameId, callback);
+      return frameId;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn((requestedFrameId: number) => {
+      queuedFrames.delete(requestedFrameId);
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: replayWithDuration(1_000),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_clip_zero" }));
+
+    try {
+      const timeline = await view.findByRole("slider", { name: "Replay progress" });
+      expect(timeline).toHaveAttribute("min", "0");
+      expect(timeline).toHaveAttribute("max", "100");
+      expect(timeline).toHaveValue("0");
+      expect(view.container.querySelector('[data-scene="matchup"]')).not.toBeInTheDocument();
+      expect(view.getByRole("button", { name: "Clip beginning" })).toBeInTheDocument();
+      expect(view.getByRole("button", { name: "Clip end" })).toBeInTheDocument();
+
+      queuedFrames.clear();
+      fireEvent.click(view.getByRole("button", { name: "Play replay" }));
+      await waitFor(() => expect(view.getByRole("button", { name: "Pause replay" })).toBeInTheDocument());
+      act(() => {
+        const now = performance.now() + 250;
+        for (const [queuedFrameId, callback] of [...queuedFrames]) {
+          queuedFrames.delete(queuedFrameId);
+          callback(now);
+        }
+      });
+
+      await waitFor(() => expect(view.getByRole("button", { name: "Play replay" })).toBeInTheDocument());
+      expect(timeline).toHaveValue("100");
+
+      fireEvent.click(view.getByRole("button", { name: "Play replay" }));
+      await waitFor(() => expect(timeline).toHaveValue("0"));
+      expect(view.getByRole("button", { name: "Pause replay" })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl || "/");
+    }
+  });
+
+  it("shows clipboard failures inside the open clip editor", async () => {
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn(async () => Promise.reject(new Error("blocked"))) },
+    });
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_clip_blocked" }));
+
+    try {
+      fireEvent.click(await view.findByRole("button", { name: "Clip replay" }));
+      fireEvent.click(view.getByRole("button", { name: "Copy clip link" }));
+      await waitFor(() => {
+        expect(view.getByRole("status"))
+          .toHaveTextContent("The browser blocked clip link copying");
+      });
+      expect(view.getByRole("dialog", { name: "Create replay clip" })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      if (clipboardDescriptor) Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("does not offer a broken public clip link for a custom local replay endpoint", async () => {
+    const view = render(createElement(ReplayV2Player, {
+      apiBasePath: "/api/local/tcga-replays",
+      replayId: "local_fixture",
+    }));
+
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-replay-player="v2"]')).toBeInTheDocument();
+    });
+    expect(view.queryByRole("button", { name: "Clip replay" })).not.toBeInTheDocument();
   });
 
   it("offers display-only player name hiding only in an explicitly authorized private workspace", async () => {
@@ -127,6 +622,40 @@ describe("ReplayV2Player presentation prelude", () => {
     });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     expect(view.container.querySelector("[data-cards-up-badge]")).not.toBeInTheDocument();
+  });
+
+  it("does not use card knowledge from after a shared clip ends", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/replays/rp_clip_knowledge?start=0&end=0.5");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: futureKnownAnalysisReplay(),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_clip_knowledge" }));
+
+    try {
+      const cardsUpToggle = await view.findByRole("button", { name: "Cards up" });
+      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+        .toHaveAccessibleName("Hidden card");
+
+      fireEvent.click(cardsUpToggle);
+      await waitFor(() => expect(cardsUpToggle).toHaveAttribute("aria-pressed", "true"));
+      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+        .toHaveAccessibleName("Hidden card");
+
+      fireEvent.click(view.getByRole("button", { name: "Take control" }));
+      await waitFor(() => {
+        expect(view.container.querySelector("[data-analysis-panel]")).toBeInTheDocument();
+      });
+      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
+        .toHaveAccessibleName("Hidden card");
+      expect(view.queryByText(/known from a later reveal/i)).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl || "/");
+    }
   });
 
   it("keeps a returned public card visible without exposing unrelated private hand data", async () => {
@@ -1585,6 +2114,17 @@ function sideboardingAtZeroReplay(options: {
     diagnostics: [],
     checkpoints: [],
   };
+}
+
+function replayWithDuration(durationMs: number): CanonicalReplayV2 {
+  const replay = sideboardingAtZeroReplay();
+  replay.series.endedAt = replay.series.startedAt + durationMs;
+  const game = replay.series.games[0];
+  if (game) {
+    game.endedAt = game.startedAt + durationMs;
+    game.endedAtMs = durationMs;
+  }
+  return replay;
 }
 
 function asConsentedCombinedReplay(replay: CanonicalReplayV2): CanonicalReplayV2 {
