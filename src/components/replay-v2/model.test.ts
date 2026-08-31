@@ -233,6 +233,10 @@ describe("replay card image URLs", () => {
     expect(safeCardImageUrl("/images/cards/test.webp")).toBe("/images/cards/test.webp");
     expect(safeCardImageUrl("https://cdn.piltoverarchive.com/cards/OGN-001.webp"))
       .toBe("https://cdn.piltoverarchive.com/cards/OGN-001.webp");
+    expect(safeCardImageUrl("https://assets.riftatlas-workers.com/riftbound/cards/small-v2/OGN-001.webp"))
+      .toBe("https://assets.riftatlas-workers.com/riftbound/cards/small-v2/OGN-001.webp");
+    expect(safeCardImageUrl("https://cmsassets.rgpub.io/cards/OGN-001.png"))
+      .toBe("https://cmsassets.rgpub.io/cards/OGN-001.png");
   });
 
   it("blocks uploader-controlled remote and embedded image sources", () => {
@@ -251,11 +255,48 @@ describe("replay card image URLs", () => {
     expect(cardImageUrl(card)).toBe("https://cdn.piltoverarchive.com/cards/OGN-001.webp");
   });
 
-  it("uses the base printing for signed alternate-art card codes", () => {
+  it("uses the exact printing for alternate-art card codes", () => {
     expect(cardImageUrl({
       ...card("signed-jhin", "Jhin, Meticulous Killer", "UNL-089A"),
       fields: { imageUrl: "/cards/UNL-089A.webp" },
-    })).toBe("https://cdn.piltoverarchive.com/cards/UNL-089.webp");
+    })).toBe("https://assets.riftatlas-workers.com/riftbound/cards/small-v2/UNL-089A.webp");
+  });
+
+  it.each([
+    ["VEN-SP1", "Kai'Sa, Survivor"],
+    ["VEN-SP2", "Sona, Harmonious"],
+    ["VEN-SP3", "Ahri, Inquisitive"],
+    ["VEN-SP4", "Sett, Brawler"],
+    ["VEN-SP5", "Ezreal, Prodigy"],
+    ["VEN-SP6", "Lux, Crownguard"],
+  ])("resolves the Crystal Rose special printing %s", (printCode, name) => {
+    expect(cardCodeFromValue(`${printCode}/006`)).toBe(printCode);
+    expect(cardImageUrl(card(`crystal-rose-${printCode}`, name, printCode)))
+      .toBe(`https://assets.riftatlas-workers.com/riftbound/cards/small-v2/${printCode}.webp`);
+  });
+
+  it("parses special and physical signature codes without accepting partial codes", () => {
+    expect(cardCodeFromValue("/cards/VEN-SP1.webp")).toBe("VEN-SP1");
+    expect(cardCodeFromValue("UNL-T02")).toBe("UNL-T02");
+    expect(cardCodeFromValue("VEN-189*/166")).toBe("VEN-189S");
+    expect(cardCodeFromValue("VEN-SP")).toBeUndefined();
+    expect(cardCodeFromValue("UNL-T")).toBeUndefined();
+    expect(cardCodeFromValue("VEN-SP1garbage")).toBeUndefined();
+  });
+
+  it.each(["UNL-T02", "VEN-T04"])("resolves the token collector printing %s", (printCode) => {
+    expect(cardImageUrl(card(`token-print-${printCode}`, "Token", printCode)))
+      .toBe(`https://assets.riftatlas-workers.com/riftbound/cards/small-v2/${printCode}.webp`);
+  });
+
+  it("prefers a token's exact collector art over a stale token image path", () => {
+    expect(cardImageUrl({
+      ...card("buff-token", "Buff", "UNL-T04"),
+      source: "token",
+      fields: { imageUrl: "/tokens/Buff.webp" },
+    })).toBe(
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/64b9df938587aa93a3d0769a349d9b0cc6942dc2-744x1039.png?accountingTag=RB",
+    );
   });
 
   it("keeps an overnumbered card code when that printing has public art", () => {
@@ -264,13 +305,31 @@ describe("replay card image URLs", () => {
   });
 
   it.each([
-    ["Mind Rune", "UNL-R03A", "OGN-089"],
-    ["Fury Rune", "UNL-R01A", "OGN-007"],
-    ["Unknown Rune", "SFD-R06B", "OGN-214"],
-  ])("maps the signed %s printing to canonical rune artwork", (name, printCode, artCode) => {
+    ["Jhin, Meticulous Killer", "UNL-089A"],
+    ["Fury Rune", "OGN-007B"],
+    ["Fury Rune", "VEN-R01"],
+    ["Mind Rune", "UNL-R03A"],
+    ["Calm Rune", "SFD-R06B"],
+    ["Jhin, Virtuoso", "OGN-305S"],
+    ["Curator of the Sands", "VEN-192S"],
+  ])("keeps the exact %s artwork for %s", (name, printCode) => {
     expect(cardCodeFromValue(`https://cards.example/${printCode}.webp`)).toBe(printCode);
     expect(cardImageUrl(card(`signed-${name}`, name, printCode)))
-      .toBe(`https://cdn.piltoverarchive.com/cards/${artCode}.webp`);
+      .toBe(`https://assets.riftatlas-workers.com/riftbound/cards/small-v2/${printCode}.webp`);
+  });
+
+  it.each([
+    ["UNL-T04", "64b9df938587aa93a3d0769a349d9b0cc6942dc2-744x1039.png"],
+    ["VEN-189S", "d8262e7b24f26d1c9a18b13166d009aaf573e059-744x1039.png"],
+    ["VEN-190S", "b9270494d2c18525e766b2ffa23a7c99ad9f994f-744x1039.png"],
+    ["VEN-191S", "a88733f8062c18a7aa51a208b1aef5d0bd030007-744x1039.png"],
+    ["VEN-194S", "3092eec0739ac28d36e22c3ee005feb75980d001-744x1039.png"],
+    ["VEN-195S", "174a22326c894454cb5878f4ce3603d43f9e599f-744x1040.png"],
+    ["VEN-196S", "844b4dd1ae4803abf61b42d53af2b4969e594332-744x1039.png"],
+    ["VEN-197S", "853681913bcd2a2e2b42217e290b530b72518142-744x1039.png"],
+  ])("uses Riot's official fallback for %s", (printCode, asset) => {
+    expect(cardImageUrl(card(`vendetta-signature-${printCode}`, "Vendetta signature", printCode)))
+      .toBe(`https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/${asset}?accountingTag=RB`);
   });
 
   it("treats signed and overnumbered alternate arts as the same card identity", () => {
@@ -281,6 +340,10 @@ describe("replay card image URLs", () => {
     expect(cardsShareCanonicalIdentity(
       card("overnumbered", "Jhin, Virtuoso", "UNL-226"),
       card("standard", "Jhin, Virtuoso", "UNL-181"),
+    )).toBe(true);
+    expect(cardsShareCanonicalIdentity(
+      card("physical-signature", "Rogue Assassin", "VEN-189*"),
+      card("standard-signature", "Rogue Assassin", "VEN-189"),
     )).toBe(true);
   });
 

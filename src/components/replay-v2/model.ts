@@ -22,10 +22,24 @@ const BANISHED_ZONE_ALIASES = [
 ];
 const SIDEBOARD_ZONE_ALIASES = ["sideboard", "sideboardcards"];
 const TRUSTED_CARD_IMAGE_HOSTS = new Set([
+  "assets.riftatlas-workers.com",
+  "cdn.rgpub.io",
   "cdn.piltoverarchive.com",
+  "cmsassets.rgpub.io",
   "piltoverarchive.com",
   "www.piltoverarchive.com",
 ]);
+const OFFICIAL_CARD_IMAGE_ASSETS: Record<string, string> = {
+  "UNL-T04": "64b9df938587aa93a3d0769a349d9b0cc6942dc2-744x1039.png",
+  // These Vendetta signatures are live in Riot's gallery but not yet mirrored by RiftAtlas.
+  "VEN-189S": "d8262e7b24f26d1c9a18b13166d009aaf573e059-744x1039.png",
+  "VEN-190S": "b9270494d2c18525e766b2ffa23a7c99ad9f994f-744x1039.png",
+  "VEN-191S": "a88733f8062c18a7aa51a208b1aef5d0bd030007-744x1039.png",
+  "VEN-194S": "3092eec0739ac28d36e22c3ee005feb75980d001-744x1039.png",
+  "VEN-195S": "174a22326c894454cb5878f4ce3603d43f9e599f-744x1040.png",
+  "VEN-196S": "844b4dd1ae4803abf61b42d53af2b4969e594332-744x1039.png",
+  "VEN-197S": "853681913bcd2a2e2b42217e290b530b72518142-744x1039.png",
+};
 const RIFT_ATLAS_TOKEN_IMAGE_URLS: Record<string, string> = {
   bird: "https://play.riftatlas.com/tokens/Bird.webp",
   gold: "https://play.riftatlas.com/tokens/Gold.webp",
@@ -448,13 +462,15 @@ export function cardImageUrl(card: ReplayCardState | undefined): string | undefi
     fields.art_url,
     fields.src,
   );
-  const tokenImage = riftAtlasTokenImageUrl(card, direct);
-  if (tokenImage) return tokenImage;
   const sourceCode =
     cardCodeFromValue(card.cardCode) ||
     cardCodeFromValue(direct) ||
     cardCodeFromValue(card.id) ||
     cardCodeFromValue(card.name);
+  const exactArt = exactCardArtUrl(sourceCode);
+  if (exactArt) return exactArt;
+  const tokenImage = riftAtlasTokenImageUrl(card, direct);
+  if (tokenImage) return tokenImage;
   const canonicalCode = canonicalCardArtCode(card, sourceCode);
   if (canonicalCode && canonicalCode !== sourceCode) {
     return publicCardImageUrl(canonicalCode);
@@ -482,6 +498,18 @@ function canonicalCardArtCode(
 
 function publicCardImageUrl(code: string): string {
   return `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp`;
+}
+
+function exactCardArtUrl(code: string | undefined): string | undefined {
+  if (!code) return undefined;
+  const officialAsset = OFFICIAL_CARD_IMAGE_ASSETS[code];
+  if (officialAsset) {
+    return `https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/${officialAsset}?accountingTag=RB`;
+  }
+  if (!/^[A-Z]{2,5}-(?:(?:SP|T)\d{1,3}|R\d{1,3}[A-Z]?|\d{1,4}[A-Z])$/.test(code)) {
+    return undefined;
+  }
+  return `https://assets.riftatlas-workers.com/riftbound/cards/small-v2/${encodeURIComponent(code)}.webp`;
 }
 
 function riftAtlasTokenImageUrl(
@@ -530,9 +558,11 @@ export function safeCardImageUrl(value: string | undefined): string | undefined 
 
 export function cardCodeFromValue(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  const match = value.match(/\b([A-Z]{2,5}-(?:R\d{1,3}|\d{1,4})[A-Z]?)\b/i);
+  const match = value.match(
+    /\b([A-Z]{2,5}-(?:(?:SP|T)\d{1,3}|R\d{1,3}[A-Z]?|\d{1,4}(?:[A-Z]|\*)?))(?![A-Z0-9*])/i,
+  );
   if (!match) return undefined;
-  return match[1].toUpperCase();
+  return match[1].replace(/\*$/, "S").toUpperCase();
 }
 
 export function canonicalCardPrintCode(value: string | undefined): string | undefined {
