@@ -4694,7 +4694,7 @@ function sideboardTransitionForGame(
     ).state;
     const player = previousState.players[playerId] ?? fallbackPlayer;
     const previousDeck = sideboardDeckListFromPlayer(player);
-    const submittedDeck = sideboardDeckListFromAction(action);
+    const submittedDeck = sideboardDeckListFromAction(action, playerId);
     if (!previousDeck || !submittedDeck) {
       return unavailableSideboardTransition(player.name, action.index);
     }
@@ -4742,14 +4742,78 @@ function sideboardDeckListFromPlayer(player: ReplayPlayerState): SideboardDeckLi
 
 function sideboardDeckListFromAction(
   action: Extract<ReplayEvent, { kind: "action" }>,
+  playerId: string,
 ): SideboardDeckList | undefined {
-  if (action.action.mainDeck === undefined || action.action.sideboard === undefined) return undefined;
-  const mainDeck = sideboardCardQuantities(action.action.mainDeck, `${action.id}-main`);
+  const patchCandidates = action.patch.operations.flatMap((operation, operationIndex) => {
+    if (operation.op !== "set_player_fields" || operation.playerId !== playerId) return [];
+    return [
+      operation.fields.deck,
+      operation.fields.submittedDeck,
+      operation.fields.registeredDeck,
+      operation.fields,
+    ].flatMap((source, sourceIndex) => {
+      const deck = sideboardDeckListFromSource(
+        source,
+        `${action.id}-patch-${operationIndex}-${sourceIndex}`,
+      );
+      return deck ? [deck] : [];
+    });
+  });
+  if (patchCandidates.length) return uniqueSideboardDeckList(patchCandidates);
+
+  return sideboardDeckListFromSource(action.action, `${action.id}-action`);
+}
+
+function sideboardDeckListFromSource(
+  value: JsonValue | undefined,
+  idPrefix: string,
+): SideboardDeckList | undefined {
+  if (!isJsonObject(value)) return undefined;
+  const sections = isJsonObject(value.sections) ? value.sections : value;
+  const mainDeckValue = jsonObjectValueByNormalizedKey(sections, ["maindeck", "main"]);
+  const sideboardValue = jsonObjectValueByNormalizedKey(sections, ["sideboard"]);
+  if (mainDeckValue === undefined || sideboardValue === undefined) return undefined;
+  const mainDeck = sideboardCardQuantities(mainDeckValue, `${idPrefix}-main`);
   if (!mainDeck.length) return undefined;
   return {
     mainDeck,
-    sideboard: sideboardCardQuantities(action.action.sideboard, `${action.id}-side`),
+    sideboard: sideboardCardQuantities(sideboardValue, `${idPrefix}-side`),
   };
+}
+
+function uniqueSideboardDeckList(candidates: SideboardDeckList[]): SideboardDeckList | undefined {
+  const unique: SideboardDeckList[] = [];
+  for (const candidate of candidates) {
+    if (!unique.some((existing) => sideboardDeckListsEqual(existing, candidate))) {
+      unique.push(candidate);
+    }
+  }
+  return unique.length === 1 ? unique[0] : undefined;
+}
+
+function sideboardDeckListsEqual(left: SideboardDeckList, right: SideboardDeckList): boolean {
+  return sideboardCardQuantityListsEqual(left.mainDeck, right.mainDeck) &&
+    sideboardCardQuantityListsEqual(left.sideboard, right.sideboard);
+}
+
+function sideboardCardQuantityListsEqual(
+  left: SideboardCardQuantity[],
+  right: SideboardCardQuantity[],
+): boolean {
+  const leftEntries = aggregateSideboardQuantities(left);
+  const rightEntries = aggregateSideboardQuantities(right);
+  if (leftEntries.length !== rightEntries.length) return false;
+  const matchedRight = new Set<number>();
+  return leftEntries.every((leftEntry) => {
+    const matchIndex = rightEntries.findIndex((candidate, index) => (
+      !matchedRight.has(index) &&
+      candidate.count === leftEntry.count &&
+      sideboardCardsMatch(leftEntry.card, candidate.card)
+    ));
+    if (matchIndex < 0) return false;
+    matchedRight.add(matchIndex);
+    return true;
+  });
 }
 
 function sideboardCardQuantities(value: JsonValue, idPrefix: string): SideboardCardQuantity[] {
@@ -7662,6 +7726,8 @@ function sideboardSubmitActionForPlayer(
       event.index <= game.eventEndIndex &&
       (event.gameId === game.id || event.gameId === null) &&
       event.actorPlayerId === playerId &&
+      event.confirmation.status === "confirmed" &&
+      event.confirmation.authority === "authoritative_patch_commit" &&
       isSubmitSideboardAction(event)
     ))
     .at(-1);

@@ -2388,6 +2388,185 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(view.queryByText("d20")).not.toBeInTheDocument();
   });
 
+  it("reads the reported replay's sideboard deck from its confirmed deck-only player patch", async () => {
+    const replay = bo3SideboardingReplay({ includeResult: true });
+    const snapshot = replay.events.find((event) => event.id === "game-two-snapshot");
+    const opponentAction = replay.events.find((event) => event.id === "opponent-submit-sideboard");
+    if (!snapshot || snapshot.kind !== "snapshot" || !opponentAction || opponentAction.kind !== "action") {
+      throw new Error("The replay fixture is missing its Game 2 setup.");
+    }
+    const previousDeck = {
+      sections: {
+        mainDeck: [
+          { cardCode: "SFD-001", count: 2, name: "Stable Card" },
+          { cardCode: "SFD-074", count: 1, name: "Pickpocket" },
+          { cardCode: "UNL-173", count: 1, name: "Sacrifice" },
+        ],
+        sideboard: [
+          { cardCode: "UNL-170", count: 1, name: "Atakhan" },
+          { cardCode: "VEN-061", count: 1, name: "Decree of Insight" },
+        ],
+      },
+    };
+    snapshot.snapshot.players.self.fields = {
+      ...snapshot.snapshot.players.self.fields,
+      deck: structuredClone(previousDeck),
+      submittedDeck: structuredClone(previousDeck),
+      registeredDeck: structuredClone(previousDeck),
+    };
+    const action = moveSelfSideboardDeckToAuthoritativePatch(replay, { includeAliases: false });
+    action.patch.operations = [{
+      id: "self-sideboard-deck-patch",
+      op: "set_player_fields",
+      playerId: "self",
+      fields: {
+        deck: {
+          sections: {
+            mainDeck: [
+              { cardCode: "SFD-001", count: 2, name: "Stable Card" },
+              { cardCode: "UNL-170", count: 1, name: "Atakhan" },
+              { cardCode: "VEN-061", count: 1, name: "Decree of Insight" },
+            ],
+            sideboard: [
+              { cardCode: "SFD-074", count: 1, name: "Pickpocket" },
+              { cardCode: "UNL-173", count: 1, name: "Sacrifice" },
+            ],
+          },
+        },
+        decklistRaw: "reported replay decklist payload",
+      },
+    }];
+    delete opponentAction.actorPlayerId;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_bo3_sideboard_patch" }));
+
+    await advanceToGameTwo(view);
+    fireEvent.click(view.getByRole("button", { name: "Next action" }));
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-scene="sideboarding"]')).toBeInTheDocument();
+    });
+
+    const sideboard = view.container.querySelector<HTMLElement>("[data-sideboard-status]");
+    expect(sideboard).toHaveAttribute("data-sideboard-status", "exact");
+    expect(sideboard).toHaveAttribute("data-sideboard-action-index", "7");
+    expect(sideboard?.querySelectorAll('[data-sideboard-card="out"]')).toHaveLength(2);
+    expect(sideboard?.querySelectorAll('[data-sideboard-card="in"]')).toHaveLength(2);
+    expect(sideboard?.querySelector('[data-sideboard-card="out"] [data-card-code="SFD-074"]'))
+      .toBeInTheDocument();
+    expect(sideboard?.querySelector('[data-sideboard-card="out"] [data-card-code="UNL-173"]'))
+      .toBeInTheDocument();
+    expect(sideboard?.querySelector('[data-sideboard-card="in"] [data-card-code="UNL-170"]'))
+      .toBeInTheDocument();
+    expect(sideboard?.querySelector('[data-sideboard-card="in"] [data-card-code="VEN-061"]'))
+      .toBeInTheDocument();
+    expect(sideboard?.querySelectorAll("[data-sideboard-quantity]")).toHaveLength(0);
+    expect(sideboard?.querySelector('[data-opponent-sideboard="locked"]')).toHaveTextContent(
+      "Opponent sideboard choices stay hidden",
+    );
+  });
+
+  it("deduplicates identical complete deck aliases in a confirmed local patch", async () => {
+    const replay = bo3SideboardingReplay({ includeResult: true });
+    moveSelfSideboardDeckToAuthoritativePatch(replay);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_bo3_sideboard_patch_aliases" }));
+
+    await advanceToGameTwo(view);
+    fireEvent.click(view.getByRole("button", { name: "Next action" }));
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-scene="sideboarding"]')).toBeInTheDocument();
+    });
+
+    expect(view.container.querySelector("[data-sideboard-status]"))
+      .toHaveAttribute("data-sideboard-status", "exact");
+  });
+
+  it("does not use a different player's submitted deck patch", async () => {
+    const replay = bo3SideboardingReplay({ includeResult: true });
+    const action = moveSelfSideboardDeckToAuthoritativePatch(replay);
+    action.patch.operations = [{
+      id: "opponent-only-sideboard-patch",
+      op: "set_player_fields",
+      playerId: "opponent",
+      fields: {
+        deck: {
+          sections: {
+            mainDeck: [{ cardCode: "SEC-999", count: 1, name: "Private Opponent Choice" }],
+            sideboard: [],
+          },
+        },
+      },
+    }];
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_bo3_sideboard_private_patch" }));
+
+    await advanceToGameTwo(view);
+    fireEvent.click(view.getByRole("button", { name: "Next action" }));
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-scene="sideboarding"]')).toBeInTheDocument();
+    });
+
+    const sideboard = view.container.querySelector<HTMLElement>("[data-sideboard-status]");
+    expect(sideboard).toHaveAttribute("data-sideboard-status", "unavailable");
+    expect(sideboard?.querySelectorAll("[data-sideboard-card]")).toHaveLength(0);
+    expect(view.queryByText("Private Opponent Choice")).not.toBeInTheDocument();
+    expect(sideboard?.querySelector('[data-opponent-sideboard="locked"]')).toHaveTextContent(
+      "Opponent sideboard choices stay hidden",
+    );
+  });
+
+  it("fails closed when patch aliases have crossed code and name identities", async () => {
+    const replay = bo3SideboardingReplay({ includeResult: true });
+    const action = moveSelfSideboardDeckToAuthoritativePatch(replay);
+    const playerPatch = action.patch.operations.find((operation) => operation.op === "set_player_fields");
+    if (!playerPatch || playerPatch.op !== "set_player_fields") {
+      throw new Error("The replay fixture is missing its local sideboard patch.");
+    }
+    playerPatch.fields.deck = {
+      sections: {
+        mainDeck: [
+          { cardCode: "TST-101", count: 1, name: "Alpha" },
+          { cardCode: "TST-102", count: 1, name: "Beta" },
+        ],
+        sideboard: [],
+      },
+    };
+    playerPatch.fields.submittedDeck = {
+      sections: {
+        mainDeck: [
+          { cardCode: "TST-101", count: 1, name: "Beta" },
+          { cardCode: "TST-103", count: 1, name: "Gamma" },
+        ],
+        sideboard: [],
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: "rp_bo3_sideboard_conflict" }));
+
+    await advanceToGameTwo(view);
+    fireEvent.click(view.getByRole("button", { name: "Next action" }));
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-scene="sideboarding"]')).toBeInTheDocument();
+    });
+
+    const sideboard = view.container.querySelector<HTMLElement>("[data-sideboard-status]");
+    expect(sideboard).toHaveAttribute("data-sideboard-status", "unavailable");
+    expect(sideboard?.querySelectorAll("[data-sideboard-card]")).toHaveLength(0);
+    expect(view.queryByText("Gamma")).not.toBeInTheDocument();
+  });
+
   it("shows both submitted sideboard changes in a consented combined replay", async () => {
     const replay = asConsentedCombinedReplay(bo3SideboardingReplay({ includeResult: true }));
     addOpponentSideboardDetails(replay);
@@ -3205,6 +3384,38 @@ function bo3SideboardingReplay(options: { includeResult: boolean }): CanonicalRe
     },
   );
   return replay;
+}
+
+function moveSelfSideboardDeckToAuthoritativePatch(
+  replay: CanonicalReplayV2,
+  options: { includeAliases?: boolean } = {},
+): Extract<CanonicalReplayV2["events"][number], { kind: "action" }> {
+  const action = replay.events.find((event) => event.id === "self-submit-sideboard");
+  if (!action || action.kind !== "action") {
+    throw new Error("The replay fixture is missing its local sideboard action.");
+  }
+  const mainDeck = action.action.mainDeck;
+  const sideboard = action.action.sideboard;
+  if (mainDeck === undefined || sideboard === undefined) {
+    throw new Error("The replay fixture is missing its submitted deck lists.");
+  }
+  const deck = {
+    sections: {
+      mainDeck: structuredClone(mainDeck),
+      sideboard: structuredClone(sideboard),
+    },
+  };
+  action.action = { type: "submit_sideboard" };
+  action.patch.operations = [{
+    id: "self-sideboard-deck-patch",
+    op: "set_player_fields",
+    playerId: "self",
+    fields: {
+      deck,
+      ...(options.includeAliases === false ? {} : { submittedDeck: structuredClone(deck) }),
+    },
+  }];
+  return action;
 }
 
 function addOpponentSideboardDetails(replay: CanonicalReplayV2): void {

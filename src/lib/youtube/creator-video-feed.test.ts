@@ -140,7 +140,7 @@ describe("YouTube creator video feeds", () => {
       return byCreator;
     }, new Map<string, number>());
 
-    expect(videos).toHaveLength(16);
+    expect(videos).toHaveLength(17);
     expect(counts.get("riftlab")).toBe(4);
     expect(counts.get("frodan")).toBe(2);
     expect(config.creators

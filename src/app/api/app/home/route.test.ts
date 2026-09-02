@@ -89,7 +89,7 @@ describe("desktop homepage config", () => {
     expect(body.creatorVideoCarousel).toEqual({
       enabled: true,
       rotationSeconds: 10,
-      maxItems: 16,
+      maxItems: 17,
     });
     expect(body.creatorVideosUpdatedAt).toBe("");
     expect(body.liveTakeover).toEqual({

@@ -14,13 +14,13 @@ describe("creator video carousel config", () => {
     const config = normalizeCreatorVideoCarouselConfig(undefined);
 
     expect(config).toEqual(DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG);
-    expect(config.creators).toHaveLength(15);
+    expect(config.creators).toHaveLength(16);
     expect(config.creators.slice(0, 2).map((creator) => creator.id))
       .toEqual(["riftlab", "frodan"]);
     const videoCreators = config.creators.filter((creator) => creator.youtubeUrl);
-    expect(videoCreators).toHaveLength(12);
-    expect(config.maxItems).toBe(16);
-    expect(videoCreators.reduce((total, creator) => total + creator.videoSlots, 0)).toBe(16);
+    expect(videoCreators).toHaveLength(13);
+    expect(config.maxItems).toBe(17);
+    expect(videoCreators.reduce((total, creator) => total + creator.videoSlots, 0)).toBe(17);
     expect(config.creators.find((creator) => creator.id === "riftlab")?.videoSlots).toBe(4);
     expect(config.creators.find((creator) => creator.id === "riftlab")?.sourceMode).toBe("all");
     expect(config.creators.find((creator) => creator.id === "frodan")).toMatchObject({
@@ -46,6 +46,13 @@ describe("creator video carousel config", () => {
       name: "Zelonius",
       youtubeUrl: "https://www.youtube.com/@Zelonius-Riftbound",
       channelId: "UClKusWe9-Zcg_RGcRcGc52A",
+      sourceMode: "all",
+      videoSlots: 1,
+    });
+    expect(config.creators.find((creator) => creator.id === "x0tcg")).toMatchObject({
+      name: "X0TCG",
+      youtubeUrl: "https://www.youtube.com/@x0tcg-riftbound",
+      channelId: "UC0LeDxm2EBE4L9ouz498HGw",
       sourceMode: "all",
       videoSlots: 1,
     });
