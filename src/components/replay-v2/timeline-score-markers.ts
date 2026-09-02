@@ -15,6 +15,7 @@ export type ReplayScoreTimelineMarker = {
   eventIndex: number;
   gameId: string;
   id: string;
+  kind: "score";
   opponentScore?: number;
   playerId: string;
   playerName: string;
@@ -23,6 +24,101 @@ export type ReplayScoreTimelineMarker = {
   scoreLabel: string;
   side: ReplayScoreMarkerSide;
 };
+
+export type ReplayGameStartTimelineMarker = {
+  atMs: number;
+  eventIndex: number;
+  gameId: string;
+  gameNumber: number;
+  id: string;
+  kind: "game-start";
+  tagLabel: string;
+};
+
+export type ReplayScoreTimelineTag = ReplayScoreTimelineMarker | ReplayGameStartTimelineMarker;
+
+/**
+ * Adds canonical game starts to the same optional timeline layer as score
+ * changes, but only for fully corroborated multi-game replays. Later games need
+ * an explicit game-number transition, and every game-table entry must form one
+ * valid sequence with its indexed start boundary. Any inconsistency fails the
+ * complete game-tag set closed rather than showing a plausible partial series.
+ */
+export function replayGameStartTimelineMarkers(
+  replay: Pick<CanonicalReplayV2, "events" | "series">,
+): ReplayGameStartTimelineMarker[] {
+  if (replay.series.games.length <= 1) return [];
+
+  const seenGameIds = new Set<string>();
+  const seenGameNumbers = new Set<number>();
+  const markers: ReplayGameStartTimelineMarker[] = [];
+  let previousGame: CanonicalReplayV2["series"]["games"][number] | undefined;
+
+  for (const [gameIndex, game] of replay.series.games.entries()) {
+    const event = replay.events[game.eventStartIndex];
+    if (
+      !event ||
+      !Number.isInteger(game.eventStartIndex) ||
+      game.eventStartIndex < 0 ||
+      !Number.isInteger(game.eventEndIndex) ||
+      game.eventEndIndex < game.eventStartIndex ||
+      game.eventEndIndex >= replay.events.length ||
+      event.index !== game.eventStartIndex ||
+      event.kind !== "game_boundary" ||
+      event.boundary !== "start" ||
+      event.gameId !== game.id ||
+      event.gameOrdinal !== game.ordinal ||
+      event.gameNumber !== game.gameNumber ||
+      !Number.isFinite(event.atMs) ||
+      event.atMs < 0 ||
+      !Number.isInteger(game.ordinal) ||
+      game.ordinal !== gameIndex + 1 ||
+      !Number.isInteger(game.gameNumber) ||
+      game.gameNumber < 1 ||
+      event.at !== game.startedAt ||
+      event.atMs !== game.startedAtMs ||
+      game.endedAt < game.startedAt ||
+      game.endedAtMs < game.startedAtMs ||
+      seenGameIds.has(game.id) ||
+      seenGameNumbers.has(game.gameNumber) ||
+      (gameIndex === 0 && event.reason !== "series_start") ||
+      (gameIndex > 0 && (
+        event.reason !== "explicit_game_number" ||
+        !game.sourceIdentity.explicitGameNumber
+      )) ||
+      (previousGame && (
+        game.gameNumber <= previousGame.gameNumber ||
+        game.eventStartIndex <= previousGame.eventEndIndex ||
+        game.startedAt < previousGame.endedAt ||
+        game.startedAtMs < previousGame.endedAtMs
+      ))
+    ) return [];
+
+    seenGameIds.add(game.id);
+    seenGameNumbers.add(game.gameNumber);
+    markers.push({
+      atMs: event.atMs,
+      eventIndex: event.index,
+      gameId: game.id,
+      gameNumber: game.gameNumber,
+      id: `game-start-${game.id}`,
+      kind: "game-start",
+      tagLabel: `G${game.gameNumber}`,
+    });
+    previousGame = game;
+  }
+
+  return markers;
+}
+
+export function replayScoreTimelineTags(
+  replay: Pick<CanonicalReplayV2, "events" | "series">,
+): ReplayScoreTimelineTag[] {
+  return [
+    ...replayScoreTimelineMarkers(replay),
+    ...replayGameStartTimelineMarkers(replay),
+  ].sort((left, right) => left.atMs - right.atMs || left.eventIndex - right.eventIndex);
+}
 
 /**
  * Derives score tags only from authoritative, one-player score increases.
@@ -95,6 +191,7 @@ export function replayScoreTimelineMarkers(
       eventIndex: event.index,
       gameId: event.gameId,
       id: `score-${event.id}-${change.playerId}`,
+      kind: "score",
       ...(opponentScore !== undefined ? { opponentScore } : {}),
       playerId: change.playerId,
       playerName: player?.name || participantName(replay, change.playerId),

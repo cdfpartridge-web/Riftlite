@@ -65,7 +65,7 @@ import {
 } from "./cards-up";
 import {
   REPLAY_SCORE_TAGS_PREFERENCE_KEY,
-  replayScoreTimelineMarkers,
+  replayScoreTimelineTags,
 } from "./timeline-score-markers";
 import {
   MIN_REPLAY_CLIP_MS,
@@ -6253,7 +6253,7 @@ function TransportControls({
   const timelineStartMs = clipRange?.startMs ?? 0;
   const timelineEndMs = clipRange?.endMs ?? durationMs;
   const timelineDurationMs = Math.max(1, timelineEndMs - timelineStartMs);
-  const scoreMarkers = useMemo(() => replayScoreTimelineMarkers(replay), [replay]);
+  const scoreTimelineTags = useMemo(() => replayScoreTimelineTags(replay), [replay]);
   return (
     <footer className={styles.transport} aria-label="Replay controls">
       {showMore ? (
@@ -6453,10 +6453,36 @@ function TransportControls({
         />
       ))}
       {showScoreTags ? (
-        <div aria-label="Automatic score tags" className={styles.scoreTimelineMarkers}>
-          {scoreMarkers.filter((marker) => (
+        <div aria-label="Automatic score and game tags" className={styles.scoreTimelineMarkers}>
+          {scoreTimelineTags.filter((marker) => (
             marker.atMs >= timelineStartMs && marker.atMs <= timelineEndMs
           )).map((marker) => {
+            if (marker.kind === "game-start") {
+              return (
+                <button
+                  aria-label={`Jump to Game ${marker.gameNumber} start at ${formatClock(marker.atMs)}`}
+                  data-game-number={marker.gameNumber}
+                  data-game-start-marker={marker.id}
+                  data-timeline-tag-kind="game-start"
+                  key={marker.id}
+                  onClick={() => onSeek(marker.atMs, {
+                    immediate: marker.atMs < currentMs,
+                    eventIndex: marker.eventIndex,
+                  })}
+                  style={{
+                    left: `${Math.min(99, Math.max(
+                      1,
+                      ((marker.atMs - timelineStartMs) / timelineDurationMs) * 100,
+                    ))}%`,
+                  }}
+                  title={`Game ${marker.gameNumber} start · ${formatClock(marker.atMs)}`}
+                  type="button"
+                >
+                  {marker.tagLabel}
+                </button>
+              );
+            }
+
             const sideLabel = marker.side === "player"
               ? "your"
               : marker.side === "opponent"
@@ -6477,6 +6503,7 @@ function TransportControls({
                 data-score-marker={marker.id}
                 data-score-side={marker.side}
                 data-score-total={marker.scoreLabel}
+                data-timeline-tag-kind="score"
                 key={marker.id}
                 onClick={() => onSeek(marker.atMs, {
                   immediate: marker.atMs < currentMs,
@@ -6567,7 +6594,7 @@ function TransportControls({
         </button>
         <label
           className={styles.scoreTagsToggle}
-          title="Show automatic player and opponent score changes on the timeline"
+          title="Show automatic score changes and multi-game starts on the timeline"
         >
           <input
             checked={showScoreTags}

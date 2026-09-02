@@ -2968,6 +2968,14 @@ button.cardPile { cursor: pointer; }
 .scoreTimelineMarkers button[data-score-side="player"] { background: #277758; }
 .scoreTimelineMarkers button[data-score-side="opponent"] { background: #9f3348; }
 .scoreTimelineMarkers button[data-score-side="neutral"] { background: #3e668c; }
+.scoreTimelineMarkers button[data-timeline-tag-kind="game-start"] {
+  min-width: 35px;
+  border-color: #b9a9ff;
+  background: #594a80;
+  box-shadow: 0 0 9px rgba(185, 169, 255, .32);
+  color: #f8f5ff;
+  letter-spacing: .04em;
+}
 .scoreTimelineMarkers button:hover,
 .scoreTimelineMarkers button:focus-visible {
   z-index: 1;

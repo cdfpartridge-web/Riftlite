@@ -1069,6 +1069,72 @@ describe("ReplayV2Player presentation prelude", () => {
     }
   });
 
+  it("shows exact BO3 game starts with score tags and seeks to the selected game", async () => {
+    const replayId = "rp_bo3_game_tags";
+    window.localStorage.removeItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: bo3SideboardingReplay({ includeResult: true }),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId }));
+
+    try {
+      const checkbox = await view.findByRole("checkbox", { name: "Score tags" });
+      expect(checkbox).not.toBeChecked();
+      expect(view.container.querySelector("[data-game-start-marker]")).not.toBeInTheDocument();
+
+      fireEvent.click(checkbox);
+
+      expect(view.getByRole("button", { name: "Jump to Game 1 start at 0:00" }))
+        .toHaveTextContent("G1");
+      const gameTwoTag = view.getByRole("button", {
+        name: "Jump to Game 2 start at 0:01",
+      });
+      expect(gameTwoTag).toHaveTextContent("G2");
+      expect(gameTwoTag).toHaveAttribute("data-game-number", "2");
+      expect(gameTwoTag).toHaveAttribute("data-timeline-tag-kind", "game-start");
+      expect(gameTwoTag).toHaveAttribute("title", "Game 2 start · 0:01");
+
+      fireEvent.click(gameTwoTag);
+
+      await waitFor(() => expect(view.getByRole("slider", { name: "Replay progress" }))
+        .toHaveValue("1000"));
+    } finally {
+      view.unmount();
+      window.localStorage.removeItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY);
+    }
+  });
+
+  it("keeps only in-range game starts on a shared clip timeline", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const replayId = "rp_bo3_game_tag_clip";
+    window.history.replaceState({}, "", `/replays/${replayId}?start=0.5&end=1.5`);
+    window.localStorage.setItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY, "true");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      replay: bo3SideboardingReplay({ includeResult: true }),
+    }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId }));
+
+    try {
+      const checkbox = await view.findByRole("checkbox", { name: "Score tags" });
+      await waitFor(() => expect(checkbox).toBeChecked());
+      expect(view.queryByRole("button", { name: "Jump to Game 1 start at 0:00" }))
+        .not.toBeInTheDocument();
+      expect(view.getByRole("button", { name: "Jump to Game 2 start at 0:01" }))
+        .toHaveTextContent("G2");
+      expect(view.container.querySelectorAll("[data-game-start-marker]")).toHaveLength(1);
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl);
+      window.localStorage.removeItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY);
+    }
+  });
+
   it("does not use card knowledge from after a shared clip ends", async () => {
     const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     window.history.replaceState({}, "", "/replays/rp_clip_knowledge?start=0&end=0.5");

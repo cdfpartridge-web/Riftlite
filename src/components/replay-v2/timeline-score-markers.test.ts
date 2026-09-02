@@ -1,15 +1,117 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  CanonicalReplayV2,
-  ReplayActionEvent,
-  ReplayGameBoundaryEvent,
-  ReplaySnapshotEvent,
+import {
+  normalizeRawCaptureV1,
+  type CanonicalReplayV2,
+  type ReplayActionEvent,
+  type ReplayGameBoundaryEvent,
+  type ReplaySnapshotEvent,
 } from "@/lib/replay-v2";
+import { syntheticBo3Capture } from "@/lib/replay-v2/__fixtures__/synthetic-captures";
 
-import { replayScoreTimelineMarkers } from "./timeline-score-markers";
+import {
+  replayGameStartTimelineMarkers,
+  replayScoreTimelineMarkers,
+  replayScoreTimelineTags,
+} from "./timeline-score-markers";
 
 describe("replay score timeline markers", () => {
+  it("uses the exact canonical start events from a normalized three-game capture", () => {
+    const replay = normalizeRawCaptureV1(syntheticBo3Capture(), { replayId: "score-game-tags" });
+
+    expect(replayGameStartTimelineMarkers(replay).map((marker) => ({
+      atMs: marker.atMs,
+      eventIndex: marker.eventIndex,
+      tagLabel: marker.tagLabel,
+    }))).toEqual([
+      { atMs: 0, eventIndex: 0, tagLabel: "G1" },
+      { atMs: 10_000, eventIndex: 9, tagLabel: "G2" },
+      { atMs: 20_000, eventIndex: 17, tagLabel: "G3" },
+    ]);
+  });
+
+  it("fails closed when a later game exists only because of an inferred phase rollover", () => {
+    const gameTwoStart = gameStart(2, "game-2", 31_000, 2);
+    gameTwoStart.reason = "phase_rollover";
+    const replay = scoreReplay([
+      gameStart(0, "game-1"),
+      gameEnd(1, "game-1", 30_000, 1),
+      gameTwoStart,
+      gameEnd(3, "game-2", 60_000, 2),
+    ]);
+    setCanonicalGames(replay, [
+      { eventEndIndex: 1, eventStartIndex: 0, gameId: "game-1", gameNumber: 1 },
+      { eventEndIndex: 3, eventStartIndex: 2, gameId: "game-2", gameNumber: 2 },
+    ]);
+    const inferredGame = replay.series.games[1];
+    if (!inferredGame) throw new Error("The test replay is missing Game 2.");
+    inferredGame.sourceIdentity.explicitGameNumber = false;
+
+    expect(replayGameStartTimelineMarkers(replay)).toEqual([]);
+  });
+
+  it("keeps later game starts in chronological order with score tags", () => {
+    const replay = scoreReplay([
+      gameStart(0, "game-1"),
+      scoreSnapshot(1, "game-1", 0, 0, 0),
+      scoreAction(2, "game-1", 20_000, "self", 1),
+      gameEnd(3, "game-1", 30_000, 1),
+      gameStart(4, "game-2", 31_000, 2),
+    ]);
+    setCanonicalGames(replay, [
+      { eventEndIndex: 3, eventStartIndex: 0, gameId: "game-1", gameNumber: 1 },
+      { eventEndIndex: 4, eventStartIndex: 4, gameId: "game-2", gameNumber: 2 },
+    ]);
+
+    expect(replayScoreTimelineTags(replay).map((marker) => ({
+      atMs: marker.atMs,
+      kind: marker.kind,
+    }))).toEqual([
+      { atMs: 0, kind: "game-start" },
+      { atMs: 20_000, kind: "score" },
+      { atMs: 31_000, kind: "game-start" },
+    ]);
+  });
+
+  it("does not create game tags from a lone game, mismatch, or duplicate numbering", () => {
+    const singleGameReplay = scoreReplay([gameStart(0, "game-1")]);
+    setCanonicalGames(singleGameReplay, [
+      { eventEndIndex: 0, eventStartIndex: 0, gameId: "game-1", gameNumber: 1 },
+    ]);
+    expect(replayGameStartTimelineMarkers(singleGameReplay)).toEqual([]);
+
+    const mismatchedReplay = scoreReplay([
+      gameStart(0, "game-1"),
+      gameEnd(1, "game-1", 30_000, 1),
+      gameStart(2, "different-game", 31_000, 2),
+    ]);
+    setCanonicalGames(mismatchedReplay, [
+      { eventEndIndex: 1, eventStartIndex: 0, gameId: "game-1", gameNumber: 1 },
+      { eventEndIndex: 2, eventStartIndex: 2, gameId: "game-2", gameNumber: 2 },
+    ]);
+
+    expect(replayGameStartTimelineMarkers(mismatchedReplay)).toEqual([]);
+
+    const duplicateNumberReplay = scoreReplay([
+      gameStart(0, "game-1"),
+      gameEnd(1, "game-1", 30_000, 1),
+      gameStart(2, "game-2", 31_000, 2),
+    ]);
+    setCanonicalGames(duplicateNumberReplay, [
+      { eventEndIndex: 1, eventStartIndex: 0, gameId: "game-1", gameNumber: 1 },
+      { eventEndIndex: 2, eventStartIndex: 2, gameId: "game-2", gameNumber: 2 },
+    ]);
+    const duplicateGame = duplicateNumberReplay.series.games[1];
+    const duplicateBoundary = duplicateNumberReplay.events[2];
+    if (!duplicateGame || duplicateBoundary?.kind !== "game_boundary") {
+      throw new Error("The duplicate-number test is missing Game 2.");
+    }
+    duplicateGame.gameNumber = 1;
+    duplicateBoundary.gameNumber = 1;
+
+    expect(replayGameStartTimelineMarkers(duplicateNumberReplay)).toEqual([]);
+  });
+
   it("maps authoritative player and opponent score increases to exact timeline tags", () => {
     const replay = scoreReplay([
       gameStart(0, "game-1"),
@@ -169,6 +271,38 @@ function scoreReplay(events: CanonicalReplayV2["events"]): CanonicalReplayV2 {
   };
 }
 
+function setCanonicalGames(
+  replay: CanonicalReplayV2,
+  games: Array<{
+    eventEndIndex: number;
+    eventStartIndex: number;
+    gameId: string;
+    gameNumber: number;
+  }>,
+): void {
+  replay.series.games = games.map((game) => {
+    const start = replay.events[game.eventStartIndex];
+    const end = replay.events[game.eventEndIndex];
+    if (!start || !end) throw new Error("The test game must reference existing events.");
+    return {
+      id: game.gameId,
+      ordinal: game.gameNumber,
+      gameNumber: game.gameNumber,
+      sourceIdentity: {
+        explicitGameNumber: true,
+        gameInstanceIds: [`instance-${game.gameNumber}`],
+      },
+      startedAt: start.at,
+      endedAt: end.at,
+      startedAtMs: start.atMs,
+      endedAtMs: end.atMs,
+      eventStartIndex: game.eventStartIndex,
+      eventEndIndex: game.eventEndIndex,
+      phases: [],
+    };
+  });
+}
+
 function gameStart(
   index: number,
   gameId: string,
@@ -187,6 +321,20 @@ function gameStart(
     gameOrdinal: gameNumber,
     gameNumber,
     reason: gameNumber === 1 ? "series_start" : "explicit_game_number",
+  };
+}
+
+function gameEnd(
+  index: number,
+  gameId: string,
+  atMs: number,
+  gameNumber: number,
+): ReplayGameBoundaryEvent {
+  return {
+    ...gameStart(index, gameId, atMs, gameNumber),
+    id: `boundary-end-${gameId}`,
+    boundary: "end",
+    reason: "explicit_result",
   };
 }
 
