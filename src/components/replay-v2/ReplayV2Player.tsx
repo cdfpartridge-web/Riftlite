@@ -64,6 +64,10 @@ import {
   type ReplayCardsUpProjectionCache,
 } from "./cards-up";
 import {
+  REPLAY_SCORE_TAGS_PREFERENCE_KEY,
+  replayScoreTimelineMarkers,
+} from "./timeline-score-markers";
+import {
   MIN_REPLAY_CLIP_MS,
   defaultReplayClipRange,
   formatReplayClipMinutesSeconds,
@@ -335,6 +339,7 @@ export function ReplayV2Player({
   const [speed, setSpeed] = useState<PlaybackSpeed>(1);
   const [showMore, setShowMore] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showScoreTags, setShowScoreTags] = useState(false);
   const [playerNamePrivacy, setPlayerNamePrivacy] = useState({ replayId, hidden: false });
   const [cardsUpPreference, setCardsUpPreference] = useState({ replayId, enabled: false });
   const [fullscreen, setFullscreen] = useState(false);
@@ -402,6 +407,33 @@ export function ReplayV2Player({
     document.addEventListener("fullscreenchange", syncFullscreenState);
     syncFullscreenState();
     return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || typeof window === "undefined") return;
+      let enabled = false;
+      try {
+        enabled = window.localStorage.getItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY) === "true";
+      } catch {
+        // Keep the guarded default when browser storage is unavailable.
+      }
+      if (!cancelled) setShowScoreTags(enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updateShowScoreTags = useCallback((enabled: boolean) => {
+    setShowScoreTags(enabled);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY, String(enabled));
+    } catch {
+      // Storage can be unavailable in private or hardened browser contexts.
+    }
   }, []);
 
   useEffect(() => {
@@ -2484,6 +2516,7 @@ export function ReplayV2Player({
                     enabled: current.replayId === replayId ? !current.enabled : true,
                     replayId,
                   }))}
+                  onShowScoreTagsChange={updateShowScoreTags}
                   onTogglePlayerNames={() => setPlayerNamePrivacy((current) => ({
                     hidden: current.replayId === replayId ? !current.hidden : true,
                     replayId,
@@ -2511,6 +2544,7 @@ export function ReplayV2Player({
                   replayNotes={casterMode ? [] : visibleReplayNotes}
                   replayNotesReadOnly={sharedReplayNotesActive}
                   selectedReplayNoteId={selectedReplayNoteId}
+                  showScoreTags={showScoreTags}
                   playerNamesHidden={allowPlayerNameHiding ? hidePlayerNames : null}
                   showMore={showMore}
                   speed={speed}
@@ -6143,6 +6177,7 @@ function TransportControls({
   onReviewClip,
   onSeek,
   onSelectReplayNote,
+  onShowScoreTagsChange,
   onStepAction,
   onStepGame,
   onStepTurn,
@@ -6157,6 +6192,7 @@ function TransportControls({
   replayNotes,
   replayNotesReadOnly,
   selectedReplayNoteId,
+  showScoreTags,
   playerNamesHidden,
   showMore,
   speed,
@@ -6190,6 +6226,7 @@ function TransportControls({
   onReviewClip: () => void;
   onSeek: (atMs: number, options?: { immediate?: boolean; eventIndex?: number }) => void;
   onSelectReplayNote: (note: ReplayNote) => void;
+  onShowScoreTagsChange: (enabled: boolean) => void;
   onStepAction: (direction: -1 | 1) => void;
   onStepGame: (direction: -1 | 1) => void;
   onStepTurn: (direction: -1 | 1) => void;
@@ -6204,6 +6241,7 @@ function TransportControls({
   replayNotes: ReplayNote[];
   replayNotesReadOnly: boolean;
   selectedReplayNoteId: string | null;
+  showScoreTags: boolean;
   playerNamesHidden: boolean | null;
   showMore: boolean;
   speed: number;
@@ -6215,6 +6253,7 @@ function TransportControls({
   const timelineStartMs = clipRange?.startMs ?? 0;
   const timelineEndMs = clipRange?.endMs ?? durationMs;
   const timelineDurationMs = Math.max(1, timelineEndMs - timelineStartMs);
+  const scoreMarkers = useMemo(() => replayScoreTimelineMarkers(replay), [replay]);
   return (
     <footer className={styles.transport} aria-label="Replay controls">
       {showMore ? (
@@ -6413,6 +6452,51 @@ function TransportControls({
           onMove={(atMs) => onMoveReplayNote(note.id, atMs)}
         />
       ))}
+      {showScoreTags ? (
+        <div aria-label="Automatic score tags" className={styles.scoreTimelineMarkers}>
+          {scoreMarkers.filter((marker) => (
+            marker.atMs >= timelineStartMs && marker.atMs <= timelineEndMs
+          )).map((marker) => {
+            const sideLabel = marker.side === "player"
+              ? "your"
+              : marker.side === "opponent"
+                ? "opponent"
+                : playerNamesHidden
+                  ? "a player"
+                  : marker.playerName;
+            const titleOwner = marker.side === "player"
+              ? "Your"
+              : marker.side === "opponent"
+                ? "Opponent"
+                : playerNamesHidden
+                  ? "Player"
+                  : marker.playerName;
+            return (
+              <button
+                aria-label={`Jump to ${sideLabel} score ${marker.scoreLabel} at ${formatClock(marker.atMs)}`}
+                data-score-marker={marker.id}
+                data-score-side={marker.side}
+                data-score-total={marker.scoreLabel}
+                key={marker.id}
+                onClick={() => onSeek(marker.atMs, {
+                  immediate: marker.atMs < currentMs,
+                  eventIndex: marker.eventIndex,
+                })}
+                style={{
+                  left: `${Math.min(99, Math.max(
+                    1,
+                    ((marker.atMs - timelineStartMs) / timelineDurationMs) * 100,
+                  ))}%`,
+                }}
+                title={`${titleOwner} score · ${marker.scoreLabel} · ${formatClock(marker.atMs)}`}
+                type="button"
+              >
+                {marker.scoreLabel}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
       <input
         aria-label="Replay progress"
         className={styles.progressRange}
@@ -6481,6 +6565,18 @@ function TransportControls({
         >
           <Icon name="sliders" /> {showMore ? "Less" : "More"}
         </button>
+        <label
+          className={styles.scoreTagsToggle}
+          title="Show automatic player and opponent score changes on the timeline"
+        >
+          <input
+            checked={showScoreTags}
+            data-control="score-tags"
+            onChange={(event) => onShowScoreTagsChange(event.currentTarget.checked)}
+            type="checkbox"
+          />
+          <span>Score tags</span>
+        </label>
         {playerNamesHidden !== null ? (
           <button
             aria-label={playerNamesHidden ? "Show player names" : "Hide player names"}

@@ -2932,6 +2932,51 @@ button.cardPile { cursor: pointer; }
   content: "";
 }
 
+.scoreTimelineMarkers {
+  position: absolute;
+  top: -24px;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 24px;
+  pointer-events: none;
+}
+
+.scoreTimelineMarkers button {
+  position: absolute;
+  bottom: 1px;
+  min-width: 31px;
+  height: 20px;
+  border: 1px solid #ffd166;
+  border-radius: 8px;
+  background: #436b72;
+  color: #fff8df;
+  box-shadow: 0 0 9px rgba(255, 209, 102, .28);
+  cursor: pointer;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  padding: 0 6px;
+  pointer-events: auto;
+  transform: translateX(-50%);
+  transition: box-shadow 150ms ease, filter 150ms ease, transform 150ms ease;
+  white-space: nowrap;
+}
+
+.scoreTimelineMarkers button[data-score-side="player"] { background: #277758; }
+.scoreTimelineMarkers button[data-score-side="opponent"] { background: #9f3348; }
+.scoreTimelineMarkers button[data-score-side="neutral"] { background: #3e668c; }
+.scoreTimelineMarkers button:hover,
+.scoreTimelineMarkers button:focus-visible {
+  z-index: 1;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 244, 204, .22), 0 0 15px rgba(255, 209, 102, .52);
+  filter: brightness(1.15);
+  transform: translateX(-50%) translateY(-2px) scale(1.08);
+}
+
 .clipStartChip {
   position: absolute;
   bottom: calc(100% + 14px);
@@ -3015,6 +3060,36 @@ button.cardPile { cursor: pointer; }
 .moreButton svg { width: 15px; }
 .fullscreenButton { min-width: 104px; gap: 6px; padding: 0 12px; color: #8ca1b7; font-size: 10px; font-weight: 700; }
 .fullscreenButton svg { width: 15px; }
+
+.scoreTagsToggle {
+  display: inline-flex;
+  height: 39px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #8ca1b7;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 720;
+  padding: 0 10px;
+}
+
+.scoreTagsToggle:hover,
+.scoreTagsToggle:focus-within {
+  border-color: rgba(255, 209, 102, .26);
+  background: rgba(255, 209, 102, .07);
+  color: #f7e6b0;
+}
+
+.scoreTagsToggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #63dfa5;
+  cursor: pointer;
+}
 
 .cardsUpButton {
   display: inline-flex;

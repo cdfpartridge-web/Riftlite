@@ -20,6 +20,7 @@ import {
   replayGamePlaybackStartMs,
 } from "./ReplayV2Player";
 import { replayNotesStorageKey } from "./replay-notes";
+import { REPLAY_SCORE_TAGS_PREFERENCE_KEY } from "./timeline-score-markers";
 import {
   SHARED_REPLAY_NOTES_HASH_PARAM,
   decodeSharedReplayNotesPayload,
@@ -990,6 +991,82 @@ describe("ReplayV2Player presentation prelude", () => {
     });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     expect(view.container.querySelector("[data-cards-up-badge]")).not.toBeInTheDocument();
+  });
+
+  it("keeps browser-local score tags off by default without hiding manual replay notes", async () => {
+    const replayId = "rp_score_tags";
+    const noteStorageKey = replayNotesStorageKey(replayId);
+    const replay = replayWithScoreChange();
+    window.localStorage.removeItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY);
+    window.localStorage.setItem(noteStorageKey, JSON.stringify({
+      schema: "riftlite-replay-notes",
+      version: 1,
+      replayId,
+      notes: [{
+        id: "manual-note",
+        atMs: 12_000,
+        eventId: "event-snapshot",
+        eventIndex: 2,
+        gameId: "game-1",
+        gameNumber: 1,
+        turn: 1,
+        title: "Manual coaching note",
+        body: "This remains independently visible.",
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+      updatedAt: 1,
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })));
+    let view = render(createElement(ReplayV2Player, { replayId }));
+
+    try {
+      const checkbox = await view.findByRole("checkbox", { name: "Score tags" });
+      expect(checkbox).not.toBeChecked();
+      expect(view.container.querySelector("[data-score-marker]")).not.toBeInTheDocument();
+      expect(await view.findByRole("slider", {
+        name: "Replay note 1, Manual coaching note, 0:12.000",
+      })).toBeInTheDocument();
+
+      fireEvent.click(checkbox);
+
+      expect(checkbox).toBeChecked();
+      expect(window.localStorage.getItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY)).toBe("true");
+      const scoreTag = view.getByRole("button", {
+        name: "Jump to your score 8\u20135 at 0:30",
+      });
+      expect(scoreTag).toHaveAttribute("data-score-side", "player");
+      expect(scoreTag).toHaveTextContent("8\u20135");
+      expect(scoreTag).toHaveAttribute("title", "Your score \u00b7 8\u20135 \u00b7 0:30");
+      expect(scoreTag.getAttribute("title")).not.toMatch(/LeBlanc|Fiora/i);
+      fireEvent.click(scoreTag);
+      await waitFor(() => expect(view.getByRole("slider", { name: "Replay progress" }))
+        .toHaveValue("30000"));
+
+      view.unmount();
+      view = render(createElement(ReplayV2Player, { replayId }));
+      const restoredCheckbox = await view.findByRole("checkbox", { name: "Score tags" });
+      await waitFor(() => expect(restoredCheckbox).toBeChecked());
+      expect(view.getByRole("button", {
+        name: "Jump to your score 8\u20135 at 0:30",
+      })).toBeInTheDocument();
+
+      fireEvent.click(restoredCheckbox);
+
+      expect(restoredCheckbox).not.toBeChecked();
+      expect(window.localStorage.getItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY)).toBe("false");
+      expect(view.container.querySelector("[data-score-marker]")).not.toBeInTheDocument();
+      expect(await view.findByRole("slider", {
+        name: "Replay note 1, Manual coaching note, 0:12.000",
+      })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      window.localStorage.removeItem(REPLAY_SCORE_TAGS_PREFERENCE_KEY);
+      window.localStorage.removeItem(noteStorageKey);
+    }
   });
 
   it("does not use card knowledge from after a shared clip ends", async () => {
@@ -2492,6 +2569,38 @@ function replayWithDuration(durationMs: number): CanonicalReplayV2 {
     game.endedAt = game.startedAt + durationMs;
     game.endedAtMs = durationMs;
   }
+  return replay;
+}
+
+function replayWithScoreChange(): CanonicalReplayV2 {
+  const replay = replayWithDuration(120_000);
+  replay.id = "rp_score_tags";
+  replay.events.push({
+    id: "event-score-self",
+    index: replay.events.length,
+    at: replay.series.startedAt + 30_000,
+    atMs: 30_000,
+    sourceMessageId: "message-score-self",
+    gameId: "game-1",
+    kind: "action",
+    actionType: "battlefield_conquer_confirm",
+    actorPlayerId: "self",
+    action: { type: "battlefield_conquer_confirm" },
+    confirmation: {
+      status: "confirmed",
+      authority: "authoritative_patch_commit",
+      correlation: "intent_not_observed",
+      commitMessageId: "message-score-self",
+    },
+    patch: {
+      operations: [{
+        id: "operation-score-self",
+        op: "set_board_fields",
+        playerId: "self",
+        fields: { score: 8 },
+      }],
+    },
+  });
   return replay;
 }
 
