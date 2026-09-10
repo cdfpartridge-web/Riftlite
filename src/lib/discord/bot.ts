@@ -162,7 +162,8 @@ export async function completeDiscordVerification(code: string, uid: string, pro
   const displayName = bestProfileDisplayName(uid, profile.displayName, handle);
   // Redeeming this code establishes an account-recovery identity, so the
   // one-time state and every resulting identity write must commit atomically.
-  // A same-account retry is idempotent (for example after a lost response),
+  // A same-account retry is idempotent while its guild link is still current
+  // (for example after a lost response),
   // while a concurrent different-account redemption fails after Firestore
   // retries the transaction against the completed session.
   const completed = await db.runTransaction(async (transaction) => {
@@ -188,7 +189,10 @@ export async function completeDiscordVerification(code: string, uid: string, pro
     const existingLink = status === "complete"
       ? (await transaction.get(linkRef)).data() ?? {}
       : {};
-    const link = status === "complete" && String(existingLink.uid ?? "").trim() === uid
+    if (status === "complete" && String(existingLink.uid ?? "").trim() !== uid) {
+      throw new Error("This Discord verification link is no longer current. Run /verify in this Discord server again.");
+    }
+    const link = status === "complete"
       ? existingLink
       : {
       uid,

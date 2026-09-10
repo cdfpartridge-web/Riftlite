@@ -30,8 +30,12 @@ describe("Discord server and private hub isolation", () => {
     vi.clearAllMocks();
     mocks.capability.mockResolvedValue("admin");
     mocks.destinations.mockResolvedValue(undefined);
+    mocks.role.mockResolvedValue(undefined);
   });
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
 
   it("loads a server's own binding and fails closed for duplicate legacy bindings", async () => {
     const fake = database({ "hubs/hub-a": { role_mode: "account" }, "discordGuildConfigs/guild-a": config() });
@@ -87,6 +91,58 @@ describe("Discord server and private hub isolation", () => {
       .resolves.toMatchObject({ roleAssigned: false, configuredRole: true, roleRequiresHubMembership: true });
     expect(mocks.role).not.toHaveBeenCalled();
     expect(fake.docs.get("discordLinks/guild-a_discord-a")?.uid).toBe("outside-account");
+  });
+
+  it.each(["relinked", "missing"])("rejects a completed verification retry with a %s current guild link before granting a role", async (state) => {
+    const fake = database({
+      "hubs/hub-a": { role_mode: "account" },
+      "discordGuildConfigs/guild-a": { ...config(), verifiedRoleId: "testing-role" },
+      "discordVerificationSessions/OLDVERIFY": {
+        status: "complete", uid: "old-account", guildId: "guild-a", discordUserId: "discord-a",
+        completedAt: Date.now() - 10_000, expiresAt: Date.now() + 60_000,
+      },
+      // A matching identity in another server must never repair this link.
+      "discordLinks/guild-b_discord-a": { uid: "old-account", guildId: "guild-b", discordUserId: "discord-a" },
+    });
+    if (state === "relinked") fake.docs.set("discordLinks/guild-a_discord-a", { uid: "new-account", guildId: "guild-a", discordUserId: "discord-a" });
+    const before = [...fake.docs.entries()];
+    mocks.db.mockReturnValue(fake.db);
+    const discordFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", discordFetch);
+    vi.stubEnv("DISCORD_COMMUNITY_BOT_TOKEN", "synthetic-test-token");
+
+    await expect(completeDiscordVerification("OLDVERIFY", "old-account", { displayName: "Old Player" }))
+      .rejects.toThrow("no longer current");
+    expect(fake.writes).toEqual([]);
+    expect([...fake.docs.entries()]).toEqual(before);
+    expect(mocks.role).not.toHaveBeenCalled();
+    expect(discordFetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves same-account completed retry idempotence and allows its still-authorized role assignment", async () => {
+    const currentLink = { uid: "current-account", guildId: "guild-a", discordUserId: "discord-a", displayName: "Saved Player", linkedAt: 123 };
+    const fake = database({
+      "hubs/hub-a": { role_mode: "account" },
+      "discordGuildConfigs/guild-a": { ...config(), verifiedRoleId: "testing-role" },
+      "discordVerificationSessions/VERIFY123": {
+        status: "complete", uid: "current-account", guildId: "guild-a", discordUserId: "discord-a",
+        completedAt: Date.now() - 10_000, expiresAt: Date.now() + 60_000,
+      },
+      "discordLinks/guild-a_discord-a": currentLink,
+    });
+    mocks.db.mockReturnValue(fake.db);
+    const discordFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", discordFetch);
+    vi.stubEnv("DISCORD_COMMUNITY_BOT_TOKEN", "synthetic-test-token");
+
+    await expect(completeDiscordVerification("VERIFY123", "current-account", { displayName: "New Attempted Name" }))
+      .resolves.toMatchObject({ link: currentLink, roleAssigned: true });
+    expect(fake.writes).toEqual([]);
+    expect(fake.docs.get("discordLinks/guild-a_discord-a")).toEqual(currentLink);
+    expect(discordFetch).toHaveBeenCalledExactlyOnceWith(
+      "https://discord.com/api/v10/guilds/guild-a/members/discord-a/roles/testing-role",
+      expect.objectContaining({ method: "PUT" }),
+    );
   });
 
   it("serializes concurrent first-time bindings using the shared hub document", async () => {
