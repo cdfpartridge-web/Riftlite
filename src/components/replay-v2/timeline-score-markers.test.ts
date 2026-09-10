@@ -17,7 +17,7 @@ import {
 
 describe("replay score timeline markers", () => {
   it("uses the exact canonical start events from a normalized three-game capture", () => {
-    const replay = normalizeRawCaptureV1(syntheticBo3Capture(), { replayId: "score-game-tags" });
+    const replay = normalizeRawCaptureV1(syntheticBo3Capture());
 
     expect(replayGameStartTimelineMarkers(replay).map((marker) => ({
       atMs: marker.atMs,

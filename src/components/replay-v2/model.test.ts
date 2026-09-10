@@ -196,6 +196,7 @@ describe("replay action navigation", () => {
       sourceMessageId: "message-chat",
       gameId: "game-1",
       kind: "chat",
+      mode: "append",
       entries: [{ id: "chat-entry", at: 3, author: "Player", text: "hello", fields: {} }],
     };
     const boundary: ReplayEvent = {
@@ -208,6 +209,8 @@ describe("replay action navigation", () => {
       kind: "game_boundary",
       boundary: "end",
       gameNumber: 1,
+      gameOrdinal: 1,
+      reason: "explicit_result",
     };
     const events = [
       phase,

@@ -75,7 +75,10 @@ const REPLAY_ID = `rl2_${"a".repeat(32)}`;
 describe("Discord replay share eligibility", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    shareReplayToDiscordFeedsMock.mockResolvedValue([{ hubId: "hub-1", status: "shared" }]);
+    shareReplayToDiscordFeedsMock.mockImplementation(async ({ beforeFirstPost }: { beforeFirstPost: () => Promise<void> }) => {
+      await beforeFirstPost();
+      return [{ hubId: "hub-1", status: "shared" }];
+    });
     readReplayDiscordRequestReceiptMock.mockResolvedValue(null);
     writeReplayDiscordRequestReceiptMock.mockResolvedValue(undefined);
   });
@@ -124,7 +127,7 @@ describe("Discord replay share eligibility", () => {
 
   it("stores settled non-delivery results so later old-client retries stay cheap", async () => {
     readCanonicalReplayMock.mockResolvedValue({
-      record: { platform: "tcga", status: "ready" },
+      record: { platform: "tcga", status: "ready", visibility: "private" },
       bytes: gzipSync(Buffer.from(JSON.stringify({ schema: "riftlite-canonical-replay", version: 2 }))),
     });
     isDiscordReplayResultResolvedMock.mockReturnValue(true);
@@ -133,7 +136,8 @@ describe("Discord replay share eligibility", () => {
     const response = await shareRequest();
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: false });
+    expect(await response.json()).toMatchObject({ ok: false, visibility: "private" });
+    expect(updateReplayVisibilityMock).not.toHaveBeenCalled();
     expect(writeReplayDiscordRequestReceiptMock).toHaveBeenCalledWith({
       ownerUid: "owner-1",
       replayId: REPLAY_ID,
@@ -189,9 +193,7 @@ describe("Discord replay share eligibility", () => {
 
     expect(response.status).toBe(200);
     expect(updateReplayVisibilityMock).toHaveBeenCalledWith("owner-1", REPLAY_ID, "unlisted");
-    expect(updateReplayVisibilityMock.mock.invocationCallOrder[0]).toBeLessThan(
-      shareReplayToDiscordFeedsMock.mock.invocationCallOrder[0],
-    );
+    expect(shareReplayToDiscordFeedsMock).toHaveBeenCalledWith(expect.objectContaining({ beforeFirstPost: expect.any(Function) }));
     expect(writeReplayDiscordRequestReceiptMock).toHaveBeenCalledWith({
       ownerUid: "owner-1",
       replayId: REPLAY_ID,

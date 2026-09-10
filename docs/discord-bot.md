@@ -1,191 +1,93 @@
-# RiftLite Discord Bot Groundwork
+# RiftLite Results Bot
 
-This adds a Discord slash-command bot backed by the RiftLite website. It links a Discord server to a RiftLite private hub, verifies users against their RiftLite account, assigns an optional Discord role, and exposes lightweight testing stats.
+Updated 10 September 2026. Application ID: `1524708623790510241` (previously RB Uk Testing). This is the private-hub results bot, separate from RiftLite's LFG applications.
 
-## Environment variables
+## What server owners install
 
-Set these on Vercel and in `.env.local` for local command registration:
+Public invite: https://discord.com/oauth2/authorize?client_id=1524708623790510241
 
-```bash
-DISCORD_APPLICATION_ID=your_discord_application_id
-DISCORD_PUBLIC_KEY=your_discord_interactions_public_key
-DISCORD_COMMUNITY_BOT_TOKEN=your_discord_bot_token
-DISCORD_CLIENT_SECRET=your_discord_oauth_client_secret
-RIFTLITE_BOT_API_TOKEN=a_long_random_internal_token
-```
+The Discord-provided link uses Guild Install only, with `bot` and `applications.commands` and permissions `3072` (View Channels and Send Messages). It does not request Administrator or message-reading gateway intents. Server owners authorise the install in Discord; they do not need a bot token, developer account or their own hosting.
 
-Optional for fast guild-only slash command registration:
+Automatic verified roles are optional. Only servers using that feature need to grant the bot Manage Roles and place its highest role above a normal, non-moderation verification role. This role does not itself grant RiftLite hub access.
 
-```bash
-DISCORD_GUILD_ID=your_test_discord_server_id
-```
+## Setup and use
 
-## Discord Developer Portal setup
+The plain-text, two-message Discord guide is [riftlite-results-bot-user-guide.txt](./riftlite-results-bot-user-guide.txt).
 
-1. Create a Discord application.
-2. Copy **Application ID** to `DISCORD_APPLICATION_ID`.
-3. Copy **Public Key** to `DISCORD_PUBLIC_KEY`.
-4. Create/reset the bot token and save it as `DISCORD_COMMUNITY_BOT_TOKEN`.
-5. Set the Interactions Endpoint URL:
+1. Create or own an account-managed private hub in RiftLite Desktop → Private Hubs. Claim an older password-only hub through Hub tools first. The website `/hubs` lists memberships and IDs; it does not create hubs.
+2. Run `/verify` inside the Discord server, open the private link and sign in with the same recoverable RiftLite account used in the app. Finish the player profile if prompted. Links expire after 15 minutes and must not be shared.
+3. Copy the hub ID from Private Hubs → Copy ID, or find it at https://www.riftlite.com/hubs.
+4. A Discord member with Manage Server and owner/co-owner permission in that hub runs `/setup hub_id:YOUR_HUB_ID reports_channel:#testing-results`.
+5. Invite players to the hub. They join, verify in this server and sync their chosen matches to the hub from RiftLite Desktop.
 
-```text
-https://www.riftlite.com/api/discord/bot/interactions
-```
+A private hub connects to one Discord server. Another server needs a separate hub. Administrators can use `/disconnect` to remove the connection without deleting results, account links or goal history, then configure a new connection. A server with an ambiguous legacy mapping fails closed until its administrators resolve it.
 
-6. Add this OAuth2 redirect for legacy Discord-linked RiftLite account recovery:
+## Commands
 
-```text
-https://www.riftlite.com/api/auth/discord/callback
-```
+- `/help`: private setup and command guidance; verification is not required.
+- `/verify`: create a private, short-lived account-linking URL.
+- `/status`: privately inspect this server's connection; configured details require Manage Server and verified current hub administration access.
+- `/setup hub_id:<id> reports_channel:<channel> verified_role:<role>`: configure the connection. Channel and role are optional; existing optional settings are retained when omitted for the same hub. A different hub starts with new destinations. Channels must belong to this server, support messages and be accessible to the bot.
+- `/disconnect`: remove this server's binding without deleting hub results.
+- `/verified`: privately list verified display names and handles for this server. Requires Manage Server and verified current hub administration access. Emails and internal RiftLite account IDs are excluded.
+- `/recent count:5`: private recent results from this server's connected hub.
+- `/leaderboard range_days:7`: private testing contribution counts; not a skill rating.
+- `/weekly-report`: private weekly summary. `/weekly-report post:true` requires Discord Manage Server plus verified current hub administration and posts to the configured reports channel.
+- `/testing-goals list`, `/testing-goals add text:"Test Vex vs Diana"`, `/testing-goals complete id:<displayed-id>`: private hub goals. Writes require the hub's manage-goals capability. Goal history stays associated with its original hub when a server reconnects elsewhere.
 
-Set `DISCORD_OAUTH_REDIRECT_URI` only when a preview or local environment uses a separately registered callback URL. Account recovery requests only the Discord `identify` scope and can reconnect only an existing Discord-to-RiftLite link; it does not silently merge accounts.
+Results and goals require a verified Discord-to-RiftLite link for this server and current membership of its connected hub. Normal replies are ephemeral (visible to the requester). The connected hub's configuring administrator must still be authorised; otherwise a current administrator needs to run setup again. No automatic weekly posting or general match-feed scheduler exists. The old reserved `feed_channel` option is omitted from new registrations.
 
-For preview testing, use the Vercel preview URL instead.
+## Privacy and delivery boundaries
 
-## Bot invite URL
+Discord's verified interaction signature supplies the server ID; callers cannot choose a foreign hub for a results command. Commands are restricted to server installations and server contexts. Signature freshness and application identity are checked, and database work is deferred after a prompt private acknowledgement to avoid Discord's three-second response deadline.
 
-Use OAuth2 URL Generator with scopes:
+Setup enforces one hub/one server in a Firestore transaction. Result queries and delivery reject duplicate or stale mappings. Every external report/replay post checks the current binding, current configuring-admin access, and the selected channel's actual Discord server. Optional verification roles are checked for hierarchy, ownership and dangerous permissions.
 
-```text
-bot
-applications.commands
-```
+Administrators choose who can read the reports channel. Posted reports are visible to those channel readers, including readers who are not hub members. Ordinary private command replies cannot prevent a recipient manually copying information.
 
-Bot permissions needed for V1:
+Replay sharing is a separate user opt-in. In RiftLite Desktop → Review → Web Replays, enable the appropriate capture/upload controls and select hub destinations under Discord sharing. Future completed recordings can post their display names, legend matchup, score, format and replay/deck links. Historical replays are not automatically backfilled.
 
-```text
-Manage Roles
-Send Messages
-View Channels
-Read Message History
-```
+A replay becomes Unlisted only when an eligible delivery reaches its visibility preparation step. No eligible destination means no visibility change. Unlisted links are bearer links: anyone with the URL can watch, including people outside the server if it is forwarded. Disconnecting or disabling future sharing does not retract existing Discord posts or revoke existing replay links. Raw captures, room codes, chat, email addresses and internal account IDs are not posted.
 
-Important: the bot's Discord role must sit above the role it is trying to assign.
+Delivery claims and deterministic Discord nonces reduce duplicate posts on retries. External Discord delivery and Firestore receipts are not a single atomic transaction; exactly-once delivery after an indeterminate network failure is not guaranteed. Setup changes and permission revocation stop subsequent eligibility checks; an already-sent message cannot be unsent by disconnecting.
 
-## Register slash commands
+Privacy policy: https://www.riftlite.com/privacy. The bot-specific section describes account linking, stored configuration, result delivery and Unlisted replay sharing. App Directory discovery/monetization is a separate release step; no Terms of Service URL or directory listing is created here.
 
-For a test server, set `DISCORD_GUILD_ID` first. Guild commands usually appear quickly.
+## Operator configuration
 
-```bash
-npm run discord:register
-```
-
-For global commands, remove `DISCORD_GUILD_ID` and run the same command. Global commands can take longer to appear.
-
-## User flow
-
-1. A user joins Discord.
-2. They run:
+Results-bot environment variables:
 
 ```text
-/verify
+DISCORD_APPLICATION_ID
+DISCORD_PUBLIC_KEY
+DISCORD_COMMUNITY_BOT_TOKEN
+DISCORD_CLIENT_SECRET
+RIFTLITE_BOT_API_TOKEN
 ```
 
-3. Discord gives them a private verification link.
-4. They open it, sign in with their RiftLite account, and press **Verify Discord**.
-5. RiftLite stores the Discord-to-RiftLite link.
-6. If the server is configured with a verified role, RiftLite asks Discord to assign it.
+Never substitute `DISCORD_BOT_TOKEN` or `DISCORD_CLIENT_ID`: these can belong to the separate LFG bot. Keep all credentials on the operator's server. New server owners must never receive them.
 
-## Admin setup flow
+Interaction endpoint: `https://www.riftlite.com/api/discord/bot/interactions`
 
-The admin must:
+Existing account-recovery OAuth callback: `https://www.riftlite.com/api/auth/discord/callback`. Do not reset tokens or change OAuth scopes/callbacks for an ordinary bot install.
 
-- have Discord **Manage Server** permission
-- run `/verify`
-- be an owner/admin of the RiftLite private hub
+### Command registration
 
-Then run:
+Dry-run review is the default, and target selection must be explicit:
 
-```text
-/setup hub_id:<hub id> verified_role:<role> feed_channel:<channel> reports_channel:<channel>
+```powershell
+npm run discord:register -- --global
+npm run discord:register -- --guild=YOUR_SERVER_ID
 ```
 
-`verified_role`, `feed_channel`, and `reports_channel` are optional but recommended. The configured `reports_channel` receives opted-in unlisted replay links from verified hub members.
+After the candidate backend is deployed and validated, add `--apply` to register that scope. The script first checks the bot token belongs to `DISCORD_APPLICATION_ID`. Global commands are necessary for other servers; guild-only commands are a test-server override and do not make the app work everywhere. The script never removes a guild's existing commands automatically.
 
-## Slash commands
+Internal `/api/bot/hubs/<hubId>/...` endpoints remain operator-only APIs guarded by `RIFTLITE_BOT_API_TOKEN`. That credential spans hubs and must not be distributed to server owners or used as a public per-server API. Public Discord users go through signed interactions and current membership checks.
 
-```text
-/verify
-```
+## Verification and deployment record
 
-Creates a short-lived RiftLite verification link.
+See `docs/RESULTS-BOT-RELEASE-2026-09-10.md` for final test counts, exact deployed source, public command registration and acceptance limits. Read-only live audit output is in ignored `output/discord-results-readiness-20260910/`; it contains configuration checks, not match/replay bodies. Credential captures in that directory remain local and must never be uploaded or committed.
 
-```text
-/verified
-```
+The release is prepared from the current production baseline `135d2398f33f77888adb3716b87ba81d16966b8d` in an isolated worktree. Local Your Move, artwork, release-label and desktop changes are excluded. Existing hub results and local demos are preserved. The user explicitly left live installation/isolation testing in a second server pending; automated independent-server tests do not replace that acceptance check.
 
-Privately lists the Discord members who have linked a RiftLite account, including their current RiftLite display name, handle, and verification date. This requires Discord **Manage Server** permission and a verified RiftLite account that owns or administers the connected private hub. Emails and Firebase account IDs are never shown.
-
-```text
-/setup hub_id:<hub id> verified_role:<role> feed_channel:<channel> reports_channel:<channel>
-```
-
-Links this Discord server to a RiftLite private hub.
-
-```text
-/recent count:5
-```
-
-Shows recent synced matches from the connected hub.
-
-## Opt-in replay feed
-
-RiftLite desktop users can explicitly select joined private hubs under **Account → Replay and account connection** and enable Discord replay sharing. For each newly completed Atlas or TCGA replay:
-
-1. the processed replay is set to **Unlisted**—anyone with the permanent link can watch, but it is excluded from public replay listings;
-2. the website verifies the replay owner is still a member of every selected hub;
-3. the bot posts player names, legend matchup, score, format, and link only to that hub's configured `reports_channel`;
-4. deterministic server claims and Discord nonces make retry safe without repeating successful posts.
-
-This is dual consent: the player opts in and selects the hub, while the hub owner/admin chooses the Discord destination through `/setup`. Raw capture data, room codes, chat, account IDs, and private diagnostics are never posted. Disabling upload/sharing, unlinking, switching account, or restoring a backup revokes the local consent. Existing replays are not backfilled automatically.
-
-```text
-/leaderboard range_days:7
-```
-
-Shows the testing contribution leaderboard.
-
-```text
-/weekly-report post:false
-```
-
-Shows a weekly testing report. Set `post:true` to post it to the configured reports channel.
-
-```text
-/testing-goals list
-/testing-goals add text:"Test Vex vs Diana"
-/testing-goals complete id:"abc123"
-```
-
-Lists, adds, and completes hub testing goals. Add/complete require RiftLite hub owner/admin permission.
-
-## Internal bot API endpoints
-
-These are protected by:
-
-```http
-Authorization: Bearer <RIFTLITE_BOT_API_TOKEN>
-```
-
-Examples:
-
-```bash
-curl -H "Authorization: Bearer $RIFTLITE_BOT_API_TOKEN" \
-  "https://www.riftlite.com/api/bot/hubs/HUB_ID/recent?count=5"
-
-curl -H "Authorization: Bearer $RIFTLITE_BOT_API_TOKEN" \
-  "https://www.riftlite.com/api/bot/hubs/HUB_ID/leaderboard?days=7"
-
-curl -H "Authorization: Bearer $RIFTLITE_BOT_API_TOKEN" \
-  "https://www.riftlite.com/api/bot/hubs/HUB_ID/weekly-report?days=7"
-```
-
-These are intended for future scheduled posting, external bot workers, or admin dashboards.
-
-## Read/resource behavior
-
-- No realtime listeners.
-- Slash commands read on demand only.
-- Leaderboards/reports read the latest hub match slice, capped server-side.
-- Verification writes one small link document and optionally assigns one Discord role.
-- No emails are exposed to Discord.
+Official Discord references: [installation](https://docs.discord.com/developers/resources/application), [application commands](https://docs.discord.com/developers/interactions/application-commands), [interaction verification and timing](https://docs.discord.com/developers/interactions/receiving-and-responding), [permissions](https://docs.discord.com/developers/topics/permissions).

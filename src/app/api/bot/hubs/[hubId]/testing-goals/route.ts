@@ -17,7 +17,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ hubI
   if ("error" in auth) return auth.error;
   const { hubId } = await params;
   const guildId = await getDiscordGuildIdForHub(hubId) || hubId;
-  const goals = await listTestingGoals(guildId);
+  const goals = await listTestingGoals(guildId, hubId);
   return Response.json({ hubId, text: formatTestingGoals(goals), goals });
 }
 

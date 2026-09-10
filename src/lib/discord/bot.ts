@@ -1,11 +1,13 @@
 import "server-only";
 
-import { createPublicKey, randomBytes, verify } from "node:crypto";
+import { createPublicKey, randomBytes, timingSafeEqual, verify } from "node:crypto";
 
 import { type Firestore } from "firebase-admin/firestore";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import { DiscordCommandError } from "@/lib/discord/command-error";
+import { validateDiscordSetupDestinations, validateDiscordVerificationRole } from "@/lib/discord/destinations";
 import {
   discordDeckLegendFromSnapshot,
   discordDeckLinkForLegend,
@@ -13,7 +15,7 @@ import {
   formatDiscordDeckTitle,
 } from "@/lib/discord/replay-share";
 import { type DiscordVerifiedMember } from "@/lib/discord/verified-members";
-import { assertHubCapability, bestProfileDisplayName, cleanDisplayName, identityUidsFor, normalizeAccountProfile } from "@/lib/social/server";
+import { assertHubCapability, bestProfileDisplayName, cleanDisplayName, normalizeAccountProfile } from "@/lib/social/server";
 
 const DISCORD_API = "https://discord.com/api/v10";
 const VERIFY_TTL_MS = 15 * 60 * 1000;
@@ -70,11 +72,11 @@ export function discordJson(body: Record<string, unknown>, status = 200) {
 }
 
 export function getDiscordApplicationId() {
-  return process.env.DISCORD_APPLICATION_ID?.trim() || process.env.DISCORD_CLIENT_ID?.trim() || "";
+  return process.env.DISCORD_APPLICATION_ID?.trim() || "";
 }
 
 export function getDiscordBotToken() {
-  return process.env.DISCORD_COMMUNITY_BOT_TOKEN?.trim() || process.env.DISCORD_BOT_TOKEN?.trim() || "";
+  return process.env.DISCORD_COMMUNITY_BOT_TOKEN?.trim() || "";
 }
 
 export function getDiscordPublicKey() {
@@ -83,7 +85,10 @@ export function getDiscordPublicKey() {
 
 export function verifyDiscordSignature(body: string, timestamp: string, signature: string) {
   const publicKeyHex = getDiscordPublicKey();
-  if (!publicKeyHex || !timestamp || !signature) return false;
+  if (!/^[a-f\d]{64}$/i.test(publicKeyHex) || !/^\d{10,11}$/.test(timestamp) || !/^[a-f\d]{128}$/i.test(signature)) return false;
+  // Discord signs the timestamp too. Reject captured old requests, including
+  // administrative commands whose server permissions may since have changed.
+  if (Math.abs(Date.now() - Number(timestamp) * 1000) > 5 * 60 * 1000) return false;
   try {
     const publicKey = createPublicKey({
       key: Buffer.from(`302a300506032b6570032100${publicKeyHex}`, "hex"),
@@ -107,7 +112,8 @@ export function requireBotRequest(req: NextRequest) {
   if (!expected) {
     return { error: discordJson({ error: "RIFTLITE_BOT_API_TOKEN is not configured." }, 503) };
   }
-  if (!supplied || supplied !== expected) {
+  if (!supplied || Buffer.byteLength(supplied) !== Buffer.byteLength(expected)
+    || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
     return { error: discordJson({ error: "Bot token required." }, 401) };
   }
   const db = getFirestoreAdmin();
@@ -209,10 +215,12 @@ export async function completeDiscordVerification(code: string, uid: string, pro
 
   const config = await getDiscordGuildConfig(completed.guildId);
   let roleAssigned = false;
-  if (config?.verifiedRoleId) {
+  const roleRequiresHubMembership = Boolean(config?.verifiedRoleId)
+    && !await assertDiscordHubCapability(config!.hubId, uid, "view").then(() => true).catch(() => false);
+  if (config?.verifiedRoleId && !roleRequiresHubMembership) {
     roleAssigned = await assignDiscordRole(completed.guildId, completed.discordUserId, config.verifiedRoleId).then(() => true).catch(() => false);
   }
-  return { link: completed.link, roleAssigned, configuredRole: Boolean(config?.verifiedRoleId) };
+  return { link: completed.link, roleAssigned, configuredRole: Boolean(config?.verifiedRoleId), roleRequiresHubMembership };
 }
 
 export async function getLinkedRiftLiteUid(guildId: string, discordUserId: string) {
@@ -260,14 +268,20 @@ export async function listDiscordVerifiedMembers(guildId: string): Promise<Disco
 
 export async function getDiscordGuildConfig(guildId: string): Promise<DiscordGuildConfig | null> {
   if (!guildId) return null;
-  const snap = await requireDb().collection("discordGuildConfigs").doc(guildId).get();
+  const db = requireDb();
+  const snap = await db.collection("discordGuildConfigs").doc(guildId).get();
   if (!snap.exists) return null;
-  const data = snap.data() ?? {};
-  const hubId = String(data.hubId ?? "");
-  if (!hubId) return null;
+  const config = normalizeGuildConfig(guildId, snap.data() ?? {});
+  if (!config.hubId || !config.updatedByUid) return null;
+  const mappings = await db.collection("discordGuildConfigs").where("hubId", "==", config.hubId).limit(2).get();
+  if (mappings.docs.length !== 1 || mappings.docs[0]?.id !== guildId) return null;
+  return await guildConfigIsActive(config) ? config : null;
+}
+
+function normalizeGuildConfig(guildId: string, data: Record<string, unknown>): DiscordGuildConfig {
   return {
     guildId,
-    hubId,
+    hubId: String(data.hubId ?? "").trim(),
     verifiedRoleId: String(data.verifiedRoleId ?? ""),
     feedChannelId: String(data.feedChannelId ?? ""),
     reportsChannelId: String(data.reportsChannelId ?? ""),
@@ -278,48 +292,107 @@ export async function getDiscordGuildConfig(guildId: string): Promise<DiscordGui
 }
 
 export async function getDiscordGuildIdForHub(hubId: string) {
-  if (!hubId) return "";
-  const snap = await requireDb()
-    .collection("discordGuildConfigs")
-    .where("hubId", "==", hubId)
-    .limit(1)
-    .get();
-  return snap.docs[0]?.id ?? "";
+  return (await getDiscordGuildConfigsForHub(hubId))[0]?.guildId ?? "";
 }
 
 export async function getDiscordGuildConfigsForHub(hubId: string): Promise<DiscordGuildConfig[]> {
   if (!hubId) return [];
-  const snapshot = await requireDb().collection("discordGuildConfigs").where("hubId", "==", hubId).get();
-  return snapshot.docs.map((doc) => {
-    const data = doc.data();
-    return {
-      guildId: doc.id,
-      hubId,
-      verifiedRoleId: String(data.verifiedRoleId ?? ""),
-      feedChannelId: String(data.feedChannelId ?? ""),
-      reportsChannelId: String(data.reportsChannelId ?? ""),
-      updatedAt: Number(data.updatedAt ?? 0),
-      updatedByDiscordUserId: String(data.updatedByDiscordUserId ?? ""),
-      updatedByUid: String(data.updatedByUid ?? ""),
-    };
-  });
+  const snapshot = await requireDb().collection("discordGuildConfigs").where("hubId", "==", hubId).limit(2).get();
+  // Legacy duplicate bindings must never fan private results out to servers.
+  if (snapshot.docs.length !== 1) return [];
+  const config = normalizeGuildConfig(snapshot.docs[0].id, snapshot.docs[0].data());
+  return await guildConfigIsActive(config) ? [config] : [];
+}
+
+async function guildConfigIsActive(config: DiscordGuildConfig): Promise<boolean> {
+  if (!config.hubId || !config.updatedByUid) return false;
+  const hub = await requireDb().collection("hubs").doc(config.hubId).get();
+  if (!hub.exists || hub.data()?.lifecycle_state === "deleting") return false;
+  // Match the canonical field used by Firestore membership rules exactly.
+  if (hub.data()?.role_mode !== "account") return false;
+  const boundGuild = String(hub.data()?.discordGuildId ?? "").trim();
+  if (boundGuild && boundGuild !== config.guildId) return false;
+  // Removing or demoting the account which connected this server revokes the
+  // integration immediately, including automatic replay delivery.
+  return assertHubCapability(config.hubId, config.updatedByUid, "manage_discord")
+    .then(() => true).catch(() => false);
 }
 
 export async function saveDiscordGuildConfig(input: Omit<DiscordGuildConfig, "updatedAt">) {
+  if (!input.guildId || !input.hubId || input.hubId.includes("/")) {
+    throw new DiscordCommandError("A valid Discord server and private hub id are required.");
+  }
+  await assertDiscordHubCapability(input.hubId, input.updatedByUid, "manage_discord");
+  await validateDiscordSetupDestinations(input);
   const now = Date.now();
   const db = requireDb();
   const hubRef = db.collection("hubs").doc(input.hubId);
+  const configRef = db.collection("discordGuildConfigs").doc(input.guildId);
   await db.runTransaction(async (tx) => {
-    const hubSnap = await tx.get(hubRef);
+    const [hubSnap, currentConfig, existingBindings] = await Promise.all([
+      tx.get(hubRef),
+      tx.get(configRef),
+      tx.get(db.collection("discordGuildConfigs").where("hubId", "==", input.hubId)),
+    ]);
     if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
-      throw new Error("This private hub is being deleted.");
+      throw new DiscordCommandError("This private hub is unavailable.");
     }
-    tx.set(db.collection("discordGuildConfigs").doc(input.guildId), {
+    if (hubSnap.data()?.role_mode !== "account") {
+      throw new DiscordCommandError("Claim this legacy hub in RiftLite first so access is controlled by account membership, then run /setup again.");
+    }
+    if (existingBindings.docs.some((doc) => doc.id !== input.guildId)
+      || (hubSnap.data()?.discordGuildId && hubSnap.data()?.discordGuildId !== input.guildId)) {
+      throw new DiscordCommandError("This private hub is already connected to another Discord server. Use a separate hub for this server.");
+    }
+    const oldHubId = String(currentConfig.data()?.hubId ?? "").trim();
+    const oldHubRef = oldHubId && oldHubId !== input.hubId ? db.collection("hubs").doc(oldHubId) : null;
+    const oldHub = oldHubRef ? await tx.get(oldHubRef) : null;
+    const legacyGoals = oldHubId !== input.hubId
+      ? await tx.get(configRef.collection("testingGoals").limit(491)) : null;
+    if (legacyGoals && legacyGoals.docs.length > 490) {
+      throw new DiscordCommandError("This server has too much goal history to reconnect automatically. Contact RiftLite support.");
+    }
+    // The shared hub write serializes concurrent first-time setup attempts.
+    tx.set(hubRef, { discordGuildId: input.guildId }, { merge: true });
+    if (oldHubRef && oldHub?.exists && oldHub.data()?.discordGuildId === input.guildId) {
+      tx.set(oldHubRef, { discordGuildId: "" }, { merge: true });
+    }
+    for (const goal of legacyGoals?.docs ?? []) {
+      // Orphaned history with no previous configuration has no trustworthy
+      // source hub. Keep it stored but invisible until support can attribute it.
+      if (!goal.data().hubId) tx.set(goal.ref, { hubId: oldHubId }, { merge: true });
+    }
+    tx.set(configRef, {
       ...input,
       updatedAt: now,
     }, { merge: true });
   });
   return { ...input, updatedAt: now };
+}
+
+export async function disconnectDiscordGuild(guildId: string) {
+  const db = requireDb();
+  const configRef = db.collection("discordGuildConfigs").doc(guildId);
+  await db.runTransaction(async (tx) => {
+    const config = await tx.get(configRef);
+    if (!config.exists) return;
+    const hubId = String(config.data()?.hubId ?? "").trim();
+    const hubRef = hubId ? db.collection("hubs").doc(hubId) : null;
+    const [hub, goals] = await Promise.all([
+      hubRef ? tx.get(hubRef) : Promise.resolve(null),
+      tx.get(configRef.collection("testingGoals").limit(491)),
+    ]);
+    if (goals.docs.length > 490) {
+      throw new DiscordCommandError("This server has too much goal history to disconnect automatically. Contact RiftLite support.");
+    }
+    for (const goal of goals.docs) {
+      if (!goal.data().hubId) tx.set(goal.ref, { hubId }, { merge: true });
+    }
+    if (hubRef && hub?.exists && hub.data()?.discordGuildId === guildId) {
+      tx.set(hubRef, { discordGuildId: "" }, { merge: true });
+    }
+    tx.delete(configRef);
+  });
 }
 
 export async function assertDiscordSetupAllowed(input: {
@@ -329,53 +402,42 @@ export async function assertDiscordSetupAllowed(input: {
   memberPermissions: string;
 }) {
   if (!hasManageGuild(input.memberPermissions)) {
-    throw new Error("Discord Manage Server permission is required for setup.");
+    throw new DiscordCommandError("Discord Manage Server permission is required for this action.");
   }
   const uid = await getLinkedRiftLiteUid(input.guildId, input.discordUserId);
-  if (!uid) throw new Error("Run /verify first, then try again.");
-  const identityUids = await identityUidsFor(uid);
-  let authorizedUid = "";
-  for (const candidateUid of identityUids) {
-    const allowed = await assertHubCapability(input.hubId, candidateUid, "manage_discord")
-      .then(() => true)
-      .catch(() => false);
-    if (allowed) {
-      authorizedUid = candidateUid;
-      break;
-    }
-  }
-  if (!authorizedUid) throw new Error("Your verified RiftLite account is not an owner or admin of this hub.");
+  if (!uid) throw new DiscordCommandError("Run /verify in this Discord server first, then try again.");
+  await assertDiscordHubCapability(input.hubId, uid, "manage_discord");
   return uid;
+}
+
+export async function assertDiscordHubCapability(hubId: string, uid: string, capability: "view" | "manage_discord" | "manage_testing_goals") {
+  if (!uid) throw new DiscordCommandError("Run /verify in this Discord server first, then try again.");
+  // assertHubCapability resolves all immutable account identities itself.
+  const allowed = await assertHubCapability(hubId, uid, capability).then(() => true).catch(() => false);
+  if (!allowed) throw new DiscordCommandError(capability === "view"
+    ? "Your verified RiftLite account must be a current member of this server's private hub. Ask a hub admin for an invitation."
+    : "Your verified RiftLite account must be a current owner or admin of this private hub.");
 }
 
 export async function assignDiscordRole(guildId: string, discordUserId: string, roleId: string) {
   if (!guildId || !discordUserId || !roleId) throw new Error("Guild, user, and role are required.");
+  await validateDiscordVerificationRole({ guildId, verifiedRoleId: roleId });
   await discordApi(`/guilds/${guildId}/members/${discordUserId}/roles/${roleId}`, { method: "PUT" });
-}
-
-export async function postDiscordChannelMessage(
-  channelId: string,
-  content: string,
-  options: { nonce?: string } = {},
-) {
-  if (!channelId || !content) return;
-  return discordApi(`/channels/${channelId}/messages`, {
-    method: "POST",
-    body: JSON.stringify({
-      content,
-      allowed_mentions: { parse: [] },
-      ...(options.nonce ? { nonce: options.nonce.slice(0, 25), enforce_nonce: true } : {}),
-    }),
-  });
 }
 
 export async function loadHubMatches(hubId: string, limit = HUB_MATCH_READ_LIMIT): Promise<DiscordHubMatch[]> {
   const db = requireDb();
   const hubRef = db.collection("hubs").doc(hubId);
-  const ordered = await hubRef.collection("matches").orderBy("created_at", "desc").limit(limit).get().catch(() => null);
-  const camelOrdered = ordered ?? await hubRef.collection("matches").orderBy("createdAt", "desc").limit(limit).get().catch(() => null);
-  const snap = camelOrdered ?? await hubRef.collection("matches").limit(Math.min(limit, 500)).get();
-  const matches = snap.docs.map((doc) => normalizeHubMatch(doc.id, doc.data() as Record<string, unknown>));
+  const boundedLimit = Math.max(1, Math.min(HUB_MATCH_READ_LIMIT, Math.round(limit) || HUB_MATCH_READ_LIMIT));
+  const [ordered, camelOrdered] = await Promise.all([
+    hubRef.collection("matches").orderBy("created_at", "desc").limit(boundedLimit).get().catch(() => null),
+    hubRef.collection("matches").orderBy("createdAt", "desc").limit(boundedLimit).get().catch(() => null),
+  ]);
+  const snapshots = ordered || camelOrdered ? [ordered, camelOrdered]
+    : [await hubRef.collection("matches").limit(Math.min(boundedLimit, 500)).get()];
+  const docs = new Map(snapshots.flatMap((snap) => snap?.docs ?? []).map((doc) => [doc.id, doc]));
+  const matches = [...docs.values()].map((doc) => normalizeHubMatch(doc.id, doc.data() as Record<string, unknown>))
+    .filter((match) => !match.superseded).sort((a, b) => b.createdAt - a.createdAt).slice(0, boundedLimit);
   const uids = Array.from(new Set(matches.map((match) => match.uid).filter(Boolean)));
   const userSnaps = uids.length ? await db.getAll(...uids.map((uid) => db.collection("users").doc(uid))) : [];
   const profiles = new Map(userSnaps.filter((item) => item.exists).map((item) => [item.id, normalizeAccountProfile(item.id, item.data() ?? {})]));
@@ -507,35 +569,42 @@ export function formatWeeklyReport(stats: DiscordHubStats) {
   return lines.join("\n");
 }
 
-export async function listTestingGoals(guildId: string) {
+export async function listTestingGoals(guildId: string, expectedHubId = "") {
+  const config = await getDiscordGuildConfig(guildId);
+  if (!config) throw new DiscordCommandError("This Discord server has no active private hub connection. Ask a server admin to run /setup.");
+  if (expectedHubId && config.hubId !== expectedHubId) {
+    throw new DiscordCommandError("This server's hub connection changed. Run the command again.");
+  }
   const snap = await requireDb()
     .collection("discordGuildConfigs")
     .doc(guildId)
     .collection("testingGoals")
     .where("status", "==", "active")
-    .limit(20)
+    .limit(100)
     .get();
   return snap.docs
+    .filter((doc) => String(doc.data().hubId ?? config.hubId) === config.hubId)
     .map((doc) => ({ id: doc.id, text: String(doc.data().text ?? ""), createdAt: Number(doc.data().createdAt ?? 0) }))
-    .sort((a, b) => a.createdAt - b.createdAt);
+    .sort((a, b) => a.createdAt - b.createdAt).slice(0, 20);
 }
 
 export async function addTestingGoal(guildId: string, text: string, createdBy: string, hubIdInput = "") {
   const clean = text.trim().slice(0, 240);
-  if (!clean) throw new Error("Goal text is required.");
+  if (!clean) throw new DiscordCommandError("Goal text is required.");
   const db = requireDb();
   const configRef = db.collection("discordGuildConfigs").doc(guildId);
   const ref = configRef.collection("testingGoals").doc();
   await db.runTransaction(async (tx) => {
     const configSnap = await tx.get(configRef);
     const hubId = hubIdInput.trim() || String(configSnap.data()?.hubId ?? "").trim();
-    if (!hubId) throw new Error("This Discord server is not connected to a RiftLite hub.");
+    if (!hubId || configSnap.data()?.hubId !== hubId) throw new DiscordCommandError("This server's hub connection changed. Run the command again.");
     const hubSnap = await tx.get(db.collection("hubs").doc(hubId));
     if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
-      throw new Error("This private hub is being deleted.");
+      throw new DiscordCommandError("This private hub is unavailable.");
     }
     tx.set(ref, {
       id: ref.id,
+      hubId,
       text: clean,
       status: "active",
       createdBy,
@@ -548,18 +617,27 @@ export async function addTestingGoal(guildId: string, text: string, createdBy: s
 
 export async function completeTestingGoal(guildId: string, goalId: string, completedBy: string, hubIdInput = "") {
   const clean = goalId.trim();
-  if (!clean) throw new Error("Goal id is required.");
+  if (!clean) throw new DiscordCommandError("Goal id is required.");
+  const goals = await listTestingGoals(guildId, hubIdInput);
+  const matching = goals.filter((goal) => goal.id === clean || (clean.length >= 6 && goal.id.startsWith(clean)));
+  if (matching.length !== 1) throw new DiscordCommandError(matching.length
+    ? "That goal id is ambiguous. Use the full id from /testing-goals list."
+    : "That active goal was not found. Copy its id from /testing-goals list.");
   const db = requireDb();
   const configRef = db.collection("discordGuildConfigs").doc(guildId);
   await db.runTransaction(async (tx) => {
     const configSnap = await tx.get(configRef);
     const hubId = hubIdInput.trim() || String(configSnap.data()?.hubId ?? "").trim();
-    if (!hubId) throw new Error("This Discord server is not connected to a RiftLite hub.");
-    const hubSnap = await tx.get(db.collection("hubs").doc(hubId));
+    if (!hubId || configSnap.data()?.hubId !== hubId) throw new DiscordCommandError("This server's hub connection changed. Run the command again.");
+    const goalRef = configRef.collection("testingGoals").doc(matching[0].id);
+    const [hubSnap, goalSnap] = await Promise.all([tx.get(db.collection("hubs").doc(hubId)), tx.get(goalRef)]);
     if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
-      throw new Error("This private hub is being deleted.");
+      throw new DiscordCommandError("This private hub is unavailable.");
     }
-    tx.set(configRef.collection("testingGoals").doc(clean), {
+    if (!goalSnap.exists || goalSnap.data()?.status !== "active" || String(goalSnap.data()?.hubId ?? hubId) !== hubId) {
+      throw new DiscordCommandError("That active goal was not found. Run /testing-goals list again.");
+    }
+    tx.set(goalRef, {
       status: "done",
       completedBy,
       completedAt: Date.now(),
@@ -572,7 +650,7 @@ export function formatTestingGoals(goals: Array<{ id: string; text: string }>) {
   if (!goals.length) return "No active testing goals yet. Add one with `/testing-goals add`.";
   return [
     "**Current RiftLite testing goals**",
-    ...goals.map((goal, index) => `${index + 1}. ${goal.text} \`${goal.id.slice(0, 6)}\``),
+    ...goals.map((goal, index) => `${index + 1}. ${goal.text} \`${goal.id}\``),
   ].join("\n");
 }
 

@@ -7,7 +7,7 @@ describe("replay page server props", () => {
     const result = await getServerSideProps({
       params: { replayId: "rl2_public_embed" },
       query: { embed: "1", privateHub: "1" },
-    } as Parameters<typeof getServerSideProps>[0]);
+    } as unknown as Parameters<typeof getServerSideProps>[0]);
 
     expect(result).toEqual({
       props: {

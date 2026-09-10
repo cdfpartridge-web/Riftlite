@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { createPageMetadata } from "@/lib/seo";
 
-const LAST_UPDATED = "9 August 2026";
+const LAST_UPDATED = "10 September 2026";
 
 const privacySections = [
   {
@@ -40,6 +40,16 @@ const privacySections = [
       "Private hub data is visible to members of that hub and to users with the relevant permissions. Deleting a match from a hub does not automatically delete community-submitted data or your local copy.",
       "Team pages may be public or private depending on team settings. Public teams can show profile details, members, social links, and team-submitted data. Team message boards are intended for team members unless clearly marked otherwise.",
       "Find Match listings are temporary and visible to signed-in RiftLite users while active. Room codes and Discord voice links expire or close with the listing.",
+    ],
+  },
+  {
+    title: "RiftLite Results Bot and Discord sharing",
+    body: [
+      "If you run /verify, RiftLite stores a short-lived verification code and, after you sign in and complete verification, links your Discord user and server IDs to your RiftLite account. The link includes your Discord name, RiftLite display name and handle, and verification timestamps. Discord linking can also be used for recovery of an existing linked RiftLite account. Keep verification links private.",
+      "Server setup stores the connected private hub, Discord server and selected channel and optional role IDs, and the account that configured them. Results commands check the server's hub connection and your current verified hub access. Ordinary results are sent as private Discord replies. Authorised administrators can deliberately post a weekly report to the configured channel; anyone who can read that channel can read the posted report.",
+      "Replay sharing is optional. If you select a hub as a Discord replay-sharing destination, eligible future completed replays can be posted to its configured channel with player display names, legends, scores, format and deck or replay links. Shared replay visibility becomes Unlisted: the replay is excluded from public listings, but anyone with its link can watch, including people outside the Discord server if someone forwards it. These posts do not include raw capture files, chat logs, email addresses or internal RiftLite account IDs.",
+      "RiftLite stores delivery status and Discord message identifiers to track sharing and limit duplicate posts. The bot uses Discord's interaction and messaging APIs; it does not request the Message Content gateway intent to read conversations. Discord processes verification responses, command replies and posted content under its own policies, while RiftLite uses Firebase and Vercel to operate this integration.",
+      "Turn off a replay-sharing destination to stop future automatic posts. Administrators can use /disconnect to stop the server's hub connection without deleting hub results or account links. Disconnecting does not remove earlier Discord messages or make previously shared Unlisted links private. For help with account links, retained records or deletion, use the contact details on this page.",
     ],
   },
   {

@@ -105,7 +105,7 @@ export async function POST(request: Request, context: RouteContext) {
         "The completed match result is not available yet. RiftLite will retry before posting this replay to Discord.",
       );
     }
-    await updateReplayVisibility(ownerUid, replayId, "unlisted");
+    let visibility = record.visibility;
     const results = await shareReplayToDiscordFeeds({
       ownerUid,
       replayId,
@@ -113,6 +113,10 @@ export async function POST(request: Request, context: RouteContext) {
       hubIds,
       activeDeck: parsed.data.activeDeck,
       origin: process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://www.riftlite.com",
+      beforeFirstPost: async () => {
+        await updateReplayVisibility(ownerUid, replayId, "unlisted");
+        visibility = "unlisted";
+      },
     });
     const coversAllHubs = results.length === hubIds.length &&
       new Set(results.map((result) => result.hubId)).size === hubIds.length;
@@ -128,7 +132,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
     return NextResponse.json({
       ok: complete,
-      visibility: "unlisted",
+      visibility,
       results,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

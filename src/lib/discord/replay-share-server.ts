@@ -5,10 +5,8 @@ import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
-import {
-  getDiscordGuildConfigsForHub,
-  postDiscordChannelMessage,
-} from "@/lib/discord/bot";
+import { getDiscordGuildConfigsForHub } from "@/lib/discord/bot";
+import { postDiscordGuildMessage } from "@/lib/discord/destinations";
 import {
   discordReplayReportChannelId,
   formatDiscordReplayPost,
@@ -36,6 +34,7 @@ export async function shareReplayToDiscordFeeds(input: {
   hubIds: string[];
   activeDeck?: DiscordActiveDeckInput;
   origin: string;
+  beforeFirstPost?: () => Promise<void>;
 }): Promise<ReplayDiscordHubShareResult[]> {
   if (!isDiscordReplayResultResolved(input.replay)) {
     throw new Error("The completed match result is not available yet.");
@@ -47,6 +46,7 @@ export async function shareReplayToDiscordFeeds(input: {
   const replayUrl = `${input.origin.replace(/\/$/, "")}/replays/${encodeURIComponent(input.replayId)}`;
   const content = formatDiscordReplayPost(summary, replayUrl);
   const results: ReplayDiscordHubShareResult[] = [];
+  let prepared = false;
 
   for (const hubId of input.hubIds) {
     const isMember = await Promise.all(identityUids.map((uid) => (
@@ -56,10 +56,11 @@ export async function shareReplayToDiscordFeeds(input: {
       results.push({ hubId, status: "not-member" });
       continue;
     }
-    const configs = (await getDiscordGuildConfigsForHub(hubId))
-      .map((config) => ({ config, channelId: discordReplayReportChannelId(config) }))
-      .filter(({ channelId }) => channelId);
-    if (!configs.length) {
+    const configuredGuilds = await getDiscordGuildConfigsForHub(hubId);
+    // Ambiguous legacy mappings are not permission to fan a private hub out
+    // across servers. Setup must resolve them before any delivery resumes.
+    const configs = configuredGuilds.map((config) => ({ config, channelId: discordReplayReportChannelId(config) }));
+    if (configs.length !== 1 || !configs[0].channelId) {
       results.push({ hubId, status: "not-configured" });
       continue;
     }
@@ -68,13 +69,21 @@ export async function shareReplayToDiscordFeeds(input: {
       const shareKey = createHash("sha256").update(`${input.replayId}\0${hubId}\0${config.guildId}`).digest("hex");
       const shareRef = db.collection("replayDiscordShares").doc(shareKey);
       const hubRef = db.collection("hubs").doc(hubId);
+      const configRef = db.collection("discordGuildConfigs").doc(config.guildId);
       const nonce = shareKey.slice(0, 25);
       const claim = await db.runTransaction(async (transaction) => {
-        const [hubSnap, snapshot] = await Promise.all([
+        const [hubSnap, snapshot, configSnap] = await Promise.all([
           transaction.get(hubRef),
           transaction.get(shareRef),
+          transaction.get(configRef),
         ]);
         if (!hubSnap.exists || String(hubSnap.data()?.lifecycle_state ?? "") === "deleting") {
+          return "hub-unavailable" as const;
+        }
+        const current = configSnap.data();
+        if (!configSnap.exists || current?.hubId !== hubId || current.reportsChannelId !== channelId ||
+          Number(current.updatedAt ?? 0) !== config.updatedAt ||
+          (hubSnap.data()?.discordGuildId && hubSnap.data()?.discordGuildId !== config.guildId)) {
           return "hub-unavailable" as const;
         }
         const data = snapshot.data() ?? {};
@@ -97,7 +106,28 @@ export async function shareReplayToDiscordFeeds(input: {
       });
       if (claim !== "post") return claim;
       try {
-        const response = await postDiscordChannelMessage(channelId, content, { nonce });
+        const response = await postDiscordGuildMessage({
+          guildId: config.guildId,
+          hubId,
+          channelId,
+          content,
+          nonce,
+          expectedConfigUpdatedAt: config.updatedAt,
+          beforeSend: async () => {
+            const member = await Promise.all(identityUids.map((uid) => (
+              assertHubCapability(hubId, uid, "view").then(() => true).catch(() => false)
+            ))).then((values) => values.some(Boolean));
+            const liveConfigs = await getDiscordGuildConfigsForHub(hubId);
+            if (!member || liveConfigs.length !== 1 || liveConfigs[0].guildId !== config.guildId ||
+              liveConfigs[0].reportsChannelId !== channelId || liveConfigs[0].updatedAt !== config.updatedAt) {
+              throw new Error("Replay sharing permission or the Discord destination changed.");
+            }
+            if (!prepared) {
+              await input.beforeFirstPost?.();
+              prepared = true;
+            }
+          },
+        });
         const messageId = response && typeof response === "object" && "id" in response ? String(response.id ?? "") : "";
         await setShareStatusWhileHubActive(db, hubId, shareRef, {
           status: "posted",

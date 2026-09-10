@@ -12,9 +12,10 @@ export function DiscordVerifyClient({ code }: { code: string }) {
       headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
     });
-    const payload = await response.json() as { error?: string; roleAssigned?: boolean; configuredRole?: boolean };
+    const payload = await response.json() as { error?: string; roleAssigned?: boolean; configuredRole?: boolean; roleRequiresHubMembership?: boolean };
     if (!response.ok) throw new Error(payload.error ?? "Discord verification failed.");
     if (payload.roleAssigned) return { message: "Discord verified and your testing role was assigned." };
+    if (payload.roleRequiresHubMembership) return { message: "Discord verified. Join this server's private RiftLite hub, then run /verify again to receive the testing role." };
     if (payload.configuredRole) return { message: "Discord verified. Ask an admin to check the bot role position if your role is missing." };
     return { message: "Discord verified. This server has not configured an automatic role yet." };
   }

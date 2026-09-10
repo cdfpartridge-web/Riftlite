@@ -1645,7 +1645,7 @@ describe("ReplayV2Player presentation prelude", () => {
       return frameId;
     }));
     vi.stubGlobal("cancelAnimationFrame", vi.fn((id: number) => queuedFrames.delete(id)));
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function () {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       if (!(this instanceof HTMLElement)) return motionRect(0, 0, 0, 0);
       if (this.dataset.cardMotionId !== "self-hand") return motionRect(0, 0, 0, 0);
       const zone = this.closest<HTMLElement>("[data-analysis-drop-zone]")
@@ -1658,7 +1658,7 @@ describe("ReplayV2Player presentation prelude", () => {
       }
       return motionRect(0, 0, 80, 112);
     });
-    vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(function (keyframes) {
+    vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(function (this: HTMLElement, keyframes) {
       const firstTransform = Array.isArray(keyframes) && typeof keyframes[0]?.transform === "string"
         ? keyframes[0].transform
         : "";
@@ -2245,7 +2245,7 @@ describe("ReplayV2Player presentation prelude", () => {
       expect(battlefieldDock).toBeInTheDocument();
       expect(unitRows).toHaveLength(2);
       expect(unitRows.every((row) => Boolean(
-        battlefieldDock?.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING
+        (battlefieldDock?.compareDocumentPosition(row) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING
       ))).toBe(true);
     }
   });

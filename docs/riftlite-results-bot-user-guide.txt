@@ -1,0 +1,42 @@
+RiftLite Results Bot - server setup
+
+Connect your Discord server to a private RiftLite testing hub to check results, contributions and testing goals.
+
+1. Install the bot:
+https://discord.com/oauth2/authorize?client_id=1524708623790510241
+Choose your server and authorise. You need Manage Server permission. The bot does not need Administrator.
+
+2. In the RiftLite desktop app, sign in and finish your player profile. Open Private Hubs, choose Create, then enter a hub name and password. Already have a hub? Use that one; older password-only hubs must be claimed first through Hub tools.
+
+3. Run /verify in your Discord server. Open your private link and sign in with the SAME RiftLite account as the app. Verification finishes after your profile is ready. Never share this verification link.
+
+4. Copy the hub's ID using Copy ID in Private Hubs. You can also find it at https://www.riftlite.com/hubs. Run:
+/setup hub_id:YOUR_HUB_ID reports_channel:#testing-results
+You must own or co-own that RiftLite hub and have Discord Manage Server. Each hub connects to one Discord server. Use a separate hub for another server.
+
+5. Invite players through the hub's Create invite button, or privately share its name and password. Each player joins the hub and runs /verify in this server with their own RiftLite account.
+
+Optional: add verified_role to /setup. Grant the bot Manage Roles and put its role above a basic member role. Join the hub before verifying to receive this role. A role alone does not grant access to hub results.
+
+Keep the reports channel restricted to your intended testing group. Anyone who can read that channel can read reports and replay links posted there.
+
+----- Send the following as a second Discord message -----
+
+RiftLite Results Bot - using it
+
+In the desktop app, enable Sync on your hub. Choose a privacy sync mode that includes private hubs; Private hubs only is available. Save completed matches, then use Sync enabled hubs to send existing results. For individual matches, open the hub's Send matches to a hub tools.
+
+Commands:
+/recent count:5 - latest hub results
+/leaderboard range_days:7 - testing contributions
+/weekly-report - view the weekly summary privately
+/testing-goals list - active testing goals
+/help - setup and command guidance
+/status - check the server connection (admins)
+/disconnect - disconnect the hub without deleting results (admins)
+
+Results commands require verification and current membership of this server's connected hub. Their replies are private to you. Admins with the required hub access can deliberately publish a report using /weekly-report post:true. Reports are not scheduled automatically.
+
+Optional replay sharing: open Review > Web Replays in the app, enable capture/upload for your platform and select this hub under Discord sharing. Future completed replays can then appear in the reports channel. Older replays are not automatically backfilled. Shared replays become Unlisted: anyone with the link can watch, including someone it is forwarded to. Turn off that destination to stop future sharing.
+
+Missing results? Ask an admin to check /status; check your hub's Sync switch, your RiftLite account and that the match reached the hub. Replace an expired verification link by running /verify again. For a missing optional role, check hub membership, Manage Roles and the bot's role position. Admins should remove Discord roles/channel access when offboarding players.
