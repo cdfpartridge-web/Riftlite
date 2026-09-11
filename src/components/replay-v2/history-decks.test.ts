@@ -100,4 +100,19 @@ describe("post-game replay deck panel", () => {
     await waitFor(() => expect(screen.getByText(/available to the replay owner/)).toBeVisible());
     expect(screen.queryByText("Adaptatron")).not.toBeInTheDocument();
   });
+  it("closes and clears the first replay's decks when switching to another replay", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ history }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 403 })));
+    const props = { apiBasePath: "/api/v2/replays", gameNumber: 2, onOpen: vi.fn() };
+    const view = render(createElement(ReplayHistoryDeckPanel, { ...props, replayId: "first" }));
+    fireEvent.click(screen.getByRole("button", { name: /Match decks/ }));
+    await waitFor(() => expect(screen.getByText("+2 Adaptatron")).toBeVisible());
+    view.rerender(createElement(ReplayHistoryDeckPanel, { ...props, replayId: "second" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("+2 Adaptatron")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Match decks/ }));
+    await waitFor(() => expect(screen.getByText(/available to the replay owner/)).toBeVisible());
+    expect(screen.queryByText("+2 Adaptatron")).not.toBeInTheDocument();
+  });
 });

@@ -18,7 +18,7 @@ Only the Atlas deck contract, view, authenticated endpoint, service/model additi
 
 - TypeScript passes with incremental output disabled.
 - Replay backend, model, API and Discord suites: 40 files / 317 tests pass.
-- Replay components: 21 files / 274 tests pass.
+- Replay components: 21 files / 275 tests pass, including clearing deck data when switching replays.
 - Focused lint on new source and tests passes.
 - Owner/foreign-owner boundaries, linked identities, match/platform/readiness validation, bounded bodies, public projections, game selection, sideboarding, pause-on-open and dialog keyboard handling are covered.
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ATLAS_DECK_SECTIONS,
   atlasSideboardChanges,
@@ -24,12 +24,11 @@ export function AtlasHistoryDecks({
 }) {
   const [gameNumber, setGameNumber] = useState(initialGame);
   const [side, setSide] = useState<"me" | "opponent">("opponent");
-  const [copied, setCopied] = useState(false);
   const game = history.games.find((g) => g.gameNumber === gameNumber) || history.games[0];
   const deck = game?.[side];
+  const [copiedDeck, setCopiedDeck] = useState<typeof deck>();
   const previous = history.games.find((g) => g.gameNumber === game?.gameNumber - 1);
   const changes = atlasSideboardChanges(previous?.[side], deck);
-  useEffect(() => setCopied(false), [gameNumber, side]);
   if (!game || !deck) return null;
   return (
     <div className="atlas-history-decks">
@@ -77,11 +76,11 @@ export function AtlasHistoryDecks({
                         .join("\n")}`,
                   ).join("\n\n"),
                 )
-                .then(() => setCopied(true))
-                .catch(() => setCopied(false))
+                .then(() => setCopiedDeck(deck))
+                .catch(() => setCopiedDeck(undefined))
             }
           >
-            {copied ? "Copied" : "Copy deck list"}
+            {copiedDeck === deck ? "Copied" : "Copy deck list"}
           </button>
         ) : null}
       </div>
@@ -97,7 +96,7 @@ export function AtlasHistoryDecks({
             <section className="atlas-history-changes" aria-label="Sideboard changes">
               <h5>Changes from Game {game.gameNumber - 1}</h5>
               {changes === null ? (
-                <p>The previous game's list is unavailable for comparison.</p>
+                <p>The previous game&apos;s list is unavailable for comparison.</p>
               ) : changes.length ? (
                 <div>
                   {changes.map((c) => (

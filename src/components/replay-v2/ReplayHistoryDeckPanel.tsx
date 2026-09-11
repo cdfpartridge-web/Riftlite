@@ -6,34 +6,32 @@ import { normalizeAtlasMatchHistory, type AtlasMatchHistory } from "@/lib/replay
 import { AtlasHistoryDecks } from "./AtlasHistoryDecks";
 import "./replay-history-decks.css";
 
-export function ReplayHistoryDeckPanel({
-  replayId,
-  apiBasePath,
-  gameNumber,
-  onOpen,
-}: {
+type ReplayHistoryDeckPanelProps = {
   replayId: string;
   apiBasePath: string;
   gameNumber: number;
   onOpen: () => void;
-}) {
+};
+
+export function ReplayHistoryDeckPanel(props: ReplayHistoryDeckPanelProps) {
+  return <MatchDeckDialog key={`${props.apiBasePath}/${props.replayId}`} {...props} />;
+}
+
+function MatchDeckDialog({
+  replayId,
+  apiBasePath,
+  gameNumber,
+  onOpen,
+}: ReplayHistoryDeckPanelProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   const [history, setHistory] = useState<AtlasMatchHistory>();
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   useEffect(() => {
-    setOpen(false);
-    setHistory(undefined);
-    if (dialog.current?.open) dialog.current.close();
-  }, [replayId]);
-  useEffect(() => {
     if (!open) return;
     dialog.current?.showModal();
     const controller = new AbortController();
-    setLoading(true);
-    setHistory(undefined);
-    setMessage("");
     void (async () => {
       const headers: Record<string, string> = { Accept: "application/json" };
       try {
@@ -83,6 +81,9 @@ export function ReplayHistoryDeckPanel({
         aria-haspopup="dialog"
         onClick={() => {
           onOpen();
+          setLoading(true);
+          setHistory(undefined);
+          setMessage("");
           setOpen(true);
         }}
       >
