@@ -1,4 +1,5 @@
 import "server-only";
+import { normalizeAtlasMatchHistory, type AtlasMatchHistory } from "@/lib/replay-v2/atlas-history";
 
 import { gzipSync, gunzipSync } from "node:zlib";
 
@@ -498,6 +499,29 @@ export async function updateReplayVisibility(
       transaction.delete(publicRef);
     }
     return updated;
+  });
+}
+
+/** Full post-game lists are owner-only attachments, never part of canonical/public playback. */
+export async function readOwnerReplayDecks(ownerUid:string,replayId:string):Promise<AtlasMatchHistory|null> {
+  const db=replayDb();
+  const ownerUids=await replayOwnerIdentityUids(db,ownerUid);
+  const snapshot=await db.collection(REPLAY_COLLECTION).doc(replayId).get();
+  assertOwner(replayRecord(snapshot),ownerUids);
+  return normalizeAtlasMatchHistory(snapshot.data()?.ownerHistoryDecks) ?? null;
+}
+
+export async function saveOwnerReplayDecks(ownerUid:string,replayId:string,matchId:string,input:unknown):Promise<void> {
+  const history=normalizeAtlasMatchHistory(input);
+  if(!history?.games.length)throw new ReplayV2Error(400,"invalid_history_decks","Match deck data is invalid.");
+  const db=replayDb(),ownerUids=await replayOwnerIdentityUids(db,ownerUid),ref=db.collection(REPLAY_COLLECTION).doc(replayId);
+  await db.runTransaction(async transaction=>{
+    const snapshot=await transaction.get(ref),record=replayRecord(snapshot);
+    assertOwner(record,ownerUids);
+    if(record.platform!=="atlas"||record.status!=="ready"||!matchId||record.matchId!==matchId)throw new ReplayV2Error(409,"history_match_mismatch","Decks must belong to this completed Atlas replay.");
+    // Remove transport/private identifiers that the viewer does not need.
+    const ownerHistoryDecks={...history,games:history.games.map(g=>({...g,roomCode:""}))};
+    transaction.update(ref,{ownerHistoryDecks});
   });
 }
 

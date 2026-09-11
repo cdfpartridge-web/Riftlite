@@ -36,6 +36,7 @@ import {
   type ReplayState,
 } from "@/lib/replay-v2";
 import { firebaseClientApp } from "@/lib/firebase/client";
+import { ReplayHistoryDeckPanel } from "./ReplayHistoryDeckPanel";
 
 import styles from "./ReplayV2Player.module.css";
 import {
@@ -2225,6 +2226,14 @@ export function ReplayV2Player({
               />
               <InspectorRail
                 activityTab={activityTab}
+                historyDeckControl={!casterMode && !combinedReplay && replay.source.schema === "riftreplay-raw-capture" ? (
+                  <ReplayHistoryDeckPanel
+                    replayId={replayId}
+                    apiBasePath={apiBasePath}
+                    gameNumber={state.room.gameNumber || state.gameOrdinal || 1}
+                    onOpen={() => setPlaying(false)}
+                  />
+                ) : null}
                 allowClipping={clipSharingEnabled}
                 allowNotes={!casterMode}
                 casterClean={casterMode && casterClean}
@@ -5022,6 +5031,7 @@ function HoverCardPreview({
 
 function InspectorRail({
   activityTab,
+  historyDeckControl,
   allowClipping,
   allowNotes,
   casterClean,
@@ -5060,6 +5070,7 @@ function InspectorRail({
   state,
 }: {
   activityTab: ReplayActivityTab;
+  historyDeckControl?: ReactNode;
   allowClipping: boolean;
   allowNotes: boolean;
   casterClean: boolean;
@@ -5121,7 +5132,7 @@ function InspectorRail({
 
   return (
     <aside
-      className={`${styles.inspectorRail} ${casterClean ? styles.casterInspectorRail : ""}`}
+      className={`${styles.inspectorRail} ${historyDeckControl ? styles.historyDeckRail : ""} ${casterClean ? styles.casterInspectorRail : ""}`}
       aria-label={casterClean ? "Caster card spotlight" : "Replay details"}
       data-caster-inspector={casterClean ? "true" : undefined}
     >
@@ -5181,6 +5192,7 @@ function InspectorRail({
         <span>Game {state.room.gameNumber || state.gameOrdinal || 1}</span>
         <span>Turn {state.room.turnNumber ?? "—"}</span>
       </div>
+      {historyDeckControl}
 
       {allowNotes && replayNoteEditor ? (
         <ReplayNoteEditorPanel

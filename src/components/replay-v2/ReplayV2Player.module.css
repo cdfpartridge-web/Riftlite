@@ -1967,6 +1967,10 @@ button.cardPile { cursor: pointer; }
   box-shadow: -18px 0 55px rgba(0, 0, 0, 0.24);
 }
 
+.historyDeckRail {
+  grid-template-rows: 69px 35px 54px 683px minmax(0, 1fr) 62px;
+}
+
 .casterInspectorRail {
   grid-template-rows: 69px 35px minmax(0, 1fr) 62px;
   border-left-color: rgba(117, 241, 229, .2);
