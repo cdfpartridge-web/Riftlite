@@ -16,7 +16,7 @@ import {
   youtubeChannelIdFromHtml,
 } from "@/lib/youtube/creator-video-feed";
 
-const RIFTLAB = normalizeCreatorVideoCarouselConfig(undefined).creators[0]!;
+const RIFTLAB = normalizeCreatorVideoCarouselConfig(undefined).creators.find((creator) => creator.id === "riftlab")!;
 const RIFTLAB_CHANNEL = {
   ...RIFTLAB,
   youtubeUrl: `https://www.youtube.com/channel/${RIFTLAB.channelId}`,
@@ -140,7 +140,8 @@ describe("YouTube creator video feeds", () => {
       return byCreator;
     }, new Map<string, number>());
 
-    expect(videos).toHaveLength(17);
+    expect(videos).toHaveLength(18);
+    expect(videos[0]?.creatorId).toBe("bmucasts");
     expect(counts.get("riftlab")).toBe(4);
     expect(counts.get("frodan")).toBe(2);
     expect(config.creators
@@ -168,6 +169,93 @@ describe("YouTube creator video feeds", () => {
       "rift-3xxxxx",
     ]);
     expect(videos.some((item) => item.videoId === "rift-1xxxxx")).toBe(false);
+  });
+
+  it("opens with the latest BMUCasts upload before other pins and weighted slots, without duplicating it", () => {
+    const config = {
+      ...configForSelection(),
+      maxItems: 6,
+      pinnedVideoIds: ["bbbbbbb0001", "bmulatest01"],
+    };
+    config.creators.push(creator("bmucasts", 1));
+    const videos = selectCreatorVideos(config, [
+      video("riftlab", "rift-1", "2026-08-04T08:00:00Z"),
+      video("riftlab", "rift-2", "2026-08-04T07:00:00Z"),
+      video("riftlab", "rift-3", "2026-08-04T06:00:00Z"),
+      video("riftlab", "rift-4", "2026-08-04T05:00:00Z"),
+      video("creator-b", "bbbbbbb0001", "2026-08-04T09:00:00Z"),
+      video("bmucasts", "bmuolder001", "2026-08-01T07:00:00Z"),
+      video("bmucasts", "bmulatest01", "2026-08-02T07:00:00Z"),
+    ]);
+
+    expect(videos.slice(0, 2).map((item) => item.videoId))
+      .toEqual(["bmulatest01", "bbbbbbb0001"]);
+    expect(videos).toHaveLength(6);
+    expect(videos.filter((item) => item.creatorId === "bmucasts")).toHaveLength(1);
+    expect(videos.filter((item) => item.creatorId === "riftlab")).toHaveLength(4);
+    expect(new Set(videos.map((item) => item.videoId)).size).toBe(videos.length);
+  });
+
+  it("updates the first slot to a new BMUCasts upload without a new pinned video ID", () => {
+    const config = configForSelection();
+    config.creators.push(creator("bmucasts", 1));
+    const candidates = [
+      video("riftlab", "rift-1", "2026-08-04T08:00:00Z"),
+      video("bmucasts", "bmuolder001", "2026-08-01T07:00:00Z"),
+    ];
+
+    expect(selectCreatorVideos(config, candidates)[0]?.videoId).toBe("bmuolder001");
+    expect(selectCreatorVideos(config, [
+      ...candidates,
+      video("bmucasts", "bmulatest01", "2026-08-03T07:00:00Z"),
+    ]).map((item) => item.videoId)).toEqual(["bmulatest01", "rift-1xxxxx"]);
+  });
+
+  it("uses an older eligible BMUCasts upload when the newest upload is excluded", () => {
+    const config = configForSelection();
+    config.creators.push(creator("bmucasts", 1));
+    config.excludedVideoIds = ["bmulatest01"];
+    config.pinnedVideoIds = ["bmulatest01", "bbbbbbb0001"];
+
+    const videos = selectCreatorVideos(config, [
+      video("creator-b", "bbbbbbb0001", "2026-08-04T09:00:00Z"),
+      video("bmucasts", "bmuolder001", "2026-08-01T07:00:00Z"),
+      video("bmucasts", "bmulatest01", "2026-08-02T07:00:00Z"),
+    ]);
+
+    expect(videos.map((item) => item.videoId)).toEqual(["bmuolder001", "bbbbbbb0001"]);
+  });
+
+  it.each(["disabled", "absent", "excluded", "unavailable"])("preserves the other pins when BMUCasts is %s", (state) => {
+    const config = configForSelection();
+    if (state !== "absent") {
+      config.creators.push({ ...creator("bmucasts", 1), enabled: state !== "disabled" });
+    }
+    config.excludedVideoIds = state === "excluded" ? ["bmulatest01"] : [];
+    config.pinnedVideoIds = ["bbbbbbb0001"];
+
+    const videos = selectCreatorVideos(config, [
+      video("riftlab", "rift-1", "2026-08-04T08:00:00Z"),
+      video("creator-b", "bbbbbbb0001", "2026-08-04T07:00:00Z"),
+      ...(state === "unavailable" ? [] : [video("bmucasts", "bmulatest01", "2026-08-02T07:00:00Z")]),
+    ]);
+
+    expect(videos.map((item) => item.videoId)).toEqual(["bbbbbbb0001", "rift-1xxxxx"]);
+  });
+
+  it("honours the carousel switch and item limit with a first BMUCasts slot", () => {
+    const config = configForSelection();
+    config.creators.push(creator("bmucasts", 1));
+    config.maxItems = 1;
+    config.pinnedVideoIds = ["bbbbbbb0001"];
+    const candidates = [
+      video("creator-b", "bbbbbbb0001", "2026-08-04T09:00:00Z"),
+      video("bmucasts", "bmulatest01", "2026-08-02T07:00:00Z"),
+    ];
+
+    expect(selectCreatorVideos(config, candidates).map((item) => item.videoId))
+      .toEqual(["bmulatest01"]);
+    expect(selectCreatorVideos({ ...config, enabled: false }, candidates)).toEqual([]);
   });
 
   it("isolates feed failures and stores the successful aggregate snapshot", async () => {

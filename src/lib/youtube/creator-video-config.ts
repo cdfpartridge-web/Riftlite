@@ -39,6 +39,7 @@ const YOUTUBE_PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]{10,100}$/;
 const CREATOR_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const YOUTUBE_HANDLE_PATTERN = /^@[A-Za-z0-9._-]{3,100}$/;
 const ALL_UPLOAD_CREATOR_IDS = new Set([
+  "bmucasts",
   "riftlab",
   "frodan",
   "runesandrift",
@@ -57,7 +58,7 @@ const LEGACY_CREATOR_CHANNEL_CORRECTIONS = new Map([
 ]);
 
 const DEFAULT_ROTATION_SECONDS = 10;
-const DEFAULT_MAX_ITEMS = 17;
+const DEFAULT_MAX_ITEMS = 18;
 const MIN_ROTATION_SECONDS = 5;
 const MAX_ROTATION_SECONDS = 120;
 const MIN_MAX_ITEMS = 1;
@@ -67,8 +68,17 @@ const MAX_VIDEO_SLOTS = 8;
 const MAX_VIDEO_ID_LIST_ITEMS = 100;
 
 export const CREATOR_VIDEO_FEED_CACHE_TAG = "youtube-creator-videos";
+export const FIRST_CREATOR_VIDEO_ID = "bmucasts";
+
+const BMU_CASTS_VIDEO_PROFILE = spotlight(
+  FIRST_CREATOR_VIDEO_ID,
+  "BMUCasts",
+  "https://www.youtube.com/@BMUCasts",
+  "UC58pT3YSehFcosxeQqz4nqA",
+);
 
 export const DEFAULT_COMMUNITY_SPOTLIGHT_VIDEO_PROFILES: CommunitySpotlightVideoProfile[] = [
+  BMU_CASTS_VIDEO_PROFILE,
   spotlight("riftlab", "Riftlab", "https://www.youtube.com/@RiftlabTCG", "UCDFo4wpERqN20cMxs3WzPsQ"),
   spotlight("frodan", "Frodan", "https://www.youtube.com/@FrodanRB", "UCmLDo-TRR0EesNbBEZNSkxw"),
   spotlight("runesandrift", "Runes & Rift", "https://www.youtube.com/@RunesAndRift", "UCw6Qfsm4P--Bq2BPKf031SQ"),
@@ -210,6 +220,25 @@ export function normalizeCreatorVideoCarouselConfig(
     includedVideoIds,
     pinnedVideoIds,
     creators,
+  };
+}
+
+/** Apply the new Home channel to older saved rosters without rewriting storage. */
+export function creatorVideoCarouselConfigForHome(
+  value: unknown,
+  spotlightProfiles?: unknown,
+): CreatorVideoCarouselConfig {
+  const config = normalizeCreatorVideoCarouselConfig(value, spotlightProfiles);
+  // An empty roster and an explicitly disabled BMUCasts entry remain editorial choices.
+  if (!config.creators.length || config.creators.some((creator) => creator.id === FIRST_CREATOR_VIDEO_ID)) {
+    return config;
+  }
+  const overrides = creatorOverrides(recordValue(value)?.creators);
+  return {
+    ...config,
+    // Expand the previous standard allocation once, retaining custom limits.
+    maxItems: config.maxItems === 17 ? DEFAULT_MAX_ITEMS : config.maxItems,
+    creators: [...creatorConfigsFromSpotlights([BMU_CASTS_VIDEO_PROFILE], overrides), ...config.creators],
   };
 }
 

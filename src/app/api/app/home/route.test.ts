@@ -89,7 +89,7 @@ describe("desktop homepage config", () => {
     expect(body.creatorVideoCarousel).toEqual({
       enabled: true,
       rotationSeconds: 10,
-      maxItems: 17,
+      maxItems: 18,
     });
     expect(body.creatorVideosUpdatedAt).toBe("");
     expect(body.liveTakeover).toEqual({
@@ -242,7 +242,10 @@ describe("desktop homepage config", () => {
       expect.objectContaining({
         excludedVideoIds: ["12345678901"],
         pinnedVideoIds: ["abcdefghijk"],
-        creators: [expect.objectContaining({ id: "creator", videoSlots: 2 })],
+        creators: [
+          expect.objectContaining({ id: "bmucasts", videoSlots: 1, channelId: "UC58pT3YSehFcosxeQqz4nqA" }),
+          expect.objectContaining({ id: "creator", videoSlots: 2 }),
+        ],
       }),
       expect.anything(),
     );

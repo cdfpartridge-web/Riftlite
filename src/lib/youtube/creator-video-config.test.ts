@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG,
+  communitySpotlightVideoProfilesFromConfig,
+  creatorVideoCarouselConfigForHome,
   creatorVideoCarouselStorageFromConfig,
   normalizeCreatorVideoCarouselConfig,
   normalizeYoutubeChannelUrl,
@@ -14,13 +16,20 @@ describe("creator video carousel config", () => {
     const config = normalizeCreatorVideoCarouselConfig(undefined);
 
     expect(config).toEqual(DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG);
-    expect(config.creators).toHaveLength(16);
-    expect(config.creators.slice(0, 2).map((creator) => creator.id))
-      .toEqual(["riftlab", "frodan"]);
+    expect(config.creators).toHaveLength(17);
+    expect(config.creators.slice(0, 3).map((creator) => creator.id))
+      .toEqual(["bmucasts", "riftlab", "frodan"]);
     const videoCreators = config.creators.filter((creator) => creator.youtubeUrl);
-    expect(videoCreators).toHaveLength(13);
-    expect(config.maxItems).toBe(17);
-    expect(videoCreators.reduce((total, creator) => total + creator.videoSlots, 0)).toBe(17);
+    expect(videoCreators).toHaveLength(14);
+    expect(config.maxItems).toBe(18);
+    expect(videoCreators.reduce((total, creator) => total + creator.videoSlots, 0)).toBe(18);
+    expect(config.creators[0]).toMatchObject({
+      id: "bmucasts",
+      youtubeUrl: "https://www.youtube.com/@BMUCasts",
+      channelId: "UC58pT3YSehFcosxeQqz4nqA",
+      sourceMode: "all",
+      videoSlots: 1,
+    });
     expect(config.creators.find((creator) => creator.id === "riftlab")?.videoSlots).toBe(4);
     expect(config.creators.find((creator) => creator.id === "riftlab")?.sourceMode).toBe("all");
     expect(config.creators.find((creator) => creator.id === "frodan")).toMatchObject({
@@ -57,6 +66,37 @@ describe("creator video carousel config", () => {
       videoSlots: 1,
     });
     expect(config.creators.some((creator) => creator.id === "bloody")).toBe(false);
+  });
+
+  it("adds BMUCasts to saved Home rosters once and retains existing controls", () => {
+    const stored = {
+      enabled: true, rotationSeconds: 22, maxItems: 17,
+      excludedVideoIds: ["excluded001"], pinnedVideoIds: ["pinned00001"],
+      creators: [{ id: "riftlab", enabled: false, videoSlots: 7 }],
+    };
+    const profiles = [{ id: "riftlab", name: "Custom name", links: { youtube: "https://www.youtube.com/@RiftlabTCG" } }];
+    const original = normalizeCreatorVideoCarouselConfig(stored, profiles);
+    const config = creatorVideoCarouselConfigForHome(stored, profiles);
+    expect(config.creators[0].id).toBe("bmucasts");
+    expect(config.creators.slice(1)).toEqual(original.creators);
+    expect(config).toMatchObject({
+      rotationSeconds: 22, maxItems: 18,
+      excludedVideoIds: stored.excludedVideoIds, pinnedVideoIds: stored.pinnedVideoIds,
+    });
+    expect(creatorVideoCarouselConfigForHome(
+      creatorVideoCarouselStorageFromConfig(config), communitySpotlightVideoProfilesFromConfig(config),
+    )).toEqual(config);
+    expect(creatorVideoCarouselConfigForHome({ ...stored, maxItems: 3 }, profiles).maxItems).toBe(3);
+  });
+
+  it("retains an empty Home roster and explicit BMUCasts disablement", () => {
+    expect(creatorVideoCarouselConfigForHome({}, []).creators).toEqual([]);
+    const config = creatorVideoCarouselConfigForHome({
+      enabled: false, creators: [{ id: "bmucasts", enabled: false }],
+    }, [{ id: "bmucasts", name: "BMUCasts", links: { youtube: "https://www.youtube.com/@BMUCasts" }, enabled: true }]);
+    expect(config.enabled).toBe(false);
+    expect(config.creators).toHaveLength(1);
+    expect(config.creators[0].enabled).toBe(false);
   });
 
   it("normalizes bounds, direct channel URLs, and handle URLs", () => {

@@ -7,6 +7,7 @@ import {
 } from "@/lib/community/meta-studio-auth";
 import {
   CREATOR_VIDEO_FEED_CACHE_TAG,
+  creatorVideoCarouselConfigForHome,
   communitySpotlightVideoProfilesFromConfig,
   creatorVideoCarouselStorageFromConfig,
   normalizeCreatorVideoCarouselConfig,
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
       .doc(HOME_CONFIG_DOCUMENT)
       .get();
     const data = snapshot.exists ? snapshot.data() ?? {} : {};
-    const config = normalizeCreatorVideoCarouselConfig(
+    const config = creatorVideoCarouselConfigForHome(
       data.creatorVideoCarousel,
       data.communitySpotlights,
     );

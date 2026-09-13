@@ -30,6 +30,7 @@ vi.mock("@/lib/youtube/creator-video-feed", () => ({
 import { GET, PUT } from "@/app/api/meta-studio/creator-videos/route";
 import {
   CREATOR_VIDEO_FEED_CACHE_TAG,
+  creatorVideoCarouselConfigForHome,
   communitySpotlightVideoProfilesFromConfig,
   creatorVideoCarouselStorageFromConfig,
   normalizeCreatorVideoCarouselConfig,
@@ -97,7 +98,7 @@ describe("Meta Studio creator video carousel route", () => {
     expect(response.headers.get("cache-control")).toContain("private");
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(payload.updatedAt).toBe(1234);
-    expect(payload.config).toEqual(normalizeCreatorVideoCarouselConfig({
+    expect(payload.config).toEqual(creatorVideoCarouselConfigForHome({
       enabled: false,
       rotationSeconds: 2,
       maxItems: 999,

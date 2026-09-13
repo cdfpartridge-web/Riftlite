@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import { getCachedHomeConfig } from "@/lib/home-config";
 import { resolvePublicLiveTakeover } from "@/lib/live-takeover-status";
-import { normalizeCreatorVideoCarouselConfig } from "@/lib/youtube/creator-video-config";
+import { creatorVideoCarouselConfigForHome } from "@/lib/youtube/creator-video-config";
 import {
   type CreatorVideoCarouselResult,
   getCreatorVideoCarousel,
@@ -41,7 +41,7 @@ const JSON_HEADERS = {
 export async function GET() {
   const homeConfig = await readHomeConfig();
   const featuredVideos = readFeaturedVideos(homeConfig.data);
-  const creatorVideoCarousel = normalizeCreatorVideoCarouselConfig(
+  const creatorVideoCarousel = creatorVideoCarouselConfigForHome(
     homeConfig.data?.creatorVideoCarousel,
     homeConfig.data?.communitySpotlights,
   );
@@ -97,7 +97,7 @@ function readFeaturedVideos(data: Record<string, unknown> | null): HomeFeaturedV
 }
 
 async function readCreatorVideoCarousel(
-  config: ReturnType<typeof normalizeCreatorVideoCarouselConfig>,
+  config: ReturnType<typeof creatorVideoCarouselConfigForHome>,
   db: ReturnType<typeof getFirestoreAdmin>,
 ): Promise<CreatorVideoCarouselResult> {
   try {

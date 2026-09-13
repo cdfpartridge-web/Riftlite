@@ -7,6 +7,7 @@ import { XMLParser } from "fast-xml-parser";
 
 import {
   CREATOR_VIDEO_FEED_CACHE_TAG,
+  FIRST_CREATOR_VIDEO_ID,
   type CreatorVideoCarouselConfig,
   type CreatorVideoCreatorConfig,
   type CreatorVideoSourceMode,
@@ -238,7 +239,13 @@ export function selectCreatorVideos(
   const selected: CreatorVideo[] = [];
   const selectedIds = new Set<string>();
   const pinnedCounts = new Map<string, number>();
-  for (const videoId of config.pinnedVideoIds) {
+  // Reserve the opening slide for the channel's latest eligible upload, not a
+  // fixed video ID, so it stays first as new uploads arrive.
+  const firstVideo = [...unique.values()].find((video) => video.creatorId === FIRST_CREATOR_VIDEO_ID);
+  const pinnedVideoIds = firstVideo
+    ? [firstVideo.videoId, ...config.pinnedVideoIds]
+    : config.pinnedVideoIds;
+  for (const videoId of pinnedVideoIds) {
     const video = unique.get(videoId);
     if (!video || selectedIds.has(video.videoId)) continue;
     selected.push(video);
