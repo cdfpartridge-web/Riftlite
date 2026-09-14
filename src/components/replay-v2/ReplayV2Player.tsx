@@ -37,6 +37,8 @@ import {
 } from "@/lib/replay-v2";
 import { firebaseClientApp } from "@/lib/firebase/client";
 import { ReplayHistoryDeckPanel } from "./ReplayHistoryDeckPanel";
+import { ReplaySoundControls } from "./ReplaySoundControls";
+import { useReplaySounds } from "./use-replay-sounds";
 
 import styles from "./ReplayV2Player.module.css";
 import {
@@ -393,6 +395,12 @@ export function ReplayV2Player({
     : false;
   const deferredCardsUp = useDeferredValue(cardsUp);
   const sourceReplay = loadState.status === "ready" ? loadState.replay : null;
+  const {
+    enabled: soundEnabled, volume: soundVolume, setEnabled: setSoundEnabled,
+    setVolume: setSoundVolume, unlock: unlockSounds, silence: silenceSounds, advance: advanceSounds,
+  } = useReplaySounds(sourceReplay);
+  const playbackCursorRef = useRef({ atMs: 0, eventIndex: -1 });
+  const naturalPlaybackEndedRef = useRef(false);
   const replay = useMemo(
     () => sourceReplay && allowPlayerNameHiding && hidePlayerNames
       ? anonymizeReplayPlayerNames(sourceReplay)
@@ -664,6 +672,9 @@ export function ReplayV2Player({
     [canonicalState, casterMode, replay],
   );
   const eventIndex = projection?.eventIndex ?? -1;
+  useLayoutEffect(() => {
+    playbackCursorRef.current = { atMs: currentMs, eventIndex };
+  }, [currentMs, eventIndex]);
   const combinedReplay = replay ? isConsentedDualPerspectiveReplay(replay) : false;
   const knowledgeReplay = useMemo(() => {
     if (!replay || !clipRange) return replay;
@@ -717,18 +728,29 @@ export function ReplayV2Player({
       if (now - lastPaint >= 24) {
         const elapsed = Math.min(100, Math.max(0, now - lastPaint));
         lastPaint = now;
+        const previous = playbackCursorRef.current;
+        const next = Math.min(playbackEndMs, previous.atMs + elapsed * speed);
+        const nextIndex = eventIndexAtTime(replay, next);
+        playbackCursorRef.current = { atMs: next, eventIndex: nextIndex };
         setManualEventIndex(null);
-        setCurrentMs((value) => {
-          const next = Math.min(playbackEndMs, value + elapsed * speed);
-          if (next >= playbackEndMs) setPlaying(false);
-          return next;
-        });
+        setCurrentMs(next);
+        // Only natural clock movement emits cues. React updaters can run twice.
+        if (!pendingSeekTimer.current) advanceSounds(previous.eventIndex, nextIndex);
+        if (next >= playbackEndMs) {
+          naturalPlaybackEndedRef.current = true;
+          setPlaying(false);
+        }
       }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playbackEndMs, playing, presentation, replay, speed]);
+  }, [advanceSounds, playbackEndMs, playing, presentation, replay, speed]);
+
+  useEffect(() => {
+    if (playing) naturalPlaybackEndedRef.current = false;
+    else if (!naturalPlaybackEndedRef.current) silenceSounds();
+  }, [playing, silenceSounds]);
 
   useEffect(() => {
     return () => {
@@ -856,6 +878,8 @@ export function ReplayV2Player({
   const seekTo = useCallback(
     (targetMs: number, options?: { immediate?: boolean; eventIndex?: number }) => {
       if (!replay) return;
+      silenceSounds();
+      naturalPlaybackEndedRef.current = false;
       if (pendingSeekTimer.current) {
         clearTimeout(pendingSeekTimer.current);
         pendingSeekTimer.current = null;
@@ -865,11 +889,13 @@ export function ReplayV2Player({
       const backwards = target < currentMs;
       const apply = () => {
         pendingSeekTimer.current = null;
+        silenceSounds();
         if (backwards || options?.immediate) setMotionSuppressedBriefly();
         clearAnalysis();
         setPresentation(null);
         setManualEventIndex(targetEventIndex ?? null);
         setCurrentMs(target);
+        if (playing) unlockSounds();
       };
 
       if (!backwards && !options?.immediate) {
@@ -888,6 +914,9 @@ export function ReplayV2Player({
       playbackStartMs,
       replay,
       setMotionSuppressedBriefly,
+      playing,
+      silenceSounds,
+      unlockSounds,
     ],
   );
 
@@ -920,7 +949,7 @@ export function ReplayV2Player({
   );
 
   const advancePresentation = useCallback(
-    (direction: -1 | 1) => {
+    (direction: -1 | 1, automatic = false) => {
       if (!presentation || !replay) return;
       const stages = preludeStagesForGame(replay, presentation.gameIndex);
       const nextStage = presentation.stageIndex + direction;
@@ -933,17 +962,21 @@ export function ReplayV2Player({
         setManualEventIndex(null);
         setCompletedPreludeGameId(game?.id ?? null);
         setCurrentMs(game ? replayGamePlaybackStartMs(game) : currentMs);
+        if (automatic && game) {
+          const gameplay = game.phases.find((phase) => phase.phase === "in_game");
+          if (gameplay) advanceSounds(gameplay.startEventIndex - 1, eventIndexAtTime(replay, gameplay.startedAtMs));
+        }
         return;
       }
       setPresentation({ ...presentation, stageIndex: nextStage });
     },
-    [clearAnalysis, currentMs, presentation, replay, setMotionSuppressedBriefly],
+    [advanceSounds, clearAnalysis, currentMs, presentation, replay, setMotionSuppressedBriefly],
   );
 
   useEffect(() => {
     if (!playing || !presentationStage || !presentation) return;
     const timer = setTimeout(
-      () => advancePresentation(1),
+      () => advancePresentation(1, true),
       PRESENTATION_STAGE_MS[presentationStage] / speed,
     );
     return () => clearTimeout(timer);
@@ -953,6 +986,7 @@ export function ReplayV2Player({
     if (!replay) return;
     if (analysisSession) clearAnalysis(true);
     if (playing) {
+      silenceSounds();
       setPlaying(false);
       settleAnimations(false);
       return;
@@ -963,6 +997,7 @@ export function ReplayV2Player({
     }
     setManualEventIndex(null);
     settleAnimations(true);
+    unlockSounds();
     setPlaying(true);
   }, [
     analysisSession,
@@ -977,6 +1012,8 @@ export function ReplayV2Player({
     replay,
     seekTo,
     settleAnimations,
+    silenceSounds,
+    unlockSounds,
   ]);
 
   const stepAction = useCallback(
@@ -1244,6 +1281,8 @@ export function ReplayV2Player({
       flashNotice("Choose an end after the clip start");
       return;
     }
+    silenceSounds();
+    if (play) unlockSounds();
     if (pendingSeekTimer.current) {
       clearTimeout(pendingSeekTimer.current);
       pendingSeekTimer.current = null;
@@ -1294,6 +1333,8 @@ export function ReplayV2Player({
     setMotionSuppressedBriefly,
     sharedReplayNotesLink,
     settleAnimations,
+    silenceSounds,
+    unlockSounds,
   ]);
 
   const copyReplayClip = useCallback(async (range: ReplayClipRange) => {
@@ -2483,6 +2524,8 @@ export function ReplayV2Player({
                 />
               ) : (
                 <TransportControls
+                  soundControls={<ReplaySoundControls enabled={soundEnabled} volume={soundVolume}
+                    onEnabledChange={setSoundEnabled} onVolumeChange={setSoundVolume} />}
                   allowAnalysis={!casterMode}
                   allowCardsUp={!casterMode && !combinedReplay}
                   analysisActive={Boolean(analysisSession)}
@@ -6226,6 +6269,7 @@ function CasterLowerThird({
 }
 
 function TransportControls({
+  soundControls,
   allowAnalysis,
   allowCardsUp,
   analysisActive,
@@ -6275,6 +6319,7 @@ function TransportControls({
   state,
   turns,
 }: {
+  soundControls: ReactNode;
   allowAnalysis: boolean;
   allowCardsUp: boolean;
   analysisActive: boolean;
@@ -6650,6 +6695,7 @@ function TransportControls({
         <button className={styles.speedControl} data-control="speed" onClick={() => onChangeSpeed(nextPlaybackSpeed(speed))} type="button">
           {speed}×
         </button>
+        {soundControls}
         <button
           aria-pressed={fullscreen}
           className={styles.fullscreenButton}

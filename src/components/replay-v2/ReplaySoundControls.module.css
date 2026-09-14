@@ -1,0 +1,17 @@
+.controls { position: relative; display: flex; align-items: center; flex-shrink: 0; }
+.toggle, .settings { display: inline-flex; align-items: center; justify-content: center; height: 44px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #8ca1b7; cursor: pointer; }
+.toggle { width: 44px; }
+.settings { width: 28px; }
+.toggle svg { width: 19px; height: 19px; }
+.settings svg { width: 13px; height: 13px; }
+.toggle[aria-pressed="true"] { color: #75f1e5; }
+.toggle:hover, .settings:hover, .toggle:focus-visible, .settings:focus-visible, .settings[aria-expanded="true"] { border-color: rgba(118,198,237,.35); outline: none; background: rgba(91,176,224,.12); color: #d9f2ff; }
+.panel { position: absolute; bottom: calc(100% + 14px); left: 50%; z-index: 125; width: 236px; padding: 17px 18px 13px; transform: translateX(-50%); border: 1px solid rgba(126,196,234,.25); border-radius: 14px; background: #0c1929; color: #d9f2ff; box-shadow: 0 15px 50px #0008; }
+.heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 16px; font-size: 12px; font-weight: 700; }
+.heading span:last-child { color: #75f1e5; font-size: 10px; }
+.volume { display: grid; gap: 5px; font-size: 11px; color: #a6bacf; }
+.volume span { display: flex; justify-content: space-between; }
+.volume b { font-weight: 500; color: #d9f2ff; }
+.volume input { width: 100%; height: 28px; margin: 0; accent-color: #75f1e5; cursor: pointer; }
+.volume input:focus-visible { outline: 2px solid #75f1e5; outline-offset: 2px; border-radius: 4px; }
+.panel p { margin: 9px 0 0; font-size: 10px; color: #839bb2; }
