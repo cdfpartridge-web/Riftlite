@@ -43,3 +43,17 @@ Consolidated validation at 12:23 BST: **23 files / 158 tests passed**, including
 Meta Studio Canvas subsequently passed **6 component tests** and targeted ESLint. Explicit dates use draft inputs plus Apply, show the timezone of the applied report, keep controls available for empty reports and label retained-history limitations. Invalid drafts do not request data or relabel existing results. Cancelling an unapplied draft resets locally without triggering a redundant request/stuck loading state. Its additional toolbar row was inspected against the existing flexible canvas layout; the private authenticated page was not exercised live.
 
 Generated `next-env.d.ts` preview changes were restored to the clean starting content. Pre-existing `tsconfig.tsbuildinfo` changes were preserved. The `/players` and `/teams` directory audit found no additional historical reports to filter. No production build/deploy or installer rebuild was performed.
+
+## Published 18 September 2026
+
+- Immutable runtime source: `56c4fa42a03ae1656b7e00d2708778084299b34b`, branch `codex/date-filters-release-20260918`.
+- Deployment: `dpl_3yCXeDFRNBjy44Ks5XxaiELTTVAh`.
+- Immutable URL: https://riftlite-jdxzt7h5n-cdfpartridge-3985s-projects.vercel.app
+- Promoted to https://www.riftlite.com and verified live at **14:11 BST**.
+- Rollback deployment: `dpl_Dnwja3cnCzHHFjrPBnbjnCgdyzMH`, runtime source `92f11454eea65d90ef5c22b48597d574f32ebecc`.
+- Production build passed. **17 candidate and 17 live HTTP checks passed**, including all community date pages, invalid ranges, empty-date recovery, replay library controls, Meta Studio authorization, owner-only deck attachments, approved audio hashes, BMUCasts-first feed and Results Bot signature checks/privacy disclosure.
+- Live Chromium interaction verification passed **9 checks**: invalid-range feedback/disabled Apply, applied bounds, preserved All seasons, date-preserving legend drilldown, retained detail inputs, clearing an empty future date and mobile width. Desktop/mobile screenshots were inspected. No browser errors; only the existing AdSense warning.
+- Evidence: `output/date-filters-release-20260918/`, including deployment/production inspection, tests, HTTP receipts, browser script/log and screenshots. The first HTTP script checked the `/replay` redirect shell; the corrected check verifies the canonical `/replays` library.
+- The isolated release retains previously published functionality. Development source and all unrelated local features were preserved. No Git remote push or application-data write was required.
+
+The separately requested local Windows installer is `desktop-v06/output/local-date-filters-20260918-135923/RiftLiteBetaInstall.exe` (v0.9.75, 159,375,892 bytes, SHA256 `74BA21FEC2178438B0EB6F044A44FA970774B03DA75C139A4DB03297D5FDD3EB`). It is not installed or published; public Windows/macOS installers remain unchanged.
