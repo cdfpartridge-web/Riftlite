@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
+import { DateFilterLink as Link } from "@/components/site/date-filter-link";
 import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 

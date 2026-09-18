@@ -1,3 +1,5 @@
+import { isInDateFilter, validTimeZone, type DateFilterValue } from "@/lib/date-filter";
+
 import {
   DEFAULT_FILTERS,
   DEFAULT_PAGE_SIZE,
@@ -26,9 +28,12 @@ export function parseFilters(
   );
 
   return {
-    range: ["1d", "7d", "14d", "30d"].includes(String(source.range ?? ""))
+    range: ["1d", "7d", "14d", "30d", "today", "date", "custom"].includes(String(source.range ?? ""))
       ? String(source.range)
       : DEFAULT_FILTERS.range,
+    from: String(source.from ?? ""),
+    to: String(source.to ?? ""),
+    timeZone: validTimeZone(String(source.timeZone ?? "UTC")),
     season: COMMUNITY_SEASON_IDS.includes(String(source.season ?? "") as (typeof COMMUNITY_SEASON_IDS)[number])
       ? String(source.season ?? "")
       : DEFAULT_FILTERS.season,
@@ -83,6 +88,7 @@ export function applyCommunityFilters(
   );
 
   return activeMatches.filter((match) => {
+    if (!isInDateFilter(match.date || match.createdAt, communityDateFilter(filters), new Date(), filters.timeZone || "UTC")) return false;
     if (match.localMatchId && combinedSourceIds.has(match.localMatchId)) {
       return false;
     }
@@ -156,4 +162,21 @@ function matchCreatedAtMs(match: CommunityMatch): number {
   const raw = Number(match.createdAt ?? 0);
   if (!Number.isFinite(raw) || raw <= 0) return 0;
   return raw < 10_000_000_000 ? raw * 1000 : raw;
+}
+
+export function communityDateFilter(filters: Pick<CommunityFilterParams, "range" | "from" | "to">): DateFilterValue {
+  return {
+    preset: filters.range === "date" || filters.range === "custom" || filters.range === "today" ? filters.range : "all",
+    from: filters.from || "",
+    to: filters.to || "",
+  };
+}
+
+/** Detail pages have no implicit season restriction. */
+export function parseDateQuery(search: Record<string, string | string[] | undefined> | undefined) {
+  return parseFilters({ ...search, season: search?.season ?? "" });
+}
+
+export function dateQueryValue(filters: CommunityFilterParams): DateFilterValue {
+  return { ...communityDateFilter(filters), preset: ["today", "1d", "7d", "14d", "30d", "date", "custom"].includes(filters.range) ? filters.range as DateFilterValue["preset"] : "all" };
 }

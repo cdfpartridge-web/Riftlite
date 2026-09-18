@@ -35,7 +35,8 @@ export default async function MatrixPage({
         description="Every cell pools captures from both directions into one head-to-head estimate. Hover to compare each pilot cohort, then click through to study the games behind the numbers."
       />
       <AdSlot placement="community-top" slots={adSlots} />
-      <CommunityFilterBar filters={filters} showFormat />
+      <CommunityFilterBar key={JSON.stringify(filters)} filters={filters} showFormat />
+      {!matrix.cells.length ? <p className="rounded-2xl border border-white/10 p-5 text-sm text-slate-300">No matchup results in the available history for these filters. Try another date or clear the filters.</p> : null}
       <MatrixBrowser matches={matches} matrix={matrix} />
     </div>
   );

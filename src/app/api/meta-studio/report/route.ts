@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 
 import {
   buildMetaStudioReport,
+  metaStudioDateFilter,
   metaStudioRangeDays,
   metaStudioSourceRangeDays,
   parseMetaStudioFilters,
@@ -11,9 +12,11 @@ import {
   requireMetaStudioSession,
 } from "@/lib/community/meta-studio-auth";
 import {
+  getCommunityMatchWindow,
   getCommunityRangeMatchWindow,
   getCommunityRangeStats,
 } from "@/lib/community/data";
+import { dateFilterError } from "@/lib/date-filter";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,6 +35,26 @@ export async function GET(request: NextRequest) {
 
   const now = Date.now();
   const filters = parseMetaStudioFilters(request.nextUrl.searchParams, now);
+  const dateFilter = metaStudioDateFilter(filters);
+  if (dateFilter) {
+    const error = dateFilterError(dateFilter);
+    if (error) return metaStudioJson({ error }, 400);
+    // Reuse bounded public detail caches. Arbitrary dates must not trigger a
+    // historical collection scan or imply that retained rows are a full census.
+    const [recentMatches, monthMatches] = await Promise.all([
+      getCommunityMatchWindow(),
+      getCommunityRangeMatchWindow(30),
+    ]);
+    const report = buildMetaStudioReport([...recentMatches, ...monthMatches], filters, {
+      now,
+      sourceAsOf: now,
+      sourcePeriodRecordsExact: false,
+      detailWindowTruncated: true,
+      comparisonAvailable: false,
+      comparisonWindowComplete: false,
+    });
+    return metaStudioJson({ report });
+  }
   const rangeDays = metaStudioRangeDays(filters.range);
   const sourceDays = metaStudioSourceRangeDays(filters.range);
 

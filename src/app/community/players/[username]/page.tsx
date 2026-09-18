@@ -1,4 +1,6 @@
-import Link from "next/link";
+import { QueryDateFilter } from "@/components/site/query-date-filter";
+import { parseDateQuery, dateQueryValue } from "@/lib/community/filters";
+import { DateFilterLink as Link } from "@/components/site/date-filter-link";
 import { notFound } from "next/navigation";
 
 import { LegendChip } from "@/components/site/legend-chip";
@@ -81,13 +83,18 @@ export async function generateMetadata({
 }
 
 export default async function PlayerProfilePage({
-  params,
+  params, searchParams,
 }: {
   params: Promise<{ username: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const filters = parseDateQuery(await searchParams);
   const { username } = await params;
-  const profile = await getPlayerProfile(decodeURIComponent(username));
-  if (!profile) notFound();
+  const profile = await getPlayerProfile(decodeURIComponent(username), filters);
+  if (!profile) {
+    if (!filters.range) notFound();
+    return <div className="space-y-4"><QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} /><Card><CardTitle>No matches for these dates</CardTitle><CardDescription>Choose another date or clear the date filter to see available history.</CardDescription></Card></div>;
+  }
 
   const recentWindow = profile.recentMatches;
   const isoDate = (ms: number) =>
@@ -95,6 +102,7 @@ export default async function PlayerProfilePage({
 
   return (
     <div className="space-y-10">
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Player Profile"

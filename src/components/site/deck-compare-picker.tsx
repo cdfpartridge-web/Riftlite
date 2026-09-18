@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ type DeckComparePickerProps = {
 
 export function DeckComparePicker({ decks, initialA, initialB }: DeckComparePickerProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [a, setA] = useState(initialA ?? "");
   const [b, setB] = useState(initialB ?? "");
   const [query, setQuery] = useState("");
@@ -54,7 +55,9 @@ export function DeckComparePicker({ decks, initialA, initialB }: DeckComparePick
 
   function submit() {
     if (!canCompare) return;
-    const params = new URLSearchParams({ a, b });
+    const params = new URLSearchParams(searchParams?.toString());
+    params.set("a", a);
+    params.set("b", b);
     router.push(`/community/decks/compare?${params.toString()}`);
   }
 

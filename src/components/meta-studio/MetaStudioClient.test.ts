@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CreatorVideoCarouselPanel,
   LiveTakeoverPanel,
+  reportQuery,
 } from "@/components/meta-studio/MetaStudioClient";
 import type { LiveTakeoverConfig } from "@/lib/live-takeover";
 import type { CreatorVideoCarouselConfig } from "@/lib/youtube/creator-video-config";
@@ -49,6 +50,13 @@ function jsonResponse(body: unknown, status = 200) {
     json: async () => body,
   } as Response;
 }
+
+it("sends the selected calendar dates and time zone to the authorized report endpoint", () => {
+  expect(Object.fromEntries(reportQuery({ range: "custom", from: "2026-09-01", to: "2026-09-11", timeZone: "Europe/London", season: "", format: "bo3", platform: "atlas", minSample: 10 }))).toEqual({
+    range: "custom", from: "2026-09-01", to: "2026-09-11", timeZone: "Europe/London", season: "", format: "bo3", platform: "atlas", minSample: "10",
+  });
+  expect(reportQuery({ range: "7d", from: "2026-09-01", to: "2026-09-11", season: "", format: "all", platform: "all", minSample: 5 }).has("from")).toBe(false);
+});
 
 describe("Meta Studio creator video carousel panel", () => {
   beforeEach(() => {

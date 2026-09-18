@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMetaStudioReport,
   META_STUDIO_AGGREGATION_METHOD,
+  metaStudioDateWindow,
   parseMetaStudioFilters,
   type MetaStudioFilters,
 } from "@/lib/community/meta-studio";
@@ -54,6 +55,61 @@ function match(
 }
 
 describe("Meta Studio report", () => {
+  it("filters recorded calendar dates before rankings, matchups, and seat statistics", () => {
+    const filters: MetaStudioFilters = { ...FILTERS, season: "", range: "date", from: "2026-07-29", timeZone: "Europe/London" };
+    const included = match("late-upload", "Akali", "Annie", "Win", {
+      date: "2026-07-28T23:00:00Z", createdAt: NOW, wentFirst: "1st",
+    });
+    const report = buildMetaStudioReport([
+      included,
+      { ...included }, // overlapping retained caches must not double the record
+      match("same-day-end", "Akali", "Annie", "Loss", { date: "2026-07-29T22:59:59.999Z", wentFirst: "2nd" }),
+      match("too-early", "Akali", "Annie", "Loss", { date: "2026-07-28T22:59:59.999Z" }),
+      match("next-day", "Akali", "Annie", "Loss", { date: "2026-07-29T23:00:00Z" }),
+    ], filters, { now: NOW, comparisonAvailable: true, comparisonWindowComplete: true });
+    expect(report.coverage).toMatchObject({ detailedRecords: 2, legendAppearances: 4, comparisonAvailable: false, comparisonWindowComplete: false });
+    expect(report.leaders.find((leader) => leader.legend === "Akali")).toMatchObject({
+      series: 2, wins: 1, losses: 1, winRate: 50, previousRank: null,
+      first: { series: 1, wins: 1 }, second: { series: 1, losses: 1 },
+      matchups: [{ opponentLegend: "Annie", series: 2, winRate: 50 }],
+    });
+    expect(report.window).toMatchObject({ start: Date.parse("2026-07-28T23:00:00Z"), end: Date.parse("2026-07-29T22:59:59.999Z"), comparisonStart: null });
+  });
+
+  it("includes both custom-range endpoints and intersects platform and format", () => {
+    const filters: MetaStudioFilters = { ...FILTERS, season: "", range: "custom", from: "2026-07-28", to: "2026-07-29", timeZone: "UTC", platform: "atlas", format: "bo3" };
+    const rows = [
+      match("first", "Akali", "Annie", "Win", { date: "2026-07-28", fmt: "Bo3" }),
+      match("last", "Akali", "Annie", "Loss", { date: "2026-07-29T23:59:59.999Z", fmt: "Bo3" }),
+      match("other-platform", "Akali", "Annie", "Loss", { date: "2026-07-29", fmt: "Bo3", platform: "tcga" }),
+      match("other-format", "Akali", "Annie", "Loss", { date: "2026-07-29" }),
+      match("future", "Akali", "Annie", "Loss", { date: "2026-07-30", fmt: "Bo3" }),
+    ];
+    expect(buildMetaStudioReport(rows, filters, { now: NOW }).coverage.detailedRecords).toBe(2);
+    expect(buildMetaStudioReport(rows, { ...filters, from: "" }, { now: NOW }).coverage.detailedRecords).toBe(0);
+    expect(buildMetaStudioReport(rows, { ...filters, from: "2026-07-30" }, { now: NOW }).leaders).toEqual([]);
+  });
+
+  it("uses calendar-day bounds across both London daylight-saving transitions", () => {
+    const filters: MetaStudioFilters = { ...FILTERS, range: "date", timeZone: "Europe/London" };
+    expect(metaStudioDateWindow({ ...filters, from: "2026-03-29" })).toEqual({
+      start: Date.parse("2026-03-29T00:00:00Z"), end: Date.parse("2026-03-29T22:59:59.999Z"),
+    });
+    expect(metaStudioDateWindow({ ...filters, from: "2026-10-25" })).toEqual({
+      start: Date.parse("2026-10-24T23:00:00Z"), end: Date.parse("2026-10-25T23:59:59.999Z"),
+    });
+    expect(metaStudioDateWindow({ ...filters, from: "2026-02-30" })).toBeNull();
+  });
+
+  it("normalizes explicit dates and time zones without silently widening invalid selections", () => {
+    expect(parseMetaStudioFilters(new URLSearchParams("range=date&from=2026-07-29&to=2026-08-01&timeZone=Europe%2FLondon&season="))).toMatchObject({
+      range: "date", from: "2026-07-29", to: "2026-07-29", timeZone: "Europe/London", season: "",
+    });
+    expect(parseMetaStudioFilters(new URLSearchParams("range=custom&from=&to=2026-07-29&timeZone=invalid"))).toMatchObject({
+      range: "custom", from: "", to: "2026-07-29", timeZone: "UTC",
+    });
+  });
+
   it("adds an inverted opponent perspective without doubling source coverage", () => {
     const report = buildMetaStudioReport([
       match("one-capture", "Akali", "Annie", "Win", { wentFirst: "1st" }),

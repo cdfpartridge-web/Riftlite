@@ -39,13 +39,18 @@ type MetaStudioClientProps = {
   previewReport?: MetaStudioReport | null;
 };
 
-function reportQuery(filters: MetaStudioFilters) {
+export function reportQuery(filters: MetaStudioFilters) {
   return new URLSearchParams({
     range: filters.range,
     season: filters.season,
     format: filters.format,
     platform: filters.platform,
     minSample: String(filters.minSample),
+    ...(filters.range === "date" || filters.range === "custom" ? {
+      from: filters.from ?? "",
+      to: filters.range === "date" ? filters.from ?? "" : filters.to ?? "",
+      timeZone: filters.timeZone || "UTC",
+    } : {}),
   });
 }
 

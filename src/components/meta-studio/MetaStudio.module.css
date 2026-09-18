@@ -2481,3 +2481,15 @@
     animation: none;
   }
 }
+
+/* Explicit date drafts stay separate from the applied report until Apply. */
+.dateInputs { grid-column: 1 / -1; order: 1; min-width: 0; margin: 0; padding: 10px; border: 1px solid rgba(128,207,255,.15); border-radius: 10px; }
+.dateInputs legend { padding: 0 5px; color: #8ab7ce; font-size: 10px; }
+.dateInputs > div:first-of-type { display: flex; flex-wrap: wrap; gap: 8px; }
+.dateInputs label { flex: 1 1 160px; }
+.dateInputs input { box-sizing: border-box; width: 100%; height: 34px; padding: 5px 9px; border: 1px solid #29485e; border-radius: 7px; background: #091724; color: #d9ecf8; color-scheme: dark; }
+.dateActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.dateActions button { padding: 7px 10px; border: 1px solid #31546c; border-radius: 7px; background: #10283a; color: #ccecf5; font-size: 11px; cursor: pointer; }
+.dateActions button:disabled { opacity: .45; cursor: not-allowed; }
+.dateActions span { flex: 1 1 220px; color: #b5c5d5; font-size: 10px; line-height: 1.4; }
+.emptyDateControls { grid-template-columns: minmax(0,1fr); margin: 16px 0; text-align: left; }

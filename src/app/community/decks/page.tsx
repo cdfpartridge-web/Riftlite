@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { DateFilterLink as Link } from "@/components/site/date-filter-link";
 
 import { CommunityFilterBar } from "@/components/site/community-filter-bar";
 import { DeckCard } from "@/components/site/deck-card";
@@ -36,7 +36,8 @@ export default async function DecksPage({
           <Link href="/community/decks/compare">Compare two decks →</Link>
         </Button>
       </div>
-      <CommunityFilterBar filters={filters} />
+      <CommunityFilterBar key={JSON.stringify(filters)} filters={filters} />
+      {!data.items.length ? <p className="rounded-2xl border border-white/10 p-5 text-sm text-slate-300">No deck results in the available history for these filters. Try another date or clear the filters.</p> : null}
       <div className="grid gap-6 md:grid-cols-2">
         {data.items.map((deck) => (
           <DeckCard deck={deck} key={deck.deckKey} />

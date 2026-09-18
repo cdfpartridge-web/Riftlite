@@ -24,7 +24,9 @@ import type { CommunityFilterParams } from "@/lib/types";
 
 export async function getFilteredCommunityMatches(filters: CommunityFilterParams) {
   const matches =
-    filters.range === "1d"
+    ["today", "date", "custom"].includes(filters.range)
+      ? Array.from(new Map((await Promise.all([getCommunityMatchWindow(), getCommunityRangeMatchWindow(30)])).flat().map((match) => [match.id, match])).values())
+      : filters.range === "1d"
       ? filterCommunityMatchesByDays(await getCommunityMatchWindow(), 1)
       : filters.range === "7d" || filters.range === "14d" || filters.range === "30d"
         ? await getCommunityRangeMatchWindow(Number.parseInt(filters.range, 10) as 7 | 14 | 30)
@@ -85,8 +87,8 @@ export async function getPaginatedDecks(filters: CommunityFilterParams) {
   return paginate(decks, filters.page, filters.pageSize);
 }
 
-export async function getDeckDetail(deckKey: string) {
-  const matches = await getCommunityMatchWindow();
+export async function getDeckDetail(deckKey: string, filters?: CommunityFilterParams) {
+  const matches = filters ? await getFilteredCommunityMatches(filters) : await getCommunityMatchWindow();
   const deck = getDeckGroupByKey(matches, deckKey);
   const deckMatches = matches.filter((match) => deckGroupKey(match) === deckKey);
 
@@ -96,18 +98,18 @@ export async function getDeckDetail(deckKey: string) {
   };
 }
 
-export async function getPlayerProfile(username: string) {
-  const matches = await getCommunityMatchWindow();
+export async function getPlayerProfile(username: string, filters?: CommunityFilterParams) {
+  const matches = filters ? await getFilteredCommunityMatches(filters) : await getCommunityMatchWindow();
   return buildPlayerProfile(matches, username);
 }
 
-export async function getLegendProfile(legend: string) {
-  const matches = await getCommunityMatchWindow();
+export async function getLegendProfile(legend: string, filters?: CommunityFilterParams) {
+  const matches = filters ? await getFilteredCommunityMatches(filters) : await getCommunityMatchWindow();
   return buildLegendProfile(matches, legend);
 }
 
-export async function getDeckComparison(keyA: string, keyB: string) {
-  const matches = await getCommunityMatchWindow();
+export async function getDeckComparison(keyA: string, keyB: string, filters?: CommunityFilterParams) {
+  const matches = filters ? await getFilteredCommunityMatches(filters) : await getCommunityMatchWindow();
   return buildDeckComparison(matches, keyA, keyB);
 }
 
@@ -116,7 +118,7 @@ export async function listAllPlayerNames() {
   return listPlayerNames(matches);
 }
 
-export async function listAllDeckGroups() {
-  const matches = await getCommunityMatchWindow();
+export async function listAllDeckGroups(filters?: CommunityFilterParams) {
+  const matches = filters ? await getFilteredCommunityMatches(filters) : await getCommunityMatchWindow();
   return buildDeckGroups(matches);
 }

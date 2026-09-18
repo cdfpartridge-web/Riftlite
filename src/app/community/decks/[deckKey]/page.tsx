@@ -1,5 +1,7 @@
+import { QueryDateFilter } from "@/components/site/query-date-filter";
+import { parseDateQuery, dateQueryValue } from "@/lib/community/filters";
 import type { Metadata } from "next";
-import Link from "next/link";
+import { DateFilterLink as Link } from "@/components/site/date-filter-link";
 import { notFound } from "next/navigation";
 
 import { CopyDeckButton } from "@/components/site/copy-deck-button";
@@ -14,6 +16,7 @@ import { formatPercent, safeHref } from "@/lib/utils";
 
 type Props = {
   params: Promise<{ deckKey: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function toPiltoverArchiveText(snapshot: DeckSnapshot): string {
@@ -113,13 +116,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function DeckDetailPage({
-  params,
+  params, searchParams,
 }: Props) {
+  const filters = parseDateQuery(await searchParams);
   const { deckKey } = await params;
-  const detail = await getDeckDetail(decodeURIComponent(deckKey));
+  const detail = await getDeckDetail(decodeURIComponent(deckKey), filters);
 
   if (!detail.deck) {
-    notFound();
+    if (!filters.range) notFound();
+    return <div className="space-y-4"><QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} /><Card><CardTitle>No matches for this deck on these dates</CardTitle><p>Choose another date or clear the date filter.</p></Card></div>;
   }
 
   const { deck } = detail;
@@ -128,6 +133,7 @@ export default async function DeckDetailPage({
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-6 py-12">
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Deck Detail"

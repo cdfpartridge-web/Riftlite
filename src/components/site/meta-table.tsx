@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
+import { DateFilterLink as Link } from "@/components/site/date-filter-link";
 import { useState } from "react";
 
 import { Card } from "@/components/ui/card";
@@ -56,6 +56,7 @@ function WinRateBar({ value }: { value: number }) {
 }
 
 export function MetaTable({ rows }: MetaTableProps) {
+  if (!rows.length) return <Card><p className="text-sm text-slate-300">No legend results in the available history for these filters. Try another date or clear the filters.</p></Card>;
   const maxGames = Math.max(...rows.map((r) => r.games), 1);
 
   return (

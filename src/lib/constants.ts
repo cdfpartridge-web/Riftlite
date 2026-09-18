@@ -90,6 +90,9 @@ export const SITE_PATHS = {
 
 export const DEFAULT_FILTERS: CommunityFilterParams = {
   range: "",
+  from: "",
+  to: "",
+  timeZone: "UTC",
   season: "vendetta-preview",
   format: "",
   legend: "",

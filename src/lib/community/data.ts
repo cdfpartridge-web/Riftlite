@@ -192,6 +192,8 @@ let communityMatchMemoryCache: {
 } | null = null;
 let communityMatchMemoryLoad: Promise<CommunityMatch[]> | null = null;
 let communityMatchMemoryGeneration = 0;
+const communityRangeMemoryCache = new Map<CommunityRangeDays, { expiresAt: number; matches: CommunityMatch[] }>();
+const communityRangeMemoryLoads = new Map<CommunityRangeDays, Promise<CommunityMatch[]>>();
 
 /**
  * Next's data cache rejects this normalized window once it exceeds 2 MB
@@ -202,6 +204,8 @@ let communityMatchMemoryGeneration = 0;
 export function invalidateCommunityMatchMemoryCache(): void {
   communityMatchMemoryGeneration += 1;
   communityMatchMemoryCache = null;
+  communityRangeMemoryCache.clear();
+  communityRangeMemoryLoads.clear();
 }
 
 function safeJsonParse(value: string) {
@@ -1504,11 +1508,23 @@ export async function getCommunityMatchWindow() {
 }
 
 export async function getCommunityRangeMatchWindow(days: 7 | 14 | 30) {
-  try {
-    return await cachedFetchCommunityRangeMatches(days);
-  } catch {
-    return fetchCommunityRangeMatchesSafe(days);
-  }
+  // Detail windows contain deck snapshots and can exceed Next's 2 MiB cache
+  // entry limit. Reuse the same bounded process cache pattern as the main
+  // window; the three known range keys prevent arbitrary per-date cache growth.
+  const cached = communityRangeMemoryCache.get(days);
+  if (cached && cached.expiresAt > Date.now()) return cached.matches;
+  const loading = communityRangeMemoryLoads.get(days);
+  if (loading) return loading;
+  const generation = communityMatchMemoryGeneration;
+  const pending = fetchCommunityRangeMatchesSafe(days).then((matches) => {
+    if (generation === communityMatchMemoryGeneration) communityRangeMemoryCache.set(days, {
+      expiresAt: Date.now() + COMMUNITY_CACHE_TTL_SECONDS * 1000, matches,
+    });
+    return matches;
+  });
+  communityRangeMemoryLoads.set(days, pending);
+  try { return await pending; }
+  finally { if (communityRangeMemoryLoads.get(days) === pending) communityRangeMemoryLoads.delete(days); }
 }
 
 export async function getCommunityRangeStats(days: 7 | 14 | 30) {
@@ -1536,12 +1552,6 @@ async function fetchCommunityRangeStatsSafe(days: 7 | 14 | 30) {
   const matches = await fetchCommunityRangeMatchesSafe(days);
   return buildRangeStats(days, matches, matches.length, Date.now());
 }
-
-const cachedFetchCommunityRangeMatches = unstable_cache(
-  fetchCommunityRangeMatchesSafe,
-  ["community-range-match-window-v1"],
-  { revalidate: COMMUNITY_CACHE_TTL_SECONDS, tags: ["community-matches"] },
-);
 
 const cachedFetchCommunityRangeStats = unstable_cache(
   fetchCommunityRangeStatsSafe,

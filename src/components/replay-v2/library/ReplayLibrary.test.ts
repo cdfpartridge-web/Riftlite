@@ -461,4 +461,19 @@ describe("embedded replay library", () => {
     await waitFor(() => expect(view.getByRole("heading", { name: "Ambessa vs Renekton" })).toBeInTheDocument());
     expect(view.queryByRole("heading", { name: "Unknown vs Renekton" })).not.toBeInTheDocument();
   });
+  it("filters by capture date, keeps pagination on empty dates and clears the selection", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [publicReplay("rl2_dated", "Dated replay")], pageInfo: { hasMore: true, nextCursor: "older" } }), { headers: { "content-type": "application/json" } })));
+    const view = render(createElement(ReplayLibrary));
+    await waitFor(() => expect(view.getByRole("heading", { name: "Dated replay" })).toBeInTheDocument());
+    fireEvent.change(view.getByRole("combobox", { name: "Replay date" }), { target: { value: "date" } });
+    fireEvent.change(view.getByLabelText("Selected date"), { target: { value: "2026-07-09" } });
+    expect(view.getByRole("heading", { name: "Dated replay" })).toBeInTheDocument();
+    fireEvent.change(view.getByLabelText("Selected date"), { target: { value: "2026-07-10" } });
+    expect(view.queryByRole("heading", { name: "Dated replay" })).not.toBeInTheDocument();
+    expect(view.getByRole("button", { name: /Load more/ })).toBeInTheDocument();
+    expect(view.getByText(/Filters apply to loaded replays/)).toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Clear filters" }));
+    expect(view.getByRole("heading", { name: "Dated replay" })).toBeInTheDocument();
+  });
+
 });

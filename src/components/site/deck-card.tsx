@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
+import { DateFilterLink as Link } from "@/components/site/date-filter-link";
 import { useState } from "react";
 
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";

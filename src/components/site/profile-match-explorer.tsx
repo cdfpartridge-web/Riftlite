@@ -2,6 +2,9 @@
 
 import { useMemo, useState } from "react";
 
+import { DateFilterControl } from "@/components/site/date-filter-control";
+import { ALL_DATES, isInDateFilter } from "@/lib/date-filter";
+
 import { LegendChip } from "@/components/site/legend-chip";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
@@ -21,6 +24,7 @@ type ProfileMatchExplorerProps = {
   recentTitle?: string;
   sourceLabel?: string;
   matchContextLabel?: string;
+  hideDateFilter?: boolean;
 };
 
 type Filters = {
@@ -586,8 +590,10 @@ export function ProfileMatchExplorer({
   recentTitle = "Recent public matches",
   sourceLabel = "Public profile",
   matchContextLabel = "community-submitted match",
+  hideDateFilter = false,
 }: ProfileMatchExplorerProps) {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [dateFilter, setDateFilter] = useState(ALL_DATES);
   const [selectedId, setSelectedId] = useState(matches[0]?.id ?? "");
 
   const options = useMemo(
@@ -610,6 +616,7 @@ export function ProfileMatchExplorer({
   const filtered = useMemo(() => {
     const search = normalized(filters.search);
     return matches.filter((match) => {
+      if (!isInDateFilter(match.date || match.createdAt, dateFilter)) return false;
       const games = gameRows(match);
       if (filters.legend && match.myChampion !== filters.legend) return false;
       if (filters.opponent && match.oppChampion !== filters.opponent) return false;
@@ -639,9 +646,9 @@ export function ProfileMatchExplorer({
         .toLowerCase();
       return haystack.includes(search);
     });
-  }, [filters, matches]);
+  }, [filters, matches, dateFilter]);
 
-  const selected = filtered.find((match) => match.id === selectedId) ?? filtered[0] ?? matches.find((match) => match.id === selectedId) ?? matches[0];
+  const selected = filtered.find((match) => match.id === selectedId) ?? filtered[0];
   const stats = tally(filtered);
   const topLegend = mostCommon(filtered, (match) => match.myChampion);
   const topOpponent = mostCommon(filtered, (match) => match.oppChampion);
@@ -679,10 +686,11 @@ export function ProfileMatchExplorer({
               {explorerDescription}
             </CardDescription>
           </div>
-          <Button onClick={() => setFilters(EMPTY_FILTERS)} size="sm" variant="secondary">
+          <Button onClick={() => { setFilters(EMPTY_FILTERS); setDateFilter(ALL_DATES); }} size="sm" variant="secondary">
             Reset filters
           </Button>
         </div>
+        {!hideDateFilter ? <DateFilterControl value={dateFilter} onChange={setDateFilter} /> : null}
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <label className="space-y-1.5 text-xs font-semibold text-slate-400 xl:col-span-2">
             <span>Search</span>

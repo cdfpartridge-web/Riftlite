@@ -1,4 +1,6 @@
-import Link from "next/link";
+import { QueryDateFilter } from "@/components/site/query-date-filter";
+import { parseDateQuery, dateQueryValue } from "@/lib/community/filters";
+import { DateFilterLink as Link } from "@/components/site/date-filter-link";
 
 import { DeckComparePicker } from "@/components/site/deck-compare-picker";
 import { LegendChip } from "@/components/site/legend-chip";
@@ -73,11 +75,12 @@ export default async function DeckComparePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
+  const filters = parseDateQuery(params);
   const a = typeof params.a === "string" ? params.a : "";
   const b = typeof params.b === "string" ? params.b : "";
 
   if (!a || !b) {
-    const decks = await listAllDeckGroups();
+    const decks = await listAllDeckGroups(filters);
     return (
       <div className="space-y-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -91,22 +94,24 @@ export default async function DeckComparePage({
             <Link href="/community/decks">← All decks</Link>
           </Button>
         </div>
+        <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
         <DeckComparePicker decks={decks} initialA={a} initialB={b} />
       </div>
     );
   }
 
-  const comparison = await getDeckComparison(a, b);
+  const comparison = await getDeckComparison(a, b, filters);
   if (!comparison) {
-    const decks = await listAllDeckGroups();
+    const decks = await listAllDeckGroups(filters);
     return (
       <div className="space-y-8">
         <SectionHeading
           eyebrow="Deck comparison"
           headingLevel={1}
-          title="We couldn't find those two decks"
-          description="Pick a fresh pair below — the keys in the URL may have gone stale as the meta rotates."
+          title="No matching deck results"
+          description="Try another date window or select a pair with matches in the available history."
         />
+        <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
         <DeckComparePicker decks={decks} initialA={a} initialB={b} />
       </div>
     );
@@ -130,6 +135,7 @@ export default async function DeckComparePage({
         </div>
       </div>
 
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
       <div className="grid gap-4 md:grid-cols-2">
         <DeckSummaryCard accent="#59A7FF" deck={deckA} />
         <DeckSummaryCard accent="#A67CFF" deck={deckB} />

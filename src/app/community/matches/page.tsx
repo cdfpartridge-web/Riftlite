@@ -28,7 +28,7 @@ export default async function MatchesPage({
         title="See how the latest games actually played out"
         description="Click any match for a full game-by-game breakdown — battlefields, points, and the moment things turned."
       />
-      <CommunityFilterBar filters={filters} />
+      <CommunityFilterBar key={JSON.stringify(filters)} filters={filters} />
       <MatchesBrowser matches={data.items} />
     </div>
   );

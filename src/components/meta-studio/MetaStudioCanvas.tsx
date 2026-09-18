@@ -27,6 +27,8 @@ import {
 } from "react";
 
 import styles from "@/components/meta-studio/MetaStudio.module.css";
+import { DateFilterControl } from "@/components/site/date-filter-control";
+import { dateFilterError, localDateKey, type DateFilterValue } from "@/lib/date-filter";
 import type {
   MetaStudioFilters,
   MetaStudioLeader,
@@ -63,12 +65,13 @@ function integer(value: number) {
   return value.toLocaleString("en-GB");
 }
 
-function dateLabel(value: number) {
+function dateLabel(value: number, timeZone?: string) {
   if (!value) return "No dated records";
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone,
   }).format(new Date(value));
 }
 
@@ -731,6 +734,65 @@ export function MatrixScene({
   );
 }
 
+const RETAINED_HISTORY_NOTICE = "Selected dates use available retained community history only; older dates may be incomplete. Prior-period rank movement is unavailable.";
+
+export function MetaStudioDateControls({ filters, disabled = false, loading = false, onChange }: {
+  filters: MetaStudioFilters;
+  disabled?: boolean;
+  loading?: boolean;
+  onChange: (filters: MetaStudioFilters) => void;
+}) {
+  const [draft, setDraft] = useState<DateFilterValue>({
+    preset: filters.range, from: filters.from ?? "", to: filters.to ?? filters.from ?? "",
+  });
+  const explicit = draft.preset === "date" || draft.preset === "custom";
+  const invalid = dateFilterError(draft);
+  const changed = draft.preset !== filters.range || draft.from !== (filters.from ?? "")
+    || (draft.preset === "custom" && draft.to !== (filters.to ?? ""));
+  function clearDates() {
+    setDraft({ preset: "30d", from: "", to: "" });
+    if (filters.range === "30d") return;
+    onChange({ ...filters, range: "30d", from: undefined, to: undefined, timeZone: undefined });
+  }
+  return <>
+    <label>
+      <span>Window</span>
+      <select disabled={disabled || loading} value={draft.preset} onChange={(event) => {
+        const range = event.target.value as MetaStudioFilters["range"];
+        if (range === "date" || range === "custom") {
+          const from = draft.from || localDateKey(new Date());
+          setDraft({ preset: range, from, to: draft.to || from });
+        } else {
+          setDraft({ preset: range, from: "", to: "" });
+          if (range === filters.range) return;
+          onChange({ ...filters, range, from: undefined, to: undefined, timeZone: undefined });
+        }
+      }}>
+        <option value="1d">Last 24 hours</option>
+        <option value="7d">Last 7 days</option>
+        <option value="14d">Last 14 days</option>
+        <option value="30d">Last 30 days</option>
+        <option value="date">Specific date</option>
+        <option value="custom">Date range</option>
+      </select>
+    </label>
+    {explicit ? <fieldset className={styles.dateInputs} disabled={disabled || loading}>
+      <legend>Choose report dates</legend>
+      <DateFilterControl value={draft} onChange={setDraft} hideSelect />
+      <div className={styles.dateActions}>
+        <button type="button" disabled={!!invalid || loading || disabled || !changed} onClick={() => {
+          if (invalid || !explicit) return;
+          onChange({ ...filters, range: draft.preset as "date" | "custom", from: draft.from,
+            to: draft.preset === "date" ? draft.from : draft.to,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
+        }}>Apply dates</button>
+        <button type="button" onClick={clearDates}>Clear dates</button>
+        {changed ? <span role="status">Date selection not applied. The report still shows the applied window.</span> : null}
+      </div>
+    </fieldset> : null}
+  </>;
+}
+
 export function MetaStudioCanvas({
   report,
   filters,
@@ -856,6 +918,13 @@ export function MetaStudioCanvas({
           <span>RIFTLITE COMMUNITY META</span>
           <h1>No qualifying legend results</h1>
           <p>Try a wider reporting window or remove a platform or format filter.</p>
+          <p>Applied report: {dateLabel(report.window.start, report.filters.timeZone)} — {dateLabel(report.window.end, report.filters.timeZone)}{report.filters.timeZone ? ` · ${report.filters.timeZone}` : ""}</p>
+          <div className={`${styles.controls} ${styles.emptyDateControls}`}>
+            <MetaStudioDateControls key={`${filters.range}:${filters.from}:${filters.to}`} filters={filters} disabled={preview} loading={loading} onChange={onFiltersChange} />
+          </div>
+          {report.filters.range === "date" || report.filters.range === "custom" ? <p>{RETAINED_HISTORY_NOTICE}</p> : null}
+          {loading ? <p role="status">Updating report</p> : null}
+          {error ? <p role="alert">{error}</p> : null}
           <button
             onClick={() => onFiltersChange({
               range: "30d",
@@ -910,7 +979,7 @@ export function MetaStudioCanvas({
           <div className={styles.reportScope}>
             <ShieldCheck aria-hidden="true" size={20} />
             <div>
-              <span>{dateLabel(report.window.start)} — {dateLabel(report.window.end)}</span>
+              <span>Applied: {dateLabel(report.window.start, report.filters.timeZone)} — {dateLabel(report.window.end, report.filters.timeZone)}{report.filters.timeZone ? ` · ${report.filters.timeZone}` : ""}</span>
               <small>
                 {sourceLabel} · {integer(report.coverage.legendAppearances)} legend appearances · {sourceTotal} source rows · {integer(report.coverage.uniquePlayers)} contributors
               </small>
@@ -921,19 +990,7 @@ export function MetaStudioCanvas({
             <div aria-hidden="true" className={`${styles.controls} ${styles.controlsHidden}`} />
           ) : (
           <div className={styles.controls}>
-            <label>
-              <span>Window</span>
-              <select
-                disabled={preview}
-                onChange={(event) => updateFilter("range", event.target.value as MetaStudioFilters["range"])}
-                value={filters.range}
-              >
-                <option value="1d">Last 24 hours</option>
-                <option value="7d">Last 7 days</option>
-                <option value="14d">Last 14 days</option>
-                <option value="30d">Last 30 days</option>
-              </select>
-            </label>
+            <MetaStudioDateControls key={`${filters.range}:${filters.from}:${filters.to}`} filters={filters} disabled={preview} loading={loading} onChange={onFiltersChange} />
             <label>
               <span>Season</span>
               <select
@@ -1081,7 +1138,9 @@ export function MetaStudioCanvas({
           </div>
         </header>
 
-        {report.coverage.detailWindowTruncated ? (
+        {report.filters.range === "date" || report.filters.range === "custom" ? (
+          <div className={styles.coverageWarning}>{RETAINED_HISTORY_NOTICE}</div>
+        ) : report.coverage.detailWindowTruncated ? (
           <div className={styles.coverageWarning}>
             Long-range filters use {integer(report.coverage.loadedPeriodRecords)} loaded detail rows;
             this period contains {sourceTotal} source rows. Use 7 days for the most complete presenter view.

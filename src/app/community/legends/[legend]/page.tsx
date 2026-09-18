@@ -1,4 +1,6 @@
-import Link from "next/link";
+import { QueryDateFilter } from "@/components/site/query-date-filter";
+import { parseDateQuery, dateQueryValue } from "@/lib/community/filters";
+import { DateFilterLink as Link } from "@/components/site/date-filter-link";
 import { notFound } from "next/navigation";
 
 import { LegendChip } from "@/components/site/legend-chip";
@@ -60,10 +62,12 @@ export async function generateMetadata({
 }
 
 export default async function LegendProfilePage({
-  params,
+  params, searchParams,
 }: {
   params: Promise<{ legend: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const filters = parseDateQuery(await searchParams);
   const { legend: rawLegend } = await params;
   const legend = decodeURIComponent(rawLegend);
 
@@ -74,7 +78,7 @@ export default async function LegendProfilePage({
   // were seeing in production). Single source of truth.
   let profile;
   try {
-    profile = await getLegendProfile(legend);
+    profile = await getLegendProfile(legend, filters);
   } catch (error) {
     console.error("[legends/[legend]] getLegendProfile threw", { legend, error });
     notFound();
@@ -97,6 +101,8 @@ export default async function LegendProfilePage({
         </div>
       </div>
 
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
+      {filters.range && !profile.games ? <Card><CardTitle>No matches for these dates</CardTitle><CardDescription>Try another date or clear the date filter to see this legend’s available history.</CardDescription></Card> : null}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatBlock
           label="Games"

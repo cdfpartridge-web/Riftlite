@@ -1,7 +1,8 @@
 import { LEGENDS, VENDETTA_LAUNCH_START_MS, VENDETTA_PREVIEW_START_MS } from "@/lib/constants";
+import { dateFilterError, isInDateFilter, validTimeZone, type DateFilterValue } from "@/lib/date-filter";
 import type { CommunityMatch } from "@/lib/types";
 
-export const META_STUDIO_RANGES = ["1d", "7d", "14d", "30d"] as const;
+export const META_STUDIO_RANGES = ["1d", "7d", "14d", "30d", "date", "custom"] as const;
 export const META_STUDIO_FORMATS = ["all", "bo1", "bo3"] as const;
 export const META_STUDIO_PLATFORMS = ["all", "atlas", "tcga"] as const;
 export const META_STUDIO_SEASONS = ["", "pre-vendetta", "vendetta-preview", "vendetta-launch"] as const;
@@ -20,6 +21,9 @@ export type MetaStudioFilters = {
   format: MetaStudioFormat;
   platform: MetaStudioPlatform;
   minSample: MetaStudioMinSample;
+  from?: string;
+  to?: string;
+  timeZone?: string;
 };
 
 export type MetaStudioSplit = {
@@ -184,11 +188,47 @@ export function parseMetaStudioFilters(
     minSample: META_STUDIO_MIN_SAMPLES.includes(parsedMinSample as MetaStudioMinSample)
       ? parsedMinSample as MetaStudioMinSample
       : 5,
+    ...(range === "date" || range === "custom" ? {
+      from: firstSearchValue(source, "from"),
+      to: range === "date" ? firstSearchValue(source, "from") : firstSearchValue(source, "to"),
+      timeZone: validTimeZone(firstSearchValue(source, "timeZone") || "UTC"),
+    } : {}),
   };
 }
 
 export function metaStudioRangeDays(range: MetaStudioRange): number {
-  return Number.parseInt(range, 10);
+  return range === "date" || range === "custom" ? 0 : Number.parseInt(range, 10);
+}
+
+export function metaStudioDateFilter(filters: MetaStudioFilters): DateFilterValue | null {
+  if (filters.range !== "date" && filters.range !== "custom") return null;
+  return { preset: filters.range, from: filters.from ?? "", to: filters.to ?? "" };
+}
+
+/** Find a calendar-day boundary in the selected zone, including DST transitions. */
+function calendarBoundary(day: string, timeZone: string, after = false): number {
+  const formatter = new Intl.DateTimeFormat("en-GB", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+  let low = Date.parse(`${day}T00:00:00.000Z`) - 2 * DAY_MS;
+  let high = low + 4 * DAY_MS;
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2);
+    const parts = formatter.formatToParts(new Date(middle));
+    const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? "";
+    const key = `${part("year").padStart(4, "0")}-${part("month")}-${part("day")}`;
+    if (after ? key > day : key >= day) high = middle;
+    else low = middle;
+  }
+  return high;
+}
+
+export function metaStudioDateWindow(filters: MetaStudioFilters): { start: number; end: number } | null {
+  const dateFilter = metaStudioDateFilter(filters);
+  if (!dateFilter || dateFilterError(dateFilter)) return null;
+  const timeZone = validTimeZone(filters.timeZone || "UTC");
+  return {
+    start: calendarBoundary(dateFilter.from, timeZone),
+    end: calendarBoundary(dateFilter.preset === "date" ? dateFilter.from : dateFilter.to, timeZone, true) - 1,
+  };
 }
 
 export function metaStudioSourceRangeDays(range: MetaStudioRange): 7 | 14 | 30 {
@@ -496,12 +536,16 @@ export function buildMetaStudioReport(
   const sourceAsOf = options.sourceAsOf ?? now;
   const rangeDays = metaStudioRangeDays(filters.range);
   const rangeMs = rangeDays * DAY_MS;
-  const currentStart = sourceAsOf - rangeMs;
+  const dateFilter = metaStudioDateFilter(filters);
+  const dateWindow = metaStudioDateWindow(filters);
+  const currentStart = dateWindow?.start ?? sourceAsOf - rangeMs;
+  const currentEnd = dateWindow?.end ?? sourceAsOf;
   const comparisonStart = sourceAsOf - rangeMs * 2;
-  const comparisonRequested = options.comparisonAvailable ?? filters.range !== "30d";
+  const comparisonRequested = !dateFilter && (options.comparisonAvailable ?? filters.range !== "30d");
 
   const matches = uniqueMatches(inputMatches).filter((match) => matchesScope(match, filters));
   const currentMatches = matches.filter((match) => {
+    if (dateFilter) return isInDateFilter(match.date || match.createdAt, dateFilter, new Date(now), filters.timeZone || "UTC");
     const timestamp = createdAtMs(match);
     return timestamp >= currentStart && timestamp <= sourceAsOf;
   });
@@ -581,7 +625,7 @@ export function buildMetaStudioReport(
     filters,
     window: {
       start: currentStart,
-      end: sourceAsOf,
+      end: currentEnd,
       comparisonStart: comparisonAvailable ? comparisonStart : null,
       comparisonEnd: comparisonAvailable ? currentStart : null,
     },
@@ -603,7 +647,7 @@ export function buildMetaStudioReport(
       lastCreatedAt: timestamps.length ? Math.max(...timestamps) : 0,
       detailWindowTruncated: options.detailWindowTruncated === true,
       comparisonAvailable,
-      comparisonWindowComplete: options.comparisonWindowComplete ?? comparisonRequested,
+      comparisonWindowComplete: !dateFilter && (options.comparisonWindowComplete ?? comparisonRequested),
       comparisonDetailedRecords: comparisonMatches.length,
     },
     leaders,

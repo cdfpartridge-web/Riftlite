@@ -1,3 +1,6 @@
+import { QueryDateFilter } from "@/components/site/query-date-filter";
+import { parseDateQuery, dateQueryValue } from "@/lib/community/filters";
+import { isInDateFilter } from "@/lib/date-filter";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -30,11 +33,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   };
 }
 
-export default async function TeamProfilePage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function TeamProfilePage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const filters = parseDateQuery(await searchParams);
   const { slug } = await params;
   const payload = await loadTeam(slug);
   if (!payload) notFound();
-  const { team, members, matches } = payload;
+  const { team, members } = payload;
+  const matches = payload.matches.filter((match) => isInDateFilter(match.date || match.createdAt, dateQueryValue(filters), new Date(), filters.timeZone));
   const stats = teamMatchStats(matches);
   const topLegend = topValue(matches, (match) => match.myChampion);
   const topDeck = topValue(matches, (match) => match.deckName || match.deckSnapshot?.title || "");
@@ -86,6 +91,7 @@ export default async function TeamProfilePage({ params }: { params: Promise<{ sl
         </div>
       </section>
 
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} description="Dates filter this team’s available synced match history and statistics. Both ends of a date range are included." />
       <div className="grid gap-6 xl:grid-cols-[0.7fr_1.3fr]">
         <div className="space-y-6">
           <Card>
@@ -131,6 +137,7 @@ export default async function TeamProfilePage({ params }: { params: Promise<{ sl
       </div>
 
       <ProfileMatchExplorer
+        hideDateFilter
         matches={matches}
         handle={team.slug}
         displayName={team.name}
@@ -138,7 +145,7 @@ export default async function TeamProfilePage({ params }: { params: Promise<{ sl
         showDecks
         explorerTitle="Team match explorer"
         explorerDescription="Filter this team's synced match window, then click a row to inspect games, battlefields, player names, and deck snapshots."
-        emptyDescription="This public team has not synced public team matches yet. Members can send matches to teams from the RiftLite desktop Social Hub."
+        emptyDescription={filters.range ? "No team matches in this date window. Try another date or clear the date filter." : "This public team has not synced public team matches yet. Members can send matches to teams from the RiftLite desktop Social Hub."}
         recentTitle="Recent team matches"
         sourceLabel="Team hub"
         matchContextLabel="team-synced match"

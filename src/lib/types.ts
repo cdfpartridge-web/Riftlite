@@ -62,6 +62,9 @@ export type CommunityMatch = {
 
 export type CommunityFilterParams = {
   range: string;
+  from?: string;
+  to?: string;
+  timeZone?: string;
   season: string;
   format: string;
   legend: string;

@@ -3,10 +3,14 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { DateFilterControl } from "@/components/site/date-filter-control";
+import { communityDateFilter } from "@/lib/community/filters";
+import { dateFilterError, localDateKey } from "@/lib/date-filter";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { COMMUNITY_SEASONS, LEGENDS } from "@/lib/constants";
+import { COMMUNITY_SEASONS, DEFAULT_FILTERS, LEGENDS } from "@/lib/constants";
 import type { CommunityFilterParams } from "@/lib/types";
 
 type CommunityFilterBarProps = {
@@ -24,13 +28,14 @@ export function CommunityFilterBar({
   const [form, setForm] = useState(filters);
 
   function update<K extends keyof CommunityFilterParams>(key: K, value: string) {
-    setForm((current) => ({ ...current, [key]: value, page: 1 }));
+    setForm((current) => ({ ...current, [key]: value, page: 1, ...(key === "range" && (value === "date" || value === "custom") ? { from: current.from || localDateKey(new Date()), to: current.to || current.from || localDateKey(new Date()) } : {}) }));
   }
 
   function submit() {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
-    for (const [key, value] of Object.entries(form)) {
-      if (key === "page" || key === "pageSize") {
+    if (dateFilterError(communityDateFilter(form))) return;
+    for (const [key, value] of Object.entries({ ...form, from: form.range === "date" || form.range === "custom" ? form.from : "", to: form.range === "custom" ? form.to : "", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })) {
+      if (key === "page" || key === "pageSize" || key === "season") {
         params.set(key, String(value));
         continue;
       }
@@ -45,6 +50,7 @@ export function CommunityFilterBar({
   }
 
   function reset() {
+    setForm(DEFAULT_FILTERS);
     router.push(pathname ?? "/community");
   }
 
@@ -95,10 +101,13 @@ export function CommunityFilterBar({
             value={form.range}
           >
             <option value="">Latest 7,000</option>
+            <option value="today">Today</option>
             <option value="1d">Last 24 hours</option>
             <option value="7d">Last 7 days</option>
             <option value="14d">Last 14 days</option>
             <option value="30d">Last 30 days</option>
+            <option value="date">Specific date</option>
+            <option value="custom">Date range</option>
           </select>
         </label>
 
@@ -174,8 +183,10 @@ export function CommunityFilterBar({
         </label>
       </div>
 
+      {form.range === "date" || form.range === "custom" ? <div className="mt-4 max-w-2xl"><DateFilterControl hideSelect value={communityDateFilter(form)} onChange={(value) => setForm((current) => ({ ...current, range: value.preset, from: value.from, to: value.to, page: 1 }))} /></div> : null}
+      {["today", "date", "custom"].includes(form.range) ? <p className="mt-3 text-xs text-slate-400">Calendar: {filters.timeZone || "UTC"}. New selections use your local time. Dates filter available community history: the latest 7,000 records plus cached 30-day details. Older dates may have no retained data. Season and other filters still apply.</p> : null}
       <div className="mt-4 flex flex-wrap gap-3">
-        <Button onClick={submit} size="sm">
+        <Button onClick={submit} size="sm" disabled={Boolean(dateFilterError(communityDateFilter(form)))}>
           Apply filters
         </Button>
         <Button onClick={reset} size="sm" variant="secondary">

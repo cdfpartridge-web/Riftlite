@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { DateFilterControl } from "@/components/site/date-filter-control";
+import { ALL_DATES, isInDateFilter, type DateFilterValue } from "@/lib/date-filter";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -143,6 +145,7 @@ export function ReplayLibrary({
   const [pendingDelete, setPendingDelete] = useState<ReplaySummary | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState(ALL_DATES);
   const [playerLegend, setPlayerLegend] = useState("");
   const [opponentLegend, setOpponentLegend] = useState("");
   const [format, setFormat] = useState<"" | ReplayFormat>("");
@@ -153,6 +156,7 @@ export function ReplayLibrary({
 
   const resetFilters = useCallback(() => {
     setSearch("");
+    setDateFilter(ALL_DATES);
     setPlayerLegend("");
     setOpponentLegend("");
     setFormat("");
@@ -531,6 +535,7 @@ export function ReplayLibrary({
   const playerLegends = useMemo(() => replayLegendOptions(sourceReplays, "playerLegend"), [sourceReplays]);
   const opponentLegends = useMemo(() => replayLegendOptions(sourceReplays, "opponentLegend"), [sourceReplays]);
   const displayedReplays = useMemo(() => filterAndSortReplays(sourceReplays, {
+    dateFilter,
     search,
     playerLegend,
     opponentLegend,
@@ -539,8 +544,8 @@ export function ReplayLibrary({
     status,
     visibility: visibilityFilter,
     sort,
-  }), [format, opponentLegend, playerLegend, result, search, sort, sourceReplays, status, visibilityFilter]);
-  const filtersActive = Boolean(search || playerLegend || opponentLegend || format || result || status || visibilityFilter || sort !== "newest");
+  }), [dateFilter, format, opponentLegend, playerLegend, result, search, sort, sourceReplays, status, visibilityFilter]);
+  const filtersActive = Boolean(dateFilter.preset !== "all" || search || playerLegend || opponentLegend || format || result || status || visibilityFilter || sort !== "newest");
   const loading = scope === "public" ? publicLoading : mineLoading;
   const listError = scope === "public" ? publicError : mineError;
   const uploadBusy = ["preparing", "initializing", "uploading", "processing"].includes(uploadState.stage);
@@ -660,6 +665,8 @@ export function ReplayLibrary({
                 <p>{displayedReplays.length === sourceReplays.length ? displayedReplays.length : `${displayedReplays.length} of ${sourceReplays.length}`} replay{displayedReplays.length === sourceReplays.length && displayedReplays.length === 1 ? "" : "s"}</p>
               ) : null}
             </div>
+
+            {!loading && !listError ? <div className="space-y-2"><DateFilterControl label="Replay date" value={dateFilter} onChange={setDateFilter} /><p className="text-xs text-slate-400">Uses the recorded date in your local time, or upload date when unavailable. Filters apply to loaded replays{scope === "public" && publicHasMore ? "; load more below to include older uploads" : ""}.</p></div> : null}
 
             {!loading && !listError && sourceReplays.length > 0 ? (
               <ReplayFilters
@@ -787,6 +794,7 @@ export function ReplayLibrary({
 }
 
 type FilterValues = {
+  dateFilter?: DateFilterValue;
   search: string;
   playerLegend: string;
   opponentLegend: string;
@@ -1155,6 +1163,7 @@ function resultLabel(result: ReplayResult): string {
 export function filterAndSortReplays(replays: ReplaySummary[], filters: FilterValues): ReplaySummary[] {
   const query = filters.search.trim().toLowerCase();
   return replays.filter((replay) => {
+    if (!isInDateFilter(replay.capturedAt || replay.createdAt, filters.dateFilter || ALL_DATES)) return false;
     const listing = replay.listing;
     if (query && ![
       replay.title,

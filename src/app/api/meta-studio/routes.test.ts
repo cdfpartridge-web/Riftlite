@@ -5,6 +5,7 @@ import type { CommunityMatch } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({
   createFirebaseSessionCookie: vi.fn(),
+  getCommunityMatchWindow: vi.fn(),
   getCommunityRangeMatchWindow: vi.fn(),
   getCommunityRangeStats: vi.fn(),
   requireMetaStudioBearer: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("@/lib/community/data", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/community/data")>();
   return {
     ...actual,
+    getCommunityMatchWindow: mocks.getCommunityMatchWindow,
     getCommunityRangeMatchWindow: mocks.getCommunityRangeMatchWindow,
     getCommunityRangeStats: mocks.getCommunityRangeStats,
   };
@@ -128,6 +130,7 @@ describe("Meta Studio report route", () => {
       db: {},
     });
     mocks.getCommunityRangeMatchWindow.mockResolvedValue([sampleMatch()]);
+    mocks.getCommunityMatchWindow.mockResolvedValue([]);
     mocks.getCommunityRangeStats.mockResolvedValue({
       matchCount: 1,
       detailMatchCount: 1,
@@ -237,16 +240,44 @@ describe("Meta Studio report route", () => {
     expect(payload.report.leaders[0]?.previousRank).toBeNull();
   });
 
-  it("does not read community data when the session is unauthorized", async () => {
+  it("uses only retained public caches for explicit dates and marks incomplete coverage", async () => {
+    const included = { ...sampleMatch(), id: "included", date: "2026-09-11T22:59:59.999Z", createdAt: NOW };
+    const excluded = { ...sampleMatch(), id: "excluded", date: "2026-09-11T23:00:00Z", createdAt: NOW };
+    mocks.getCommunityMatchWindow.mockResolvedValue([included, excluded]);
+    mocks.getCommunityRangeMatchWindow.mockResolvedValue([included]);
+    const response = await getReport(new NextRequest("https://www.riftlite.com/api/meta-studio/report?range=date&from=2026-09-11&timeZone=Europe%2FLondon&season="));
+    const body = await response.text();
+    const payload = JSON.parse(body);
+    expect(response.status).toBe(200);
+    expect(mocks.getCommunityMatchWindow).toHaveBeenCalledOnce();
+    expect(mocks.getCommunityRangeMatchWindow).toHaveBeenCalledExactlyOnceWith(30);
+    expect(mocks.getCommunityRangeStats).not.toHaveBeenCalled();
+    expect(payload.report.coverage).toMatchObject({ detailedRecords: 1, loadedPeriodRecords: 1, sourcePeriodRecordsExact: false, detailWindowTruncated: true, comparisonAvailable: false });
+    expect(payload.report.leaders).toHaveLength(2);
+    expect(body).not.toContain("Private display name");
+    expect(body).not.toContain("Private opponent");
+    expect(body).not.toContain("private note");
+  });
+
+  it.each(["range=date&from=", "range=custom&from=2026-09-12&to=2026-09-11", "range=date&from=2026-02-30"])("rejects invalid explicit dates without reading data: %s", async (query) => {
+    const response = await getReport(new NextRequest(`https://www.riftlite.com/api/meta-studio/report?${query}`));
+    expect(response.status).toBe(400);
+    expect(mocks.getCommunityMatchWindow).not.toHaveBeenCalled();
+    expect(mocks.getCommunityRangeMatchWindow).not.toHaveBeenCalled();
+    expect(mocks.getCommunityRangeStats).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "?range=date&from=2026-09-11"])("does not read community data when the session is unauthorized: %s", async (query) => {
     mocks.requireMetaStudioSession.mockResolvedValue({
       error: NextResponse.json({ error: "Sign in" }, { status: 401 }),
     });
 
     const response = await getReport(new NextRequest(
-      "https://www.riftlite.com/api/meta-studio/report",
+      `https://www.riftlite.com/api/meta-studio/report${query}`,
     ));
 
     expect(response.status).toBe(401);
+    expect(mocks.getCommunityMatchWindow).not.toHaveBeenCalled();
     expect(mocks.getCommunityRangeMatchWindow).not.toHaveBeenCalled();
     expect(mocks.getCommunityRangeStats).not.toHaveBeenCalled();
   });

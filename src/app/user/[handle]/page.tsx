@@ -1,3 +1,6 @@
+import { QueryDateFilter } from "@/components/site/query-date-filter";
+import { parseDateQuery, dateQueryValue } from "@/lib/community/filters";
+import { isInDateFilter } from "@/lib/date-filter";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BarChart3, ExternalLink, History, Layers3, PlayCircle } from "lucide-react";
@@ -64,20 +67,29 @@ function ProfileStat({ label, value, detail, icon }: {
   );
 }
 
-export default async function UserProfilePage({ params }: { params: Promise<{ handle: string }> }) {
+export default async function UserProfilePage({ params, searchParams }: { params: Promise<{ handle: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const filters = parseDateQuery(await searchParams);
+  const dateFilter = dateQueryValue(filters);
   const { handle } = await params;
   const result = await getPublicProfileByHandle(decodeURIComponent(handle));
   if (!result) notFound();
 
-  const { profile, aggregate, publicReplays } = result;
+  const { profile } = result;
+  const datedMatches = result.aggregate.recentMatches.filter((match) => isInDateFilter(match.date || match.createdAt, dateFilter, new Date(), filters.timeZone));
+  const wins = datedMatches.filter((match) => match.result === "Win").length;
+  const losses = datedMatches.filter((match) => match.result === "Loss").length;
+  const aggregate = dateFilter.preset === "all" ? result.aggregate : { ...result.aggregate, recentMatches: datedMatches, totalMatches: datedMatches.length, wins, losses, draws: datedMatches.filter((match) => match.result === "Draw").length, winRate: wins + losses ? wins / (wins + losses) * 100 : 0 };
+  const publicReplays = result.publicReplays.filter((replay) => isInDateFilter(replay.capturedAt || replay.createdAt, dateFilter, new Date(), filters.timeZone));
   const matches = profile.showMatches
     ? sanitizeMatches(aggregate.recentMatches, profile.showDecks)
     : [];
+  const datedStatsUnavailable = dateFilter.preset !== "all" && !profile.showMatches;
   const deckCount = profile.showDecks ? profileDeckCount(matches) : 0;
   const updatedLabel = aggregate.updatedAt ? formatDate(new Date(aggregate.updatedAt).toISOString()) : "Unknown";
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-8 py-8">
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateFilter} description="Dates filter this profile’s available public match history, statistics, decks and Web Replays. Both ends of a date range are included." />
       <div className="overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-gradient-to-br from-cyan-300/[0.08] via-blue-500/[0.035] to-transparent p-6 sm:p-8">
         <div className="flex flex-wrap items-end justify-between gap-5">
           <SectionHeading
@@ -107,8 +119,8 @@ export default async function UserProfilePage({ params }: { params: Promise<{ ha
           />
           <ProfileStat
             label="Win rate"
-            value={profile.showStats ? formatPercent(aggregate.winRate) : "Hidden"}
-            detail={profile.showStats ? `${aggregate.wins}W · ${aggregate.losses}L · ${aggregate.draws}D` : "Stats are private"}
+            value={profile.showStats ? (datedStatsUnavailable ? "Unavailable" : formatPercent(aggregate.winRate)) : "Hidden"}
+            detail={profile.showStats ? (datedStatsUnavailable ? "Date breakdown unavailable while match history is private" : `${aggregate.wins}W · ${aggregate.losses}L · ${aggregate.draws}D`) : "Stats are private"}
             icon={<BarChart3 size={18} />}
           />
           <ProfileStat
@@ -165,7 +177,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ ha
           </div>
         ) : (
           <Card>
-            <CardTitle>No Public Web Replays yet</CardTitle>
+            <CardTitle>{filters.range ? "No Public Web Replays for these dates" : "No Public Web Replays yet"}</CardTitle>
             <CardDescription className="mt-2">Private and Unlisted replays are never exposed on a public profile.</CardDescription>
           </Card>
         )}
@@ -183,6 +195,8 @@ export default async function UserProfilePage({ params }: { params: Promise<{ ha
       ) : (
         <section className="scroll-mt-28" id="match-history">
           <ProfileMatchExplorer
+            hideDateFilter
+            emptyDescription={filters.range ? "No public matches in this date window. Try another date or clear the date filter." : undefined}
             displayName={profile.displayName}
             handle={profile.handle}
             matches={matches}
