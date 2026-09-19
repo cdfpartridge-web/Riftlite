@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented and verified locally; website deployment and targeted recovery were subsequently authorized by the user's "Deploy the fix" request. Production candidate verification and promotion are in progress. The completed release receipt will be appended below. No desktop installer rebuild is included.
+Published and verified at **12:30 BST on 19 September 2026**, following the user's "Deploy the fix" request. The exact failed private replay was successfully reprocessed through the normal completion pipeline. The completed release receipt is below. Desktop prevention remains local source only; no installer was rebuilt.
 
 Website fix workspace: `C:/Users/cdfpa/OneDrive/Documents/Claude/Projects/RiftLite/.codex-worktrees/replay-boundary-fix-20260919`, branch `codex/replay-boundary-fix-20260919`, based on release documentation commit `ef43bbc54d5eda36bb850eba6428ae425ed707f7`. Only the parser fix, its helper, synthetic regressions and this receipt are included in the release. The older mixed website development checkout was not edited.
 
@@ -36,8 +36,23 @@ The real failed capture now yields games `[1, 2]`, with both recorded game resul
 
 Private operator lookup receipts are under `C:/Users/cdfpa/OneDrive/Documents/Claude/Projects/RiftLite/output/replay-boundary-fix-20260919/`. Real raw captures and local verification receipts are in this website worktree's ignored `output/` directory. Keep these private. The temporary downloaded production environment file was removed after retrieval.
 
-## Release and recovery follow-up
+## Release and recovery planning (completed below)
 
 The website fix must be deployed before installed clients benefit from this compatibility repair. Desktop prevention requires a separately authorized installer rebuild/release. Preserve the current release, worktrees and all unrelated dirty files.
 
 The existing failed server record caches a non-retryable capture failure. Deploying the parser alone will not automatically reprocess that record. A future authorized recovery should use the exact failed record and immutable raw pointer recorded in the private lookup receipt, verify they have not changed, and perform targeted reprocessing through the normal completion pipeline. Do not broadly clear failed records or enable an incomplete-capture override; no production recovery was performed here.
+
+## Published and recovered — 19 September 2026
+
+- Immutable deployed source: `19f6db34c77039f8682463ce645bb710022041f3`.
+- Deployment: `dpl_8UDMf3KthZNzfZPUSxxX2Yumgx8r`.
+- Immutable URL: https://riftlite-1ypqbe4yy-cdfpartridge-3985s-projects.vercel.app
+- Live domain: https://www.riftlite.com, verified against the deployment after promotion.
+- Rollback: `dpl_3yCXeDFRNBjy44Ks5XxaiELTTVAh`, the September 18 date-filter release. Its checkout remains clean and unchanged.
+- Remote production build passed. The resolved Next.js version is 16.2.11, matching the prior production build.
+- **17 candidate and 17 live HTTP checks passed**, covering existing date-filter reports, invalid/empty dates, replay library assets, account boundaries, owner-only decks, BMUCasts-first feed, replay sound hashes and Results Bot signature validation. No Discord messages were sent.
+- Targeted recovery preflight verified the exact failed record's owner, capture ID, private visibility, immutable raw artifact pointer/hash, and locally repaired canonical output. The guarded transaction made only that cached failure retryable, then invoked the release source's normal `completeReplay` pipeline. It did not waive capture-quality checks or use an incomplete-capture override.
+- Recovery completed at **12:29:55 BST**: replay and owner summary are ready, canonical contents exactly match the validated output, the original raw pointer/hash and private visibility are unchanged, and the replay is absent from the public listing. The later successful replay's full record is unchanged. Its two recorded games and incomplete series status remain intact.
+- Live unauthenticated canonical access returns **403**, while owner status and deck routes return **401**, all with `no-store`.
+- Evidence in ignored `output/`: `deploy-result.json`, `deploy-stderr.log`, `candidate-http-smoke.json`, `live-http-smoke.json`, `recovery-preflight.json`, `recovery-result.json`, and `recovered-replay-privacy-http.json`. Before/after records and source artifacts remain in private local output. The temporary production environment file was removed after recovery.
+- No Git push, desktop release/version change, installer replacement, Your Move/Android change or unrelated production mutation occurred. Installed users can refresh their Web Replay library to access the recovered private replay. Desktop capture prevention still requires a future installer release.
