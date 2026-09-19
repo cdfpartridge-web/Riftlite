@@ -7,6 +7,7 @@ import {
   toJsonValue,
 } from "@/lib/replay-v2/json";
 import { stableId } from "@/lib/replay-v2/stable-id";
+import { scopeAtlasSeriesPackets } from "@/lib/replay-v2/atlas-series-scope";
 import type {
   JsonObject,
   ParsedRawCapture,
@@ -59,13 +60,14 @@ export function parseRawCaptureV1(input: unknown): ParsedRawCapture {
     parseMessage(message, sourceIndex, captureId, diagnostics),
   );
   pendingPackets.sort((left, right) => left.seq - right.seq || left.sourceIndex - right.sourceIndex);
+  const scoped = scopeAtlasSeriesPackets(pendingPackets, stringValue(identity.seriesId), diagnostics);
 
-  const earliestPacketTimestamp = minimumPositiveTimestamp(pendingPackets.map((packet) => packet.at));
+  const earliestPacketTimestamp = minimumPositiveTimestamp(scoped.packets.map((packet) => packet.at));
   const identityStartedAt = finiteNumber(identity.firstSeenAt);
   const startedAt = identityStartedAt ?? earliestPacketTimestamp ?? 0;
   let previousAt = startedAt;
   let previousAtMs = 0;
-  const packets: ParsedReplayPacket[] = pendingPackets.map((packet, order) => {
+  const packets: ParsedReplayPacket[] = scoped.packets.map((packet, order) => {
     const sourceAt = packet.at > 0 ? packet.at : previousAt;
     const at = Math.max(previousAt, sourceAt);
     const atMs = Math.max(previousAtMs, Math.max(0, at - startedAt));
@@ -74,7 +76,7 @@ export function parseRawCaptureV1(input: unknown): ParsedRawCapture {
     return { ...packet, order, at, atMs };
   });
 
-  const roomCode = stringValue(identity.roomCode) || inferRoomCode(packets);
+  const roomCode = scoped.roomCode || stringValue(identity.roomCode) || inferRoomCode(packets);
   const explicitSeriesIdentity =
     stringValue(identity.seriesId) ||
     stringValue(identity.matchId) ||
