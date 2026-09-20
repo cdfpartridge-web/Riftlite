@@ -1,6 +1,6 @@
-# Baron Pit web replay preview — 2026-09-20
+# Baron Pit web replay release — 2026-09-20
 
-Status: the user approved the middle placement and requested live deployment on September 20. Production verification and the final deployment receipt will be recorded below. No production record changes or historical artifact migration are included.
+Status: deployed and verified on September 20 at 19:26 BST, following the user's approval of the middle placement and request to deploy live. No production record changes or historical artifact migration were performed.
 
 Branch `codex/baron-pit-replay-20260920`, based on current release receipt `306b457`. This isolated checkout preserves the unrelated desktop and website development work.
 
@@ -55,3 +55,17 @@ Rebuild an already running preview with the same command plus `--build-only`, th
 - Browser artifacts are in `output/playwright/`; actual-state audit is `output/baron-pit-local/real-replay-verification.json`; final suite receipt is `output/baron-pit-local/tests-final.log`.
 
 The initial broad run exposed two CSS source-reader assertions selecting the conditional selector before the base selector. The conditional rule was placed after the base rule, preserving the computed styles; all four CSS assertions then passed. An initial concurrent player run hit an existing five-second sideboarding test timeout; the isolated player rerun passed all 61 tests. The final full suite uses four workers and a 15-second per-test limit.
+
+## Production receipt
+
+- Immutable runtime source: `e680fecca02cb9a310fbe20a648f817c47f42060`.
+- Deployment: `dpl_2kLmfhgZfNviFuQ9XQfJZc9VSwUB`.
+- Immutable URL: https://riftlite-ei0dmy2zt-cdfpartridge-3985s-projects.vercel.app
+- Live: https://www.riftlite.com; `vercel inspect www.riftlite.com` confirms this deployment.
+- Direct example: https://www.riftlite.com/replays/rl2_1e5eff0d8d8deec72ca431573144e452?t=770.841
+- Rollback: `dpl_8UDMf3KthZNzfZPUSxxX2Yumgx8r`, https://riftlite-1ypqbe4yy-cdfpartridge-3985s-projects.vercel.app (September 19 boundary fix).
+- Production build passed with Next.js 16.2.11, matching the prior release. Candidate was built with `--prod --skip-domain`, checked, then promoted.
+- **19 candidate and 19 live HTTP checks passed**, including the new dynamic battlefield bundle, original public Baron creation event, date-filtered reports, replay library, sign-in/privacy boundaries, Home creator order, replay sounds, and Results Bot signature checks.
+- Live browser playback from 12:47 verified two lanes becoming three in physical order `battlefieldA`, `battlefieldToken`, `battlefieldB`. The 12:50.841 frame shows Baron Nashor in the middle Pit with the original fields on either side.
+- Release receipts: `output/baron-pit-local/deploy-result.json`, `deploy-stderr.log`, `candidate-http-smoke.json`, `live-http-smoke.json`; browser screenshot `output/playwright/live-baron-middle.png`.
+- The local preview harness and all output/credentials were excluded from the deployment upload. No Git push, desktop installer change, or historical replay re-normalization occurred.
