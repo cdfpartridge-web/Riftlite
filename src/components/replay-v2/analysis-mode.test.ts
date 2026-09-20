@@ -19,6 +19,7 @@ import {
   replayAnalysisCanMove,
   replayAnalysisChainTargetIds,
   replayAnalysisChangedCardCount,
+  replayAnalysisDestinations,
   resetReplayAnalysisSession,
   revealFutureKnownHandCards,
   undoReplayAnalysisOperation,
@@ -432,6 +433,45 @@ describe("replay analysis mode", () => {
     const redone = redoReplayAnalysisOperation(undone);
     expect(redone.state.players.self.zones.battlefieldA[0].fields.whiteCounter).toBe(2);
     expect(redone.future).toHaveLength(0);
+  });
+
+  it("allows analysis moves into and out of an existing Pit and preserves an empty Pit", () => {
+    const state = analysisState([], [publicCard("unit", "Test Unit", "TST-010")]);
+    state.room.fields.sharedBattlefieldToken = {
+      kind: "baron_pit", zone: "battlefieldToken", title: "Baron Pit", active: true,
+    };
+    const initial = createReplayAnalysisSession(analysisReplay([markerEvent(0)]), 0, state);
+    expect(replayAnalysisDestinations(initial.state)).toContainEqual({ label: "Baron Pit", zone: "battlefieldToken" });
+    expect(replayAnalysisCanMove(initial.state, "unit", "self", "battlefieldToken")).toBe(true);
+    expect(replayAnalysisCanMove(initial.state, "unit", "opponent", "battlefieldToken")).toBe(false);
+    const entered = applyReplayAnalysisOperation(initial, {
+      kind: "move_card", cardId: "unit", zone: "battlefieldToken",
+    });
+    expect(entered.state.players.self.zones.battlefieldToken).toEqual([
+      expect.objectContaining({ id: "unit", source: "battlefieldToken" }),
+    ]);
+    expect(replayAnalysisCanMove(entered.state, "unit", "self", "battlefieldToken")).toBe(false);
+    const left = applyReplayAnalysisOperation(entered, { kind: "move_card", cardId: "unit", zone: "base" });
+    expect(left.state.players.self.zones.battlefieldToken).toEqual([]);
+    expect(replayAnalysisDestinations(left.state)).toContainEqual({ label: "Baron Pit", zone: "battlefieldToken" });
+    expect(replayAnalysisCanMove(left.state, "unit", "self", "battlefieldToken")).toBe(true);
+    expect(undoReplayAnalysisOperation(left).state).toEqual(entered.state);
+    expect(redoReplayAnalysisOperation(undoReplayAnalysisOperation(left)).state).toEqual(left.state);
+    expect(state.players.self.zones.base[0].id).toBe("unit");
+  });
+
+  it("does not offer or create a Pit during analysis when no shared battlefield exists", () => {
+    const state = analysisState([], [publicCard("unit", "Baron Nashor", "UNL-147")]);
+    const initial = createReplayAnalysisSession(analysisReplay([markerEvent(0)]), 0, state);
+    expect(replayAnalysisDestinations(initial.state).some((entry) => entry.zone === "battlefieldToken")).toBe(false);
+    expect(replayAnalysisCanMove(initial.state, "unit", "self", "battlefieldToken")).toBe(false);
+    const attempted = applyReplayAnalysisOperation(initial, {
+      kind: "move_card", cardId: "unit", zone: "battlefieldToken",
+    });
+    expect(attempted).toBe(initial);
+    state.room.fields.sharedBattlefieldToken = { kind: "baron_pit", active: false };
+    expect(replayAnalysisDestinations(state).some((entry) => entry.zone === "battlefieldToken")).toBe(false);
+    expect(replayAnalysisCanMove(state, "unit", "self", "battlefieldToken")).toBe(false);
   });
 
   it("attaches a card to a target in the target zone and adjusts scores locally", () => {

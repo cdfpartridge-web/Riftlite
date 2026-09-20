@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { assessReplayPublicationQuality } from "@/lib/replay-v2/replay-quality";
 import { projectReplayState } from "@/lib/replay-v2/project-state";
+import { seekReplayByEventIndex } from "@/lib/replay-v2/seek";
 import type { JsonObject } from "@/lib/replay-v2/types";
 import {
   inspectTcgaCanonicalReplay,
@@ -411,6 +412,115 @@ describe("normalizeTcgaReplayRawCaptureV1", () => {
       "Unit Zero",
       "Unit One",
     ]);
+  });
+
+  it("shows the TCGA shared battlefield only while its live field or units are recorded", () => {
+    const owner = "provider-self-secret";
+    const publicToAll = { status: "no" };
+    const pit = card("shared-pit", owner, "myBF3", "Baron Pit", "UNL-T01", publicToAll);
+    const baron = card("baron", owner, "B3", "Baron Nashor", "UNL-147", publicToAll);
+    const otherUnit = card("pit-unit", owner, "B3", "Local Unit", "OGN-010", publicToAll);
+    baron.position = { section: "B3", index: 1 };
+    const states = [
+      [
+        { ...baron, position: { section: "Hand", index: 0 } },
+        { ...pit, position: { section: "Stack", index: 0 } },
+      ],
+      [pit, baron, otherUnit],
+      [pit],
+      [],
+    ].map((cards) => {
+      const state = player("self", 10);
+      state.visibleCards = [...state.visibleCards as JsonObject[], ...cards];
+      return state;
+    });
+    const input = fixture();
+    input.messages = [
+      ...input.messages.slice(0, -1),
+      ...states.map((state, index) => message(8 + index, 2_020 + index * 10, "out", {
+        type: "GAME_DATA",
+        gameId: owner,
+        payload: { playerData: state },
+      })),
+      message(12, 2_100, "out", { type: "LEAVING", gameId: owner, payload: {} }),
+    ];
+    input.transport.frames = input.messages.length;
+    input.transport.decodedFrames = input.messages.length;
+    input.transport.logicalMessages = input.messages.length;
+
+    const replay = normalizeTcgaReplayRawCaptureV1(input, { replayId: "tcga_shared_battlefield" });
+    const perspectiveId = replay.series.perspectivePlayerId ?? "";
+    const [before, occupied, empty, removed] = replay.events
+      .filter((event) => event.kind === "snapshot").slice(-4);
+    if (!before || !occupied || !empty || !removed) throw new Error("Missing Baron Pit snapshots");
+
+    expect(before.snapshot.room.fields.sharedBattlefieldToken).toBeUndefined();
+    expect(before.snapshot.players[perspectiveId].zones.battlefieldToken).toEqual([]);
+    expect(occupied.snapshot.room.fields.sharedBattlefieldToken).toMatchObject({
+      kind: "baron_pit",
+      zone: "battlefieldToken",
+      title: "Baron Pit",
+      active: true,
+      card: { name: "Baron Pit", cardCode: "UNL-T01" },
+    });
+    expect(occupied.snapshot.players[perspectiveId].zones.battlefieldToken.map((entry) => entry.name))
+      .toEqual(["Local Unit", "Baron Nashor"]);
+    expect(occupied.snapshot.players[perspectiveId].fields.selectedBattlefield)
+      .toMatchObject({ name: "The Candlelit Sanctum" });
+    expect(empty.snapshot.room.fields.sharedBattlefieldToken)
+      .toEqual(occupied.snapshot.room.fields.sharedBattlefieldToken);
+    expect(empty.snapshot.players[perspectiveId].zones.battlefieldToken).toEqual([]);
+    expect(removed.snapshot.room.fields.sharedBattlefieldToken).toBeUndefined();
+    expect(removed.snapshot.players[perspectiveId].zones.battlefieldToken).toEqual([]);
+    for (const event of [removed, occupied, before, empty]) {
+      expect(seekReplayByEventIndex(replay, event.index).state)
+        .toEqual(projectReplayState(replay, event.index));
+    }
+    expect(inspectTcgaCanonicalReplay(input, replay)).toEqual({ integrityIssues: [], privacyIssues: [] });
+  });
+
+  it("retains current Classic selected fields separately from the generated shared field", () => {
+    const input = fixture();
+    for (const message of input.messages) {
+      const visit = (value: unknown): void => {
+        if (!value || typeof value !== "object") return;
+        const record = value as JsonObject;
+        if (record.id === "self-battlefield") record.position = { section: "myBF1", index: 0 };
+        if (record.id === "opponent-battlefield") record.position = { section: "myBF2", index: 0 };
+        Object.values(value).forEach(visit);
+      };
+      visit(message.parsed);
+    }
+    const replay = normalizeTcgaReplayRawCaptureV1(input, { replayId: "tcga_classic_fields" });
+    const state = projectReplayState(replay);
+    expect(Object.values(state.players).map((entry) => entry.fields.selectedBattlefield)).toEqual([
+      { name: "The Candlelit Sanctum", cardCode: "OGN-291", source: "battlefield" },
+      { name: "Navori Fighting Pit", cardCode: "OGN-283", source: "battlefield" },
+    ]);
+    expect(state.room.fields.sharedBattlefieldToken).toBeUndefined();
+    expect(replay.series.games[0].phases.map((phase) => phase.phase)).toContain("first_player_choice");
+    expect(assessReplayPublicationQuality(replay)).toEqual({ publishable: true, issues: [] });
+  });
+
+  it("keeps opponent B3 units public without exposing a hidden shared field", () => {
+    const input = fixture();
+    const state = player("opponent", 10);
+    state.visibleCards = [
+      ...state.visibleCards as JsonObject[],
+      card("opponent-pit-unit", "provider-opponent-secret", "B3", "Baron Nashor", "UNL-147", { status: "no" }),
+      card("hidden-pit", "provider-opponent-secret", "myBF3", "Hidden field secret", "UNL-T01", {
+        status: "yes", "provider-self-secret": true,
+      }),
+    ];
+    input.messages[6].parsed.payload = { playerData: state };
+    const replay = normalizeTcgaReplayRawCaptureV1(input, { replayId: "tcga_opponent_pit" });
+    const final = projectReplayState(replay);
+    const opponentId = replay.series.participants.find((entry) => !entry.isPerspective)?.id ?? "";
+    expect(final.players[opponentId].zones.battlefieldToken).toEqual([
+      expect.objectContaining({ name: "Baron Nashor", cardCode: "UNL-147", isPlaceholder: false }),
+    ]);
+    expect(final.room.fields.sharedBattlefieldToken).toBeUndefined();
+    expect(JSON.stringify(replay)).not.toContain("Hidden field secret");
   });
 
   it("moves grouped cards with their host and preserves positional counter changes", () => {

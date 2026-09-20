@@ -32,6 +32,7 @@ const STANDARD_ZONES = [
   "base",
   "battlefieldA",
   "battlefieldB",
+  "battlefieldToken",
   "banished",
   "champion",
   "deck",
@@ -48,6 +49,7 @@ const POSITIONED_VISIBLE_ZONES = [
   "base",
   "battlefieldA",
   "battlefieldB",
+  "battlefieldToken",
   "banished",
   "champion",
   "discard",
@@ -731,6 +733,7 @@ function buildSnapshot(input: {
 }): SnapshotBuildResult {
   const rawPlayerIds = orderedRawPlayerIds(input.capture, input.state);
   const selectedBattlefields = new Map<string, ReplayCardState>();
+  const sharedBattlefieldCards: ReplayCardState[] = [];
   const players: Record<string, ReplayPlayerState> = {};
   const stackCards = new Map<string, ReplayCardState>();
   for (const [boardSeat, rawPlayerId] of rawPlayerIds.entries()) {
@@ -743,6 +746,7 @@ function buildSnapshot(input: {
       input.state.lastZoneByCardId,
       input.state.participantCards,
       selectedBattlefields,
+      sharedBattlefieldCards,
       stackCards,
       input.state.perspectiveMulligan,
     );
@@ -764,6 +768,7 @@ function buildSnapshot(input: {
     opaquePlayerId(input.capture, rawPlayerId),
     Math.max(0, integerValue(input.state.players.get(rawPlayerId)?.setupStep)),
   ]));
+  const sharedBattlefield = sharedBattlefieldCards[0];
   return {
     rawPlayerIds,
     selectedBattlefields,
@@ -777,6 +782,15 @@ function buildSnapshot(input: {
         ...(turnNumber !== undefined ? { turnNumber } : {}),
         fields: {
           provider: "tcga",
+          ...(sharedBattlefield ? {
+            sharedBattlefieldToken: {
+              kind: "baron_pit",
+              zone: "battlefieldToken",
+              title: sharedBattlefield.name || "Baron Pit",
+              active: true,
+              card: publicCardReference(sharedBattlefield),
+            },
+          } : {}),
           ...(providerTurnCount !== undefined ? { providerTurnCount } : {}),
           setupStepByPlayerId,
         },
@@ -796,6 +810,7 @@ function normalizePlayerState(
   lastZoneByCardId: Map<string, string>,
   participantCards: Map<string, { legend?: ReplayCardState; champion?: ReplayCardState }>,
   selectedBattlefields: Map<string, ReplayCardState>,
+  sharedBattlefieldCards: ReplayCardState[],
   stackCards: Map<string, ReplayCardState>,
   perspectiveMulligan?: PerspectiveMulliganEvidence,
 ): ReplayPlayerState {
@@ -828,6 +843,10 @@ function normalizePlayerState(
     }
     if (zone === "selectedBattlefield") {
       if (!card.isPlaceholder) selectedBattlefields.set(rawPlayerId, card);
+    } else if (zone === "sharedBattlefield") {
+      // Classic keeps the battlefield card in myBF3 and its units in B3.
+      // Keep the field separate from units and from both players' selections.
+      if (!card.isPlaceholder) sharedBattlefieldCards.push(card);
     } else if (zone === "stack") {
       stackCards.set(rawCardId, card);
     } else {
@@ -1132,7 +1151,9 @@ function orderedRawPlayerIds(capture: TcgaReplayRawCaptureV1, state: MutableProv
 }
 
 function hasSelectedBattlefield(player: JsonObject): boolean {
-  return arrayValue(player.visibleCards).some((value) => cardSection(jsonObject(value) ?? {}) === "Battlefields");
+  return arrayValue(player.visibleCards).some((value) => (
+    tcgaZone(cardSection(jsonObject(value) ?? {}), undefined) === "selectedBattlefield"
+  ));
 }
 
 function cardSection(card: JsonObject): string {
@@ -1146,8 +1167,12 @@ function tcgaZone(section: string, previous: string | undefined): string {
   switch (section.toLowerCase()) {
     case "b1": return "battlefieldA";
     case "b2": return "battlefieldB";
+    case "b3": return "battlefieldToken";
     case "base": return "base";
-    case "battlefields": return "selectedBattlefield";
+    case "battlefields":
+    case "mybf1":
+    case "mybf2": return "selectedBattlefield";
+    case "mybf3": return "sharedBattlefield";
     case "banish":
     case "banished":
     case "exile":
@@ -1259,7 +1284,7 @@ function publicCardReference(card: ReplayCardState, source = "battlefield"): Jso
 
 function publicCardCode(value: JsonValue | undefined): string {
   const code = textValue(value).toUpperCase();
-  return /^[A-Z0-9]{2,8}-(?:R?\d{1,4})[A-Z]?$/.test(code) ? code : "";
+  return /^[A-Z0-9]{2,8}-(?:[RT]?\d{1,4})[A-Z]?$/.test(code) ? code : "";
 }
 
 function localizedName(value: JsonValue | undefined): string {

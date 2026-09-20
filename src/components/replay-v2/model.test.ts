@@ -36,6 +36,7 @@ import {
   replayCasterStepIndex,
   replayDisplayEvent,
   safeCardImageUrl,
+  sharedBattlefieldCard,
 } from "./model";
 
 describe("replay scene selection", () => {
@@ -651,6 +652,39 @@ describe("replay board card interpretation", () => {
       runeArea: [card("rune", "Mind Rune", "OGN-089", "rune")],
     });
     expect(boardZones(player).map((zone) => zone.key)).toEqual(["base"]);
+  });
+
+  it("shows the shared Pit only from current battlefield evidence, including an empty Pit", () => {
+    const bottom = replayPlayer("self", "Local", {
+      hand: [card("baron", "Baron Nashor", "UNL-147")],
+      battlefieldToken: [],
+    });
+    const top = replayPlayer("opponent", "Opponent", {});
+    const state = replayState(bottom, top);
+    expect(sharedBattlefieldCard(state)).toBeUndefined();
+
+    state.room.fields.sharedBattlefieldToken = {
+      kind: "baron_pit", zone: "battlefieldToken", title: "Baron Pit", active: true,
+    };
+    expect(sharedBattlefieldCard(state)).toMatchObject({
+      name: "Baron Pit", cardCode: "UNL-T01", source: "battlefield",
+    });
+    expect(isBattlefieldCard(sharedBattlefieldCard(state))).toBe(true);
+    // It supplements the two setup selections; it does not replace either.
+    expect(battlefieldCards(state, { bottom, top })).toHaveLength(2);
+
+    state.room.fields.sharedBattlefieldToken = { kind: "baron_pit", active: false };
+    expect(sharedBattlefieldCard(state)).toBeUndefined();
+  });
+
+  it("supports a recorded token lane without metadata and honors explicit removal", () => {
+    const bottom = replayPlayer("self", "Local", {
+      battlefieldToken: [card("baron", "Baron Nashor", "UNL-147")],
+    });
+    const state = replayState(bottom, replayPlayer("opponent", "Opponent", {}));
+    expect(sharedBattlefieldCard(state)?.cardCode).toBe("UNL-T01");
+    state.room.fields.sharedBattlefieldToken = null;
+    expect(sharedBattlefieldCard(state)).toBeUndefined();
   });
 
   it("tracks Atlas-style banished aliases without rendering them as board lanes", () => {

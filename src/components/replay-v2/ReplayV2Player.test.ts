@@ -2287,6 +2287,70 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(lanes[1].querySelector('[aria-label="Mournful Witness"]')).toBeInTheDocument();
   });
 
+  it("expands for Baron Pit, keeps both players' units there, and collapses on rewind", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/replays/rp_baron?t=1");
+    try {
+      const replay = sideboardingAtZeroReplay();
+      const snapshot = replay.events.find((event) => event.kind === "snapshot")!;
+      if (snapshot.kind !== "snapshot") throw new Error("Expected snapshot");
+      snapshot.snapshot.room.phase = "in_game";
+      snapshot.snapshot.room.rawPhase = "in_game";
+      const withPit = structuredClone(snapshot);
+      withPit.index = replay.events.length;
+      withPit.id = "pit-created";
+      withPit.atMs = 2_000;
+      withPit.at = 3_000;
+      withPit.snapshot.room.fields.sharedBattlefieldToken = {
+        kind: "baron_pit", zone: "battlefieldToken", title: "Baron Pit", active: true,
+      };
+      withPit.snapshot.players.self.zones.battlefieldToken = [
+        replayCard("baron", "Baron Nashor", "UNL-147", "mainDeck"),
+      ];
+      withPit.snapshot.players.opponent.zones.battlefieldToken = [
+        replayCard("pit-visitor", "Soaring Scout", "OGN-216", "mainDeck"),
+      ];
+      const emptyPit = structuredClone(withPit);
+      emptyPit.index += 1;
+      emptyPit.id = "pit-empty";
+      emptyPit.atMs = 3_000;
+      emptyPit.at = 4_000;
+      emptyPit.snapshot.players.self.zones.battlefieldToken = [];
+      emptyPit.snapshot.players.opponent.zones.battlefieldToken = [];
+      replay.events.push(withPit, emptyPit);
+      replay.series.games[0].endedAtMs = 4_000;
+      replay.series.games[0].eventEndIndex = emptyPit.index;
+      replay.series.endedAt = 5_000;
+      replay.checkpoints = [];
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+        headers: { "content-type": "application/json" }, status: 200,
+      })));
+      const view = render(createElement(ReplayV2Player, { replayId: "rp_baron" }));
+      const timeline = await view.findByRole("slider", { name: "Replay progress" });
+      expect(view.container.querySelectorAll("[data-battlefield-zone]")).toHaveLength(2);
+      fireEvent.change(timeline, { target: { value: "2000" } });
+      await waitFor(() => {
+        expect(view.container.querySelectorAll("[data-battlefield-zone]")).toHaveLength(3);
+      });
+      const pit = view.container.querySelector('[data-battlefield-zone="battlefieldToken"]')!;
+      expect(pit).toHaveAttribute("data-battlefield-name", "Baron Pit");
+      expect(pit).not.toHaveAttribute("data-battlefield-owner");
+      expect(pit.querySelector('[data-battlefield-unit-row="bottom"] [aria-label="Baron Nashor"]'))
+        .toBeInTheDocument();
+      expect(pit.querySelector('[data-battlefield-unit-row="top"] [aria-label="Soaring Scout"]'))
+        .toBeInTheDocument();
+      fireEvent.change(timeline, { target: { value: "3000" } });
+      await waitFor(() => expect(pit.querySelector('[aria-label="Baron Nashor"]')).toBeNull());
+      expect(view.container.querySelectorAll("[data-battlefield-zone]")).toHaveLength(3);
+      fireEvent.change(timeline, { target: { value: "1000" } });
+      await waitFor(() => {
+        expect(view.container.querySelectorAll("[data-battlefield-zone]")).toHaveLength(2);
+      });
+    } finally {
+      window.history.replaceState({}, "", previousUrl);
+    }
+  });
+
   it("shows a truthful processing state for a 202 replay summary", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       replay: { status: "processing" },

@@ -49,7 +49,9 @@ function shouldReconcileLegacyCheckpoint(
   checkpoint: ReplayCheckpoint,
   state: ReplaySeekResult["state"],
 ): boolean {
-  if (state.phase !== "sideboarding" && state.phase !== "battlefield_pick") return false;
+  const event = replay.events[eventIndex];
+  const atGameStart = event?.kind === "game_boundary" && event.boundary === "start";
+  if (!atGameStart && state.phase !== "sideboarding" && state.phase !== "battlefield_pick") return false;
   const game = replay.series.games.find((candidate) => (
     candidate.id === state.gameId || (
       eventIndex >= candidate.eventStartIndex && eventIndex <= candidate.eventEndIndex
@@ -60,7 +62,8 @@ function shouldReconcileLegacyCheckpoint(
   // Current checkpoints clear this game-scoped residue when game two begins.
   // Only old artifacts can carry options or populated battlefield zones into
   // the next setup, so normal seeks avoid the compatibility scan below.
-  return Object.values(checkpoint.state.players).some((player) => (
+  return selectionValuePresent(checkpoint.state.room.fields.sharedBattlefieldToken)
+    || Object.values(checkpoint.state.players).some((player) => (
     selectionValuePresent(player.fields.battlefieldOptions) ||
     selectionValuePresent(player.boardFields.battlefieldOptions) ||
     Object.entries(player.zones).some(([zone, cards]) => (
@@ -122,7 +125,9 @@ function reconcileCheckpointBattlefieldSelections(
     state,
     selectedPlayerIds,
     roomSelectionObserved,
-    game.ordinal > 1 && (state.phase === "sideboarding" || state.phase === "battlefield_pick"),
+    game.ordinal > 1 && (
+      eventIndex === game.eventStartIndex || state.phase === "sideboarding" || state.phase === "battlefield_pick"
+    ),
   );
 }
 

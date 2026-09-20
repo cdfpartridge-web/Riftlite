@@ -6,6 +6,7 @@
 # Browser QA artifacts are local-only and may contain captured page state
 .playwright-cli/
 output/
+scripts/baron-pit-local/
 firestore-debug.log
 
 # Local TypeScript incremental state

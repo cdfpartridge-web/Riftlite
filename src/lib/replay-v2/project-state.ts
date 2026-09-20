@@ -120,6 +120,7 @@ export function resetGameScopedBattlefieldSelections(
   preserveRoomSelection = false,
   clearBattlefieldZones = false,
 ): void {
+  if (clearBattlefieldZones) delete state.room.fields.sharedBattlefieldToken;
   for (const [playerId, player] of Object.entries(state.players)) {
     if (!preservePlayerIds.has(playerId)) {
       for (const field of PLAYER_BATTLEFIELD_SELECTION_FIELDS) {

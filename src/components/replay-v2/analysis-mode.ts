@@ -7,6 +7,7 @@ import {
   type ReplayPlayerState,
   type ReplayState,
 } from "@/lib/replay-v2";
+import { sharedBattlefieldCard } from "./model";
 
 export const REPLAY_ANALYSIS_DESTINATIONS = [
   { label: "Hand", zone: "hand" },
@@ -17,6 +18,16 @@ export const REPLAY_ANALYSIS_DESTINATIONS = [
   { label: "Trash", zone: "discard" },
   { label: "Banished", zone: "banished" },
 ] as const;
+
+export function replayAnalysisDestinations(state: ReplayState): ReadonlyArray<{ label: string; zone: string }> {
+  const sharedBattlefield = sharedBattlefieldCard(state);
+  return sharedBattlefield
+    ? [...REPLAY_ANALYSIS_DESTINATIONS, {
+        label: sharedBattlefield.name || "Shared battlefield",
+        zone: "battlefieldToken",
+      }]
+    : REPLAY_ANALYSIS_DESTINATIONS;
+}
 
 export type ReplayAnalysisCounterField = "whiteCounter" | "redCounter";
 
@@ -687,7 +698,9 @@ export function replayAnalysisCanMove(
     location &&
     !location.card.isPlaceholder &&
     location.player.id === playerId &&
-    isAnalysisDestinationFamily(destinationFamily) &&
+    (destinationFamily === "battlefieldtoken"
+      ? Boolean(sharedBattlefieldCard(state))
+      : isAnalysisDestinationFamily(destinationFamily)) &&
     zoneFamily(location.zone) !== destinationFamily
   );
 }

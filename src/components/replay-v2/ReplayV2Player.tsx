@@ -54,6 +54,7 @@ import {
   replayAnalysisCardPlayer,
   replayAnalysisChainTargetIds,
   replayAnalysisChangedCardCount,
+  replayAnalysisDestinations,
   replayAnalysisSelectedCard,
   resetReplayAnalysisSession,
   undoReplayAnalysisOperation,
@@ -116,6 +117,7 @@ import {
   replayDisplayEvent,
   replayDurationMs,
   resolveReplayPlayers,
+  sharedBattlefieldCard,
   turnMarkers,
   visibleCardFields,
   zoneCards,
@@ -2421,6 +2423,7 @@ export function ReplayV2Player({
                         ).length
                       : 0
                   }
+                  destinations={replayAnalysisDestinations(analysisSession.state)}
                   onAddToChain={() => {
                     applyAnalysisOperation({
                       kind: "add_to_chain",
@@ -2715,6 +2718,7 @@ function ReplayBoard({
     ? handCards(players.top).filter(isKnownHandCard).length
     : 0;
   const battlefields = useMemo(() => battlefieldCards(state, players), [players, state]);
+  const sharedBattlefield = useMemo(() => sharedBattlefieldCard(state), [state]);
   const canonicalScene = activeScene(replay, state, currentMs);
   const scene = analysisActive
     ? null
@@ -2858,6 +2862,7 @@ function ReplayBoard({
       />
       <CentralArena
         battlefields={battlefields}
+        sharedBattlefield={sharedBattlefield}
         chain={state.chain}
         onCardHover={onCardHover}
         onCardSelect={onCardSelect}
@@ -3680,12 +3685,14 @@ function AttachedCardGroup({
 
 function CentralArena({
   battlefields,
+  sharedBattlefield,
   chain,
   onCardHover,
   onCardSelect,
   players,
 }: {
   battlefields: Array<ReplayCardState | undefined>;
+  sharedBattlefield?: ReplayCardState;
   chain: ReplayChainEntry[];
   onCardHover: (card: ReplayCardState | null) => void;
   onCardSelect: (card: ReplayCardState) => void;
@@ -3716,6 +3723,15 @@ function CentralArena({
       bottomCardZone: tcgaOwnerRelativeLanes ? "battlefieldA" : bottomZone,
       topCardZone: tcgaOwnerRelativeLanes ? "battlefieldB" : bottomZone,
     },
+    ...(sharedBattlefield ? [{
+      battlefield: sharedBattlefield,
+      flipped: false,
+      key: "battlefieldToken",
+      label: "Shared battlefield",
+      owner: undefined,
+      bottomCardZone: "battlefieldToken",
+      topCardZone: "battlefieldToken",
+    }] : []),
     {
       battlefield: battlefields[1],
       flipped: true,
@@ -3727,12 +3743,12 @@ function CentralArena({
     },
   ];
   return (
-    <div className={styles.centralArena}>
+    <div className={styles.centralArena} data-battlefield-count={lanes.length}>
       {lanes.map((lane) => (
         <section
           className={styles.battlefieldZone}
           data-battlefield-name={lane.battlefield ? cardName(lane.battlefield) : undefined}
-          data-battlefield-owner={lane.owner.id}
+          data-battlefield-owner={lane.owner?.id}
           data-battlefield-zone={lane.key}
           key={lane.key}
         >
@@ -3742,10 +3758,10 @@ function CentralArena({
                 <BattlefieldTile
                   card={lane.battlefield}
                   flipped={lane.flipped}
-                  motionId={`battlefield:${lane.key}:${lane.owner.id}:${lane.battlefield.id}`}
+                  motionId={`battlefield:${lane.key}:${lane.owner?.id ?? "shared"}:${lane.battlefield.id}`}
                   onHover={onCardHover}
                   onSelect={onCardSelect}
-                  owner={lane.owner.name}
+                  owner={lane.owner?.name ?? "Shared battlefield"}
                 />
               ) : (
                 <div className={styles.emptyBattlefield}>
@@ -3818,6 +3834,7 @@ function BattlefieldUnitRow({
   playerId: string;
   zone: string;
 }) {
+  const groups = groupCardsWithAttachments(cards).slice(0, 7);
   return (
     <div
       className={`${styles.battlefieldUnitRow} ${
@@ -3826,8 +3843,9 @@ function BattlefieldUnitRow({
       data-analysis-drop-player-id={playerId}
       data-analysis-drop-zone={zone}
       data-battlefield-unit-row={orientation}
+      style={{ "--battlefield-unit-count": Math.max(1, groups.length) } as CSSProperties}
     >
-      {groupCardsWithAttachments(cards).slice(0, 7).map((group) => (
+      {groups.map((group) => (
         <AttachedCardGroup
           atBattlefield
           group={group}
@@ -5849,7 +5867,7 @@ function ReplayAnalysisPanel({
             <section className={styles.analysisControlSection}>
               <header><span>Move card</span><small>Changes are temporary</small></header>
               <div className={styles.analysisDestinationGrid}>
-                {REPLAY_ANALYSIS_DESTINATIONS.map((destination) => (
+                {replayAnalysisDestinations(session.state).map((destination) => (
                   <button
                     disabled={
                       !selectedPlayer ||
@@ -5997,6 +6015,7 @@ function AnalysisCounterControl({
 function analysisZoneLabel(zone: string | undefined): string {
   if (!zone) return "Unknown zone";
   const normalized = zone.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (normalized === "battlefieldtoken") return "Baron Pit";
   const destination = REPLAY_ANALYSIS_DESTINATIONS.find((candidate) => (
     candidate.zone.toLowerCase().replace(/[^a-z0-9]/g, "") === normalized
   ));
@@ -6015,6 +6034,7 @@ function ReplayAnalysisContextMenu({
   card,
   chainEntryId,
   chainTargetCount,
+  destinations,
   onAddToChain,
   onAdjustCounter,
   onAttach,
@@ -6033,6 +6053,7 @@ function ReplayAnalysisContextMenu({
   card: ReplayCardState;
   chainEntryId?: string;
   chainTargetCount: number;
+  destinations: ReturnType<typeof replayAnalysisDestinations>;
   onAddToChain: () => void;
   onAdjustCounter: (field: ReplayAnalysisCounterField, delta: number) => void;
   onAttach: () => void;
@@ -6193,7 +6214,7 @@ function ReplayAnalysisContextMenu({
       <section>
         <span>Play or move to</span>
         <div>
-          {REPLAY_ANALYSIS_DESTINATIONS.map((destination) => (
+          {destinations.map((destination) => (
             <button
               disabled={!canMove(destination.zone)}
               key={destination.zone}

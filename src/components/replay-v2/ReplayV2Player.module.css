@@ -950,6 +950,10 @@ button.cardPile { cursor: pointer; }
   gap: 18px;
 }
 
+.centralArena[data-battlefield-count="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .battlefieldZone {
   position: relative;
   isolation: isolate;
@@ -989,6 +993,17 @@ button.cardPile { cursor: pointer; }
 .battlefieldUnitRow > .cardMotion[data-card-exhausted="true"],
 .battlefieldUnitRow > .attachedCardGroup:has(.cardMotion[data-card-exhausted="true"]) {
   margin-inline: 16px;
+}
+
+/* Fan crowded rows within the narrower lanes without shrinking the cards. */
+.centralArena[data-battlefield-count="3"] .battlefieldUnitRow {
+  display: grid;
+  grid-template-columns: repeat(var(--battlefield-unit-count), minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  gap: 0;
+  justify-items: center;
+  padding-inline: 36px;
 }
 
 .battlefieldCardDock {

@@ -94,6 +94,7 @@ const BATTLEFIELD_CARD_CODES: Record<string, string> = {
   academy: "UNL-216",
   aspirantsclimb: "OGN-276",
   backalleybar: "OGN-277",
+  baronpit: "UNL-T01",
   bandletree: "OGN-278",
   blackflamealtar: "UNL-208",
   dreamingtree: "OGN-292",
@@ -701,6 +702,31 @@ export function battlefieldCards(
   }
 
   return selected;
+}
+
+/** A shared battlefield is live board state, never a player's setup choice. */
+export function sharedBattlefieldCard(state: ReplayState): ReplayCardState | undefined {
+  const token = state.room.fields.sharedBattlefieldToken;
+  if (isRecord(token)) {
+    if (token.active !== true) return undefined;
+    const card = looseCard(token.card, "battlefield-shared")
+      ?? looseCard(token, "battlefield-shared");
+    if (card) return enrichBattlefieldCard(card, new Map());
+    if (token.kind !== "baron_pit") return undefined;
+  } else {
+    // Older captures can include the live token lane without its room metadata.
+    // An empty zone or a Baron in hand/deck is not evidence that the Pit exists.
+    if (token !== undefined || !Object.values(state.players).some((player) => (
+      zoneCards(player, ["battlefieldToken"]).length > 0
+    ))) return undefined;
+  }
+  return {
+    id: "battlefield-shared",
+    name: "Baron Pit",
+    cardCode: "UNL-T01",
+    source: "battlefield",
+    fields: {},
+  };
 }
 
 export function initiativeRoll(player: ReplayPlayerState, state: ReplayState): number | undefined {
