@@ -9,6 +9,20 @@
 .page * {
   box-sizing: border-box;
 }
+.practicePage {
+  height: 100dvh;
+  min-height: 560px;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.setupContent {
+  flex: 0 0 auto;
+}
+.setupContent[hidden] {
+  display: none;
+}
 .page button,
 .page select {
   font: inherit;
@@ -195,6 +209,21 @@
 .turnbar li[data-done="true"] {
   color: #b5d9ca;
 }
+.practicePage .turnbar {
+  flex: 0 0 auto;
+  gap: 10px 18px;
+  padding: 0 2px;
+}
+.sessionActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sessionActions button {
+  min-height: 36px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
 .workbench {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 265px;
@@ -209,6 +238,24 @@
   border: 1px solid #314b71;
   border-radius: 12px;
   overflow: hidden;
+}
+.practicePage .workbench {
+  flex: 1 1 0;
+  min-height: 0;
+  align-items: stretch;
+}
+.practicePage .board {
+  height: 100%;
+  min-height: 0;
+}
+.practicePage .panel {
+  align-self: start;
+  max-height: 100%;
+  overflow: auto;
+}
+.practicePage .error {
+  flex: 0 0 auto;
+  margin: 0;
 }
 .panel {
   background: #111f36;
@@ -249,10 +296,18 @@
   font-size: 12px;
 }
 @media (max-width: 1100px) {
+  .practicePage {
+    height: auto;
+    min-height: 100dvh;
+  }
+  .practicePage .workbench {
+    flex: 0 0 auto;
+  }
   .workbench {
     grid-template-columns: 1fr;
   }
-  .board {
+  .board,
+  .practicePage .board {
     height: 68vw;
     min-height: 480px;
     max-height: 760px;
@@ -290,7 +345,8 @@
   .panel {
     grid-template-columns: 1fr;
   }
-  .board {
+  .board,
+  .practicePage .board {
     height: 620px;
   }
   .turnbar li {

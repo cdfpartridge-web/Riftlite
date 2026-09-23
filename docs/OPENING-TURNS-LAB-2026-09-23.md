@@ -70,3 +70,11 @@ Authorized by the user's request to rebuild locally and push the website support
 - A supplemental attempt to resolve the selected source's exact visibility locally could not run because the existing signing secret is not exported by `vercel env run`; no secret was changed or logged. Live acceptance therefore verifies the anonymized hosted flow, while explicit unlisted eligibility and visibility revocation remain covered by automated tests.
 
 Deployment/HTTP receipts and the read-only acceptance helper are in ignored `output/opening-lab/`. Local credentials, output and preview helpers were excluded from deployment. The installer/profile/source preservation receipts are in the desktop candidate directory.
+
+## Practice layout follow-up — 23 September 2026
+
+The user reported that the large header and legend selectors made the board difficult to see. After an opening loads, its title, introduction, selectors and pool notice now hide automatically. A compact matchup/progress bar retains **Change legends** and **New opening**. Change legends reopens setup without resetting the current board; Return to board restores the expanded board and keyboard focus. New openings hide setup again, while the completion screen restores setup.
+
+The active practice layout fills the available viewport instead of reserving 310 pixels for setup. At **1666×844**, the board starts at approximately **69px** and has **763px** of height; at **1280×720**, it has **640px** of height. Both fit without page scrolling. Reveal and next-turn transitions retain the expanded layout. The adjustment is entirely in the hosted lab; the existing local desktop installer receives it through Reload practice.
+
+Browser acceptance checked viewport bounds, real drag-and-drop, preserved moves through setup disclosure, keyboard focus, reveal/locked comparison, the next turn and starting another filtered opening. No page errors. Evidence: `output/playwright/layout-check-result.txt`, `opening-layout-full-height.png`, `opening-layout-preserved.png`, `opening-layout-laptop.png`. TypeScript and component ESLint passed. No replay data, shared player implementation or desktop binaries changed.

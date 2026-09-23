@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Eye, LockKeyhole, RotateCcw, Shuffle } from "lucide-react";
+import {
+  ArrowRight,
+  Eye,
+  LockKeyhole,
+  RotateCcw,
+  Settings2,
+  Shuffle,
+} from "lucide-react";
 import { ReplayV2Player } from "@/components/replay-v2/ReplayV2Player";
 import type { CanonicalReplayV2, ReplayState } from "@/lib/replay-v2";
 import type {
@@ -51,7 +58,10 @@ export function OpeningLab() {
   const [error, setError] = useState("");
   const [reset, setReset] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [setupExpanded, setSetupExpanded] = useState(false);
   const [reviewed, setReviewed] = useState<number[]>([]);
+  const legendSelect = useRef<HTMLSelectElement | null>(null);
+  const setupToggle = useRef<HTMLButtonElement | null>(null);
   const boardState = useRef<ReplayState | null>(null);
   const mounted = useRef(true);
 
@@ -87,6 +97,7 @@ export function OpeningLab() {
       setAttempt(null);
       setReviewed([]);
       setFinished(false);
+      setSetupExpanded(false);
       setReset(0);
       boardState.current = null;
     } catch (e) {
@@ -144,76 +155,98 @@ export function OpeningLab() {
       ? attempt
       : reveal.replay
     : question?.replay;
+  const practicing = Boolean(question && !finished);
+  const showSetup = !practicing || setupExpanded;
+
+  useEffect(() => {
+    if (setupExpanded) legendSelect.current?.focus();
+  }, [setupExpanded]);
+
+  function closeSetup() {
+    setSetupExpanded(false);
+    setupToggle.current?.focus();
+  }
 
   return (
-    <main className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <div className={styles.eyebrow}>RiftLite training</div>
-          <h1>Opening Turns Lab</h1>
-          <p>Take the board. Try your line. See what happened.</p>
-        </div>
-        <span className={styles.privacy}>
-          <LockKeyhole size={16} /> Anonymous public & unlisted games
-        </span>
-      </header>
-      <section className={styles.setup} aria-label="Opening practice filters">
-        <label>
-          Your legend
-          <select
-            value={legend}
-            onChange={(e) => setLegend(e.target.value)}
-            disabled={busy || !catalog}
+    <main
+      className={`${styles.page} ${practicing ? styles.practicePage : ""}`}
+      aria-label="Opening Turns Lab"
+    >
+      <div
+        className={styles.setupContent}
+        hidden={!showSetup}
+        id="opening-practice-setup"
+      >
+        <header className={styles.header}>
+          <div>
+            <div className={styles.eyebrow}>RiftLite training</div>
+            <h1>Opening Turns Lab</h1>
+            <p>Take the board. Try your line. See what happened.</p>
+          </div>
+          <span className={styles.privacy}>
+            <LockKeyhole size={16} /> Anonymous public & unlisted games
+          </span>
+        </header>
+        <section className={styles.setup} aria-label="Opening practice filters">
+          <label>
+            Your legend
+            <select
+              ref={legendSelect}
+              value={legend}
+              onChange={(e) => setLegend(e.target.value)}
+              disabled={busy || !catalog}
+            >
+              {!catalog?.legends.length && (
+                <option value="">
+                  {catalog ? "No openings available" : "Loading legends…"}
+                </option>
+              )}
+              {catalog?.legends.map((name) => (
+                <option key={name}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Opponent
+            <select
+              value={opponent}
+              onChange={(e) => setOpponent(e.target.value)}
+              disabled={busy}
+            >
+              <option value="">Any opponent</option>
+              {catalog?.opponents.map((name) => (
+                <option key={name}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            className={styles.primary}
+            disabled={busy || !legend}
+            onClick={start}
           >
-            {!catalog?.legends.length && (
-              <option value="">
-                {catalog ? "No openings available" : "Loading legends…"}
-              </option>
-            )}
-            {catalog?.legends.map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Opponent
-          <select
-            value={opponent}
-            onChange={(e) => setOpponent(e.target.value)}
-            disabled={busy}
-          >
-            <option value="">Any opponent</option>
-            {catalog?.opponents.map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-          </select>
-        </label>
-        <button
-          className={styles.primary}
-          disabled={busy || !legend}
-          onClick={start}
-        >
-          <Shuffle size={16} />
-          {busy && !question
-            ? "Finding an opening…"
-            : question
-              ? "New opening"
-              : "Start practice"}
-        </button>
-        <span className={styles.scope}>
-          Recorded decks for your selected legend · five of your turns
-        </span>
-      </section>
+            <Shuffle size={16} />
+            {busy && !question
+              ? "Finding an opening…"
+              : question
+                ? "New opening"
+                : "Start practice"}
+          </button>
+          <span className={styles.scope}>
+            Recorded decks for your selected legend · five of your turns
+          </span>
+          {practicing && <button onClick={closeSetup}>Return to board</button>}
+        </section>
+        {catalog?.limited && (
+          <p className={styles.note}>
+            Practice currently searches a limited replay pool. More games may be
+            available outside it.
+          </p>
+        )}
+      </div>
       {error && (
         <div role="alert" className={styles.error}>
           {error}
         </div>
-      )}
-      {catalog?.limited && (
-        <p className={styles.note}>
-          Practice currently searches a limited replay pool. More games may be
-          available outside it.
-        </p>
       )}
       {!question && (
         <section className={styles.empty}>
@@ -257,6 +290,26 @@ export function OpeningLab() {
                 </li>
               ))}
             </ol>
+            <div className={styles.sessionActions}>
+              <button
+                ref={setupToggle}
+                aria-expanded={setupExpanded}
+                aria-controls="opening-practice-setup"
+                disabled={busy}
+                onClick={() =>
+                  setupExpanded ? closeSetup() : setSetupExpanded(true)
+                }
+              >
+                <Settings2 size={15} />
+                {setupExpanded ? "Hide setup" : "Change legends"}
+              </button>
+              {!setupExpanded && (
+                <button disabled={busy} onClick={start}>
+                  <Shuffle size={15} />
+                  New opening
+                </button>
+              )}
+            </div>
           </section>
           <div className={styles.workbench}>
             <div
