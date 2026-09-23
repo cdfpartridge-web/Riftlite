@@ -78,3 +78,13 @@ The user reported that the large header and legend selectors made the board diff
 The active practice layout fills the available viewport instead of reserving 310 pixels for setup. At **1666×844**, the board starts at approximately **69px** and has **763px** of height; at **1280×720**, it has **640px** of height. Both fit without page scrolling. Reveal and next-turn transitions retain the expanded layout. The adjustment is entirely in the hosted lab; the existing local desktop installer receives it through Reload practice.
 
 Browser acceptance checked viewport bounds, real drag-and-drop, preserved moves through setup disclosure, keyboard focus, reveal/locked comparison, the next turn and starting another filtered opening. No page errors. Evidence: `output/playwright/layout-check-result.txt`, `opening-layout-full-height.png`, `opening-layout-preserved.png`, `opening-layout-laptop.png`. TypeScript and component ESLint passed. No replay data, shared player implementation or desktop binaries changed.
+
+### Layout deployment receipt
+
+- Runtime source: `4c7b14356f342e469c66456750d13fc04619c8da`; receipt commit follows it on the same pushed branch.
+- Deployment: `dpl_CvXPn527JpCurxZ3wvvocWaP1fL3`, https://riftlite-o48fnci9l-cdfpartridge-3985s-projects.vercel.app . Promoted to https://www.riftlite.com on September 23 at approximately 18:58 BST.
+- Rollback: preceding deployment `dpl_Bg3Z7aBtc96yeeMSSmyEw3w9LAcv`, https://riftlite-km2vdku5k-cdfpartridge-3985s-projects.vercel.app .
+- Production build passed. Candidate checked all 20 referenced JS/CSS assets, the new controls/viewport CSS, noindex page and live catalog. Receipts: `output/opening-lab-layout/`.
+- Live browser measured the same **763px** board at **1666×844**, setup hidden, no page scrolling, working disclosure/return, reveal and next turn, with **zero console warnings/errors**. Receipt: `output/playwright/layout-live-check-result.txt`; screenshot: `output/playwright/opening-layout-live.png`.
+- The local five-turn flow also confirmed that completion restores setup and Review the final turn restores the expanded board. Receipt: `output/playwright/layout-completion-result.txt`.
+- Existing local desktop installer is unchanged. Use **Reload practice** to load the new hosted interface.
