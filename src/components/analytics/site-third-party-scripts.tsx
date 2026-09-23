@@ -8,6 +8,7 @@ import { PageViewTracker } from "@/components/analytics/page-view-tracker";
 export function SiteThirdPartyScripts() {
   const pathname = usePathname() || "";
   if (
+    pathname === "/app/opening-lab" ||
     pathname === "/link-device" ||
     pathname.startsWith("/link-device/") ||
     pathname === "/meta-studio" ||

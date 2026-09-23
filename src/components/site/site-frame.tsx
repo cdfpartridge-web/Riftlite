@@ -23,7 +23,7 @@ export function isReplayAppPath(pathname: string) {
 }
 
 export function isFullScreenAppPath(pathname: string) {
-  return isReplayAppPath(pathname) || pathname === "/meta-studio" || pathname.startsWith("/meta-studio/");
+  return isReplayAppPath(pathname) || pathname === "/app/opening-lab" || pathname === "/meta-studio" || pathname.startsWith("/meta-studio/");
 }
 
 export function isViewportLockedAppPath(pathname: string) {

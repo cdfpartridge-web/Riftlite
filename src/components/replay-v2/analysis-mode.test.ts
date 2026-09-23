@@ -26,6 +26,17 @@ import {
 } from "./analysis-mode";
 
 describe("replay analysis mode", () => {
+  it("can disable future evidence while keeping the original anchor immutable", () => {
+    const state = analysisState([hiddenCard("later-known")]);
+    const replay = analysisReplay([markerEvent(0), actionEvent(1, [{ id: "later-play", op: "zone_move", cardId: "later-known", from: { playerId: "opponent", zone: "hand" }, to: { playerId: "opponent", zone: "base", index: 0 }, card: publicCard("later-known", "Hidden Blade", "TST-101") }])]);
+    const normal = createReplayAnalysisSession(replay, 0, state);
+    const training = createReplayAnalysisSession(replay, 0, state, { inferFuture: false });
+    expect(normal.inferredCardIds).toEqual(["later-known"]);
+    expect(training.inferredCardIds).toEqual([]);
+    expect(training.state.players.opponent.zones.hand[0].isPlaceholder).toBe(true);
+    expect(training.state).not.toBe(state);
+    expect(state.players.opponent.zones.hand[0].isPlaceholder).toBe(true);
+  });
   it("reveals only card instances that were already in hand at the anchor", () => {
     const state = analysisState([
       hiddenCard("anchor-known"),

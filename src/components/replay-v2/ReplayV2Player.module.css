@@ -30,6 +30,13 @@
   background: #02040a;
 }
 
+.trainingShell {
+  position: absolute;
+}
+
+.practiceTransport { display: flex; align-items: center; justify-content: center; gap: 24px; height: 100%; color: #b7cfe3; font-size: 16px; }
+.practiceTransport button { border: 1px solid #36516d; border-radius: 8px; padding: 12px 18px; background: #142a41; display: inline-flex; align-items: center; gap: 8px; }
+
 .casterShell {
   background:
     radial-gradient(circle at 12% 10%, rgba(35, 201, 199, .12), transparent 34%),

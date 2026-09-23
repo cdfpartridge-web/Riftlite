@@ -209,6 +209,10 @@ export type ReplayV2PlayerProps = {
   casterLibraryHref?: string;
   mode?: "viewer" | "caster";
   allowPlayerNameHiding?: boolean;
+  /** Already anonymized and clipped by the trainer. Mount a new key for each position. */
+  trainingReplay?: CanonicalReplayV2;
+  trainingEditable?: boolean;
+  onTrainingStateChange?: (state: ReplayState) => void;
 };
 
 type LoadState =
@@ -327,17 +331,22 @@ export function ReplayV2Player({
   casterLibraryHref = "/meta-studio/caster",
   mode = "viewer",
   allowPlayerNameHiding = false,
+  trainingReplay,
+  trainingEditable = false,
+  onTrainingStateChange,
 }: ReplayV2PlayerProps) {
   const casterMode = mode === "caster";
-  const clipSharingEnabled = apiBasePath === "/api/v2/replays";
-  const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
+  const clipSharingEnabled = !trainingReplay && apiBasePath === "/api/v2/replays";
+  const [loadState, setLoadState] = useState<LoadState>(() => trainingReplay
+    ? { status: "ready", replay: trainingReplay }
+    : { status: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
-  const [currentMs, setCurrentMs] = useState(0);
+  const [currentMs, setCurrentMs] = useState(trainingReplay?.events[0]?.atMs ?? 0);
   const [clipRange, setClipRange] = useState<ReplayClipRange | null>(null);
   const [clipDraft, setClipDraft] = useState<ReplayClipRange | null>(null);
   const [clipStartMarkMs, setClipStartMarkMs] = useState<number | null>(null);
   const [clipEndMarkMs, setClipEndMarkMs] = useState<number | null>(null);
-  const [manualEventIndex, setManualEventIndex] = useState<number | null>(null);
+  const [manualEventIndex, setManualEventIndex] = useState<number | null>(trainingReplay ? 0 : null);
   const [presentation, setPresentation] = useState<PresentationCursor | null>(null);
   const [completedPreludeGameId, setCompletedPreludeGameId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -372,7 +381,15 @@ export function ReplayV2Player({
     status: "none",
     notes: [],
   });
-  const [analysisSession, setAnalysisSession] = useState<ReplayAnalysisSession | null>(null);
+  const [analysisSession, setAnalysisSession] = useState<ReplayAnalysisSession | null>(() =>
+    trainingReplay && trainingEditable
+      ? createReplayAnalysisSession(trainingReplay, 0, seekReplayByEventIndex(trainingReplay, 0).state, { inferFuture: false })
+      : null);
+  const trainingChangeRef = useRef(onTrainingStateChange);
+  useEffect(() => { trainingChangeRef.current = onTrainingStateChange; }, [onTrainingStateChange]);
+  useEffect(() => {
+    if (trainingEditable && analysisSession) trainingChangeRef.current?.(analysisSession.state);
+  }, [analysisSession, trainingEditable]);
   const [analysisSelectedCardId, setAnalysisSelectedCardId] = useState<string | null>(null);
   const [analysisAttachmentCardId, setAnalysisAttachmentCardId] = useState<string | null>(null);
   const [analysisTargetChainEntryId, setAnalysisTargetChainEntryId] =
@@ -448,6 +465,7 @@ export function ReplayV2Player({
   }, []);
 
   useEffect(() => {
+    if (trainingReplay) return;
     const controller = new AbortController();
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const loadReplay = async () => {
@@ -524,7 +542,7 @@ export function ReplayV2Player({
       controller.abort();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [apiBasePath, reloadToken, replayId]);
+  }, [apiBasePath, reloadToken, replayId, trainingEditable, trainingReplay]);
 
   const durationMs = replay ? replayDurationMs(replay) : 1;
   const playbackStartMs = clipRange?.startMs ?? 0;
@@ -553,7 +571,7 @@ export function ReplayV2Player({
   const selectedReplayNote = visibleReplayNotes.find((note) => note.id === selectedReplayNoteId) ?? null;
 
   useEffect(() => {
-    if (!sourceReplay) return;
+    if (!sourceReplay || trainingReplay) return;
     const sharedNotesForLocation = (search: string, hash: string) => {
       const locationSelection = replayLocationSelection(search, durationMs);
       return sharedReplayNotesFromHash(
@@ -637,7 +655,7 @@ export function ReplayV2Player({
       window.removeEventListener("hashchange", syncChangedHash);
       Router.events.off("routeChangeComplete", syncRoutedReplayLocation);
     };
-  }, [durationMs, replayId, sourceReplay]);
+  }, [durationMs, replayId, sourceReplay, trainingReplay]);
 
   const presentationStages = presentation && replay
     ? preludeStagesForGame(replay, presentation.gameIndex)
@@ -927,7 +945,7 @@ export function ReplayV2Player({
       if (!replay) return;
       const gameIndex = Math.min(Math.max(0, requestedIndex), Math.max(0, replay.series.games.length - 1));
       const game = replay.series.games[gameIndex];
-      if (clipRange) {
+      if (clipRange || trainingReplay) {
         setPlaying(false);
         seekTo(game ? replayGamePlaybackStartMs(game) : playbackStartMs, { immediate: true });
         return;
@@ -947,6 +965,7 @@ export function ReplayV2Player({
       replay,
       seekTo,
       setMotionSuppressedBriefly,
+      trainingReplay,
     ],
   );
 
@@ -1027,7 +1046,7 @@ export function ReplayV2Player({
         return;
       }
       if (!replay.events.length) return;
-      if (!clipRange && direction < 0 && state) {
+      if (!trainingReplay && !clipRange && direction < 0 && state) {
         const currentGame = gameForState(replay, state);
         const gameIndex = currentGame
           ? replay.series.games.findIndex((game) => game.id === currentGame.id)
@@ -1060,6 +1079,7 @@ export function ReplayV2Player({
       seekTo,
       setMotionSuppressedBriefly,
       state,
+      trainingReplay,
     ],
   );
 
@@ -1737,6 +1757,8 @@ export function ReplayV2Player({
         void toggleFullscreen();
         return;
       }
+      // Playback shortcuts must not discard a learner's temporary position.
+      if (trainingReplay && trainingEditable) return;
       if (casterMode && keyboardEvent.key.toLowerCase() === "b") {
         keyboardEvent.preventDefault();
         addCasterMoment(true);
@@ -1797,6 +1819,8 @@ export function ReplayV2Player({
     stepTurn,
     toggleFullscreen,
     togglePlayback,
+    trainingEditable,
+    trainingReplay,
   ]);
 
   const shareReplay = useCallback(async () => {
@@ -1882,7 +1906,7 @@ export function ReplayV2Player({
 
   const startAnalysis = useCallback(() => {
     if (
-      casterMode ||
+      casterMode || (trainingReplay && !trainingEditable) ||
       !replay ||
       !knowledgeReplay ||
       !canonicalState ||
@@ -1905,7 +1929,7 @@ export function ReplayV2Player({
     setAnalysisSelectedCardId(null);
     setAnalysisAttachmentCardId(null);
     setAnalysisTargetChainEntryId(null);
-    const session = createReplayAnalysisSession(knowledgeReplay, eventIndex, canonicalState);
+    const session = createReplayAnalysisSession(knowledgeReplay, eventIndex, canonicalState, { inferFuture: !trainingReplay });
     setAnalysisSession(session);
     flashNotice(
       session.inferredCardIds.length
@@ -1924,6 +1948,8 @@ export function ReplayV2Player({
     playbackStartMs,
     replay,
     settleAnimations,
+    trainingReplay,
+    trainingEditable,
   ]);
 
   const toggleAnalysis = useCallback(() => {
@@ -2187,7 +2213,7 @@ export function ReplayV2Player({
 
   return (
     <div
-      className={`${styles.shell} ${embed ? styles.embedShell : ""} ${
+      className={`${styles.shell} ${trainingReplay ? styles.trainingShell : ""} ${embed ? styles.embedShell : ""} ${
         casterMode ? styles.casterShell : ""
       } ${casterClean ? styles.casterClean : ""} ${
         casterClean && casterCursorIdle ? styles.casterCursorHidden : ""
@@ -2265,11 +2291,12 @@ export function ReplayV2Player({
                 speed={speed}
                 state={state}
                 suppressCanonicalOpening={completedPreludeGameId === state.gameId}
+                suppressScenes={Boolean(trainingReplay)}
                 suppressMotion={suppressMotion}
               />
               <InspectorRail
                 activityTab={activityTab}
-                historyDeckControl={!casterMode && !combinedReplay && replay.source.schema === "riftreplay-raw-capture" ? (
+                historyDeckControl={!trainingReplay && !casterMode && !combinedReplay && replay.source.schema === "riftreplay-raw-capture" ? (
                   <ReplayHistoryDeckPanel
                     replayId={replayId}
                     apiBasePath={apiBasePath}
@@ -2278,7 +2305,8 @@ export function ReplayV2Player({
                   />
                 ) : null}
                 allowClipping={clipSharingEnabled}
-                allowNotes={!casterMode}
+                allowNotes={!casterMode && !trainingReplay}
+                allowSharing={!trainingReplay}
                 casterClean={casterMode && casterClean}
                 clipEditorOpen={Boolean(clipDraft)}
                 clipEndMarkMs={clipEndMarkMs}
@@ -2347,6 +2375,7 @@ export function ReplayV2Player({
               ) : null}
               {analysisSession ? (
                 <ReplayAnalysisPanel
+                  training={Boolean(trainingReplay)}
                   attachmentCardId={analysisAttachmentCardId}
                   onAdjustCounter={(cardId, field, delta) => {
                     applyAnalysisOperation({ kind: "adjust_counter", cardId, field, delta });
@@ -2529,7 +2558,8 @@ export function ReplayV2Player({
                 <TransportControls
                   soundControls={<ReplaySoundControls enabled={soundEnabled} volume={soundVolume}
                     onEnabledChange={setSoundEnabled} onVolumeChange={setSoundVolume} />}
-                  allowAnalysis={!casterMode}
+                  practiceOnly={Boolean(trainingReplay && trainingEditable)}
+                  allowAnalysis={!casterMode && (!trainingReplay || trainingEditable)}
                   allowCardsUp={!casterMode && !combinedReplay}
                   analysisActive={Boolean(analysisSession)}
                   bookmarks={casterMode ? casterProject.bookmarks : []}
@@ -2689,6 +2719,7 @@ function ReplayBoard({
   speed,
   state,
   suppressCanonicalOpening,
+  suppressScenes,
   suppressMotion,
 }: {
   analysisActive: boolean;
@@ -2709,6 +2740,7 @@ function ReplayBoard({
   speed: PlaybackSpeed;
   state: ReplayState;
   suppressCanonicalOpening: boolean;
+  suppressScenes: boolean;
   suppressMotion: boolean;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
@@ -2720,7 +2752,7 @@ function ReplayBoard({
   const battlefields = useMemo(() => battlefieldCards(state, players), [players, state]);
   const sharedBattlefield = useMemo(() => sharedBattlefieldCard(state), [state]);
   const canonicalScene = activeScene(replay, state, currentMs);
-  const scene = analysisActive
+  const scene = analysisActive || suppressScenes
     ? null
     : sceneOverride ?? (
         suppressCanonicalOpening && canonicalScene === "opening" ? null : canonicalScene
@@ -5095,6 +5127,7 @@ function InspectorRail({
   historyDeckControl,
   allowClipping,
   allowNotes,
+  allowSharing,
   casterClean,
   clipEditorOpen,
   clipEndMarkMs,
@@ -5134,6 +5167,7 @@ function InspectorRail({
   historyDeckControl?: ReactNode;
   allowClipping: boolean;
   allowNotes: boolean;
+  allowSharing: boolean;
   casterClean: boolean;
   clipEditorOpen: boolean;
   clipEndMarkMs: number | null;
@@ -5230,7 +5264,7 @@ function InspectorRail({
                 onClick={onClip}
               />
             ) : null}
-            <IconButton label="Share replay" name="share" onClick={onShare} />
+            {allowSharing && <IconButton label="Share replay" name="share" onClick={onShare} />}
             <IconButton label={fullscreen ? "Exit player fullscreen" : "Player fullscreen"} name="fullscreen" onClick={onFullscreen} />
             <IconButton label="Keyboard shortcuts" name="help" onClick={onHelp} />
           </div>
@@ -5742,6 +5776,7 @@ function CasterStudioPanel({
 }
 
 function ReplayAnalysisPanel({
+  training = false,
   attachmentCardId,
   onAdjustCounter,
   onAdjustScore,
@@ -5762,6 +5797,7 @@ function ReplayAnalysisPanel({
   session,
   targetChainEntryId,
 }: {
+  training?: boolean;
   attachmentCardId: string | null;
   onAdjustCounter: (cardId: string, field: ReplayAnalysisCounterField, delta: number) => void;
   onAdjustScore: (playerId: string, delta: number) => void;
@@ -5809,18 +5845,18 @@ function ReplayAnalysisPanel({
         <div className={styles.analysisPanelTitle}>
           <span className={styles.analysisPanelMark}><Icon name="spark" /></span>
           <div>
-            <span>Replay analysis</span>
-            <h2>What-if branch</h2>
+            <span>{training ? "Opening practice" : "Replay analysis"}</span>
+            <h2>{training ? "Your line" : "What-if branch"}</h2>
           </div>
         </div>
-        <button aria-label="Return to original replay" onClick={onExit} type="button">
+        {!training && <button aria-label="Return to original replay" onClick={onExit} type="button">
           <Icon name="close" />
-        </button>
+        </button>}
       </header>
 
       <div className={styles.analysisSummary}>
         <div><span>Anchor</span><b>Turn {anchorTurn ?? "—"}</b></div>
-        <div><span>Known later</span><b>{session.inferredCardIds.length}</b></div>
+        {!training && <div><span>Known later</span><b>{session.inferredCardIds.length}</b></div>}
         <div><span>Changed cards</span><b>{changedCards}</b></div>
       </div>
 
@@ -5984,10 +6020,10 @@ function ReplayAnalysisPanel({
         <button disabled={!session.future.length} onClick={onRedo} type="button">
           <Icon name="forward" /> Redo
         </button>
-        <button onClick={onReset} type="button"><Icon name="skipStart" /> Reset branch</button>
-        <button className={styles.analysisReturnButton} onClick={onExit} type="button">
+        <button onClick={onReset} type="button"><Icon name="skipStart" /> {training ? "Reset position" : "Reset branch"}</button>
+        {!training && <button className={styles.analysisReturnButton} onClick={onExit} type="button">
           Return to replay
-        </button>
+        </button>}
       </footer>
     </aside>
   );
@@ -6290,6 +6326,7 @@ function CasterLowerThird({
 }
 
 function TransportControls({
+  practiceOnly = false,
   soundControls,
   allowAnalysis,
   allowCardsUp,
@@ -6340,6 +6377,7 @@ function TransportControls({
   state,
   turns,
 }: {
+  practiceOnly?: boolean;
   soundControls: ReactNode;
   allowAnalysis: boolean;
   allowCardsUp: boolean;
@@ -6396,6 +6434,7 @@ function TransportControls({
   const timelineEndMs = clipRange?.endMs ?? durationMs;
   const timelineDurationMs = Math.max(1, timelineEndMs - timelineStartMs);
   const scoreTimelineTags = useMemo(() => replayScoreTimelineTags(replay), [replay]);
+  if (practiceOnly) return <footer className={styles.transport} aria-label="Practice controls"><div className={styles.practiceTransport}><span>Drag cards to try your line · effects and payments are manual</span><button onClick={onFullscreen} type="button"><Icon name="fullscreen" /> {fullscreen ? "Exit full screen" : "Full screen"}</button></div></footer>;
   return (
     <footer className={styles.transport} aria-label="Replay controls">
       {showMore ? (

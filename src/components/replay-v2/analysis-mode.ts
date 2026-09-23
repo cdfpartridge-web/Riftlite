@@ -91,8 +91,11 @@ export function createReplayAnalysisSession(
   replay: CanonicalReplayV2,
   anchorEventIndex: number,
   anchorState: ReplayState,
+  options: { inferFuture?: boolean } = {},
 ): ReplayAnalysisSession {
-  const { inferredCardIds, state } = revealFutureKnownHandCards(
+  const { inferredCardIds, state } = options.inferFuture === false
+    ? { inferredCardIds: [], state: cloneReplayState(anchorState) }
+    : revealFutureKnownHandCards(
     replay,
     anchorEventIndex,
     anchorState,

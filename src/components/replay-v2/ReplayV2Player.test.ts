@@ -1250,6 +1250,50 @@ describe("ReplayV2Player presentation prelude", () => {
     }
   });
 
+  it("opens training directly in an editable position, preserves hidden knowledge, and reports moves without fetching a replay", async () => {
+    const replay = trainingAnalysisReplay();
+    const onTrainingStateChange = vi.fn();
+    const view = render(createElement(ReplayV2Player, {
+      replayId: "opening-practice", trainingReplay: replay, trainingEditable: true, onTrainingStateChange,
+    }));
+    await waitFor(() => expect(view.container.querySelector("[data-analysis-panel]")).toBeInTheDocument());
+    expect(view.container.querySelector('[data-card-id="opponent-hand"]')).toHaveAccessibleName("Hidden card");
+    expect(view.queryByRole("button", { name: "Play replay" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Share replay" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: /Match decks/ })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Exit analysis mode" })).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+
+    const transferValues = new Map<string, string>();
+    const dataTransfer = { dropEffect: "none", effectAllowed: "none", getData: (type: string) => transferValues.get(type) ?? "", setData: (type: string, value: string) => transferValues.set(type, value) };
+    fireEvent.dragStart(view.container.querySelector('[data-card-id="self-hand"]')!, { dataTransfer });
+    const base = view.container.querySelector('[data-analysis-drop-player-id="self"][data-analysis-drop-zone="base"]')!;
+    fireEvent.dragOver(base, { dataTransfer });
+    fireEvent.drop(base, { dataTransfer });
+    await waitFor(() => expect(onTrainingStateChange.mock.lastCall?.[0].players.self.zones.base.some((c: { id: string }) => c.id === "self-hand")).toBe(true));
+    for (const key of [" ", "ArrowRight", "ArrowLeft", "m"]) fireEvent.keyDown(window, { key });
+    expect(base.querySelector('[data-card-id="self-hand"]')).toBeInTheDocument();
+    expect(view.container.querySelector("[data-analysis-panel]")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await waitFor(() => expect(onTrainingStateChange.mock.lastCall?.[0].players.self.zones.hand.some((c: { id: string }) => c.id === "self-hand")).toBe(true));
+  });
+
+  it("plays a supplied training continuation without exposing sharing, source decks, or editable analysis", async () => {
+    const view = render(createElement(ReplayV2Player, { replayId: "opening-practice", trainingReplay: trainingAnalysisReplay() }));
+    expect(await view.findByRole("button", { name: "Play replay" })).toBeInTheDocument();
+    expect(view.container.querySelector('[data-scene="matchup"]')).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Take control" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Share replay" })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: /Match decks/ })).not.toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "Clip replay" })).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.click(view.getByRole("button", { name: "Replay beginning" }));
+    expect(view.container.querySelector('[data-scene="matchup"]')).not.toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Previous action" }));
+    expect(view.container.querySelector('[data-scene="matchup"]')).not.toBeInTheDocument();
+    expect(view.container.querySelector('[data-card-id="self-hand"]')).toBeInTheDocument();
+  });
+
   it("creates a temporary analysis branch with conservative future-hand knowledge", async () => {
     const replay = futureKnownAnalysisReplay();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
@@ -3566,6 +3610,13 @@ function replayCard(id: string, name: string, cardCode: string, source: string) 
     source,
     fields: { cardCode, name, source },
   };
+}
+
+function trainingAnalysisReplay(): CanonicalReplayV2 {
+  const replay = futureKnownAnalysisReplay();
+  replay.events = replay.events.filter(event => event.kind === "snapshot" || event.kind === "action").map((event, index) => ({ ...event, index, atMs: index * 1000 }));
+  replay.series.games[0].phases = [];
+  return replay;
 }
 
 function futureKnownAnalysisReplay(): CanonicalReplayV2 {
