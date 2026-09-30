@@ -37,6 +37,7 @@ import {
 } from "@/lib/replay-v2";
 import { firebaseClientApp } from "@/lib/firebase/client";
 import { ReplayHistoryDeckPanel } from "./ReplayHistoryDeckPanel";
+import { ReplayArtworkImage } from "./ReplayArtworkImage";
 import { ReplaySoundControls } from "./ReplaySoundControls";
 import { useReplaySounds } from "./use-replay-sounds";
 
@@ -3927,10 +3928,9 @@ function BattlefieldTile({
       type="button"
     >
       {image && !imageFailed ? (
-        // Battlefield scans are portrait files for physically landscape cards.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <ReplayArtworkImage
           alt=""
+          battlefield
           className={flipped ? styles.battlefieldImageFlipped : undefined}
           draggable={false}
           onError={() => setFailedImageKey(imageKey)}
@@ -5081,8 +5081,7 @@ function HoverCardPreview({
       data-hover-card-preview
     >
       <span className={styles.hoverCardPreviewFrame}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img alt="" draggable={false} onError={() => setImageFailed(true)} src={image} />
+        <ReplayArtworkImage alt="" battlefield={battlefield} draggable={false} onError={() => setImageFailed(true)} src={image} />
       </span>
       {isDuplicateCard(card) || labels.length ? (
         <span className={styles.hoverCardTagStack}>
@@ -5316,8 +5315,7 @@ function InspectorRail({
                 data-inspector-art-frame
                 data-inspector-battlefield={inspectedBattlefield ? "true" : undefined}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img alt={inspectedCard ? cardName(inspectedCard) : ""} src={cardImage} />
+                <ReplayArtworkImage alt={inspectedCard ? cardName(inspectedCard) : ""} battlefield={inspectedBattlefield} src={cardImage} />
               </span>
             ) : (
               <><Icon name="card" /><span>Hover a card</span></>
