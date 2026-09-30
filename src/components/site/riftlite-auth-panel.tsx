@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   createUserWithEmailAndPassword,
   getAuth,
@@ -68,6 +69,8 @@ export function RiftLiteAuthPanel({
   description = "Use one RiftLite account for the app, private hubs, Discord, and web replays.",
   discordCompletion = false,
   manageAccount = false,
+  requireActionConfirmation = false,
+  completionLink = { href: "/hubs", label: "Open My Hubs" },
   preferredProvider,
 }: {
   desktopLink?: DesktopLink;
@@ -77,6 +80,8 @@ export function RiftLiteAuthPanel({
   description?: string;
   discordCompletion?: boolean;
   manageAccount?: boolean;
+  requireActionConfirmation?: boolean;
+  completionLink?: { href: string; label: string };
   preferredProvider?: AuthProviderHint;
 }) {
   const auth = useMemo(() => getAuth(firebaseClientApp), []);
@@ -104,6 +109,7 @@ export function RiftLiteAuthPanel({
   const explicitAuthProvider = useRef<AuthProviderHint | null>(null);
   const explicitlySelectedUid = useRef("");
   const observedAuthKey = useRef("");
+  const authGeneration = useRef(0);
   const discordCompletionStarted = useRef(false);
 
   function beginVerificationAction(action: "checking" | "sending") {
@@ -132,12 +138,14 @@ export function RiftLiteAuthPanel({
 
   const loadProfile = useCallback(async (activeUser: User) => {
     if (activeUser.isAnonymous) return null;
+    const generation = authGeneration.current;
     const token = await activeUser.getIdToken(true);
     const response = await fetch("/api/account/profile", {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
     const payload = await response.json() as { profile?: Profile; error?: string };
+    if (generation !== authGeneration.current || auth.currentUser?.uid !== activeUser.uid) return null;
     if (!response.ok || !payload.profile) throw new Error(payload.error ?? "Could not load your RiftLite profile.");
     setProfile(payload.profile);
     setDisplayName(isGeneratedName(payload.profile.displayName) ? activeUser.displayName ?? "" : payload.profile.displayName);
@@ -149,9 +157,10 @@ export function RiftLiteAuthPanel({
     setShowMatchesDraft(payload.profile.showMatches !== false);
     setShowDecksDraft(payload.profile.showDecks !== false);
     return payload.profile;
-  }, []);
+  }, [auth]);
 
   const finishAction = useCallback(async (activeUser: User, activeProfile: Profile) => {
+    if (auth.currentUser?.uid !== activeUser.uid || auth.currentUser.isAnonymous) return;
     if (!activeProfile.profileComplete || actionUid.current === activeUser.uid) return;
     if (manageAccount) return;
     if (requiresDesktopEmailVerification(activeUser)) {
@@ -160,6 +169,9 @@ export function RiftLiteAuthPanel({
       return;
     }
     actionUid.current = activeUser.uid;
+    const generation = authGeneration.current;
+    const isCurrentAction = () => generation === authGeneration.current
+      && auth.currentUser?.uid === activeUser.uid && !auth.currentUser.isAnonymous;
     if (!onReady) {
       setFinished(true);
       return;
@@ -168,17 +180,19 @@ export function RiftLiteAuthPanel({
     setMessage(`${actionLabel}...`);
     try {
       const result = await onReady(activeUser);
+      if (!isCurrentAction()) return;
       setFinished(true);
       setMessage(result?.message || "Done.");
     } catch (error) {
+      if (!isCurrentAction()) return;
       actionUid.current = "";
       setMessage(friendlyAuthError(error));
     } finally {
-      setBusy(false);
+      if (isCurrentAction()) setBusy(false);
     }
-  }, [actionLabel, manageAccount, onReady, requiresDesktopEmailVerification]);
+  }, [actionLabel, auth, manageAccount, onReady, requiresDesktopEmailVerification]);
 
-  const shouldFinishProfile = useCallback((activeUser: User, activeProfile: Profile) => !requiresDesktopEmailVerification(activeUser) && (
+  const shouldFinishProfile = useCallback((activeUser: User, activeProfile: Profile) => !requireActionConfirmation && !requiresDesktopEmailVerification(activeUser) && (
     shouldAutomaticallyFinishAccountAction(
       Boolean(desktopLink),
       activeProfile.profileComplete,
@@ -190,7 +204,7 @@ export function RiftLiteAuthPanel({
       explicitlySelectedUid.current === activeUser.uid &&
       actionUid.current !== activeUser.uid
     )
-  ), [desktopLink, requiresDesktopEmailVerification]);
+  ), [desktopLink, requireActionConfirmation, requiresDesktopEmailVerification]);
 
   useEffect(() => {
     if (!desktopLink || !discordCompletion || discordCompletionStarted.current) return;
@@ -234,13 +248,18 @@ export function RiftLiteAuthPanel({
       : "signed-out";
     if (observedAuthKey.current !== nextAuthKey) {
       observedAuthKey.current = nextAuthKey;
+      authGeneration.current++;
+      if (actionUid.current || !explicitAuthPending.current) {
+        actionUid.current = "";
+        setBusy(false);
+        setMessage("");
+      }
       setProfile(null);
       setFinished(false);
       setVerificationUser(null);
       if (!(nextUser && explicitAuthPending.current && explicitAuthProvider.current === "email")) {
         endVerificationAction();
       }
-      if (actionUid.current && actionUid.current !== nextUser?.uid) actionUid.current = "";
     }
     setUser(nextUser);
     if (nextUser && !nextUser.isAnonymous) {
@@ -253,17 +272,21 @@ export function RiftLiteAuthPanel({
         setMessage("Verify your email before linking this desktop.");
         return;
       }
+      const generation = authGeneration.current;
       void loadProfile(nextUser)
         .then((nextProfile) => (
           nextProfile && shouldFinishProfile(nextUser, nextProfile)
             ? finishAction(nextUser, nextProfile)
             : undefined
         ))
-        .catch((error) => setMessage(friendlyAuthError(error)));
+        .catch((error) => {
+          if (generation === authGeneration.current && auth.currentUser?.uid === nextUser.uid) setMessage(friendlyAuthError(error));
+        });
     }
   }), [auth, desktopLink, finishAction, loadProfile, requiresDesktopEmailVerification, shouldFinishProfile]);
 
   async function googleSignIn() {
+    let generation: number | undefined;
     explicitAuthPending.current = true;
     explicitAuthProvider.current = "google";
     explicitlySelectedUid.current = "";
@@ -273,9 +296,11 @@ export function RiftLiteAuthPanel({
       await signInWithPopup(auth, new GoogleAuthProvider());
       const activeUser = auth.currentUser;
       if (!activeUser || activeUser.isAnonymous) throw new Error("Google sign in did not finish.");
+      generation = authGeneration.current;
       explicitlySelectedUid.current = activeUser.uid;
       explicitAuthPending.current = false;
       const nextProfile = await loadProfile(activeUser);
+      if (generation !== authGeneration.current) return;
       if (nextProfile && shouldFinishProfile(activeUser, nextProfile)) {
         await finishAction(activeUser, nextProfile);
       } else {
@@ -284,6 +309,7 @@ export function RiftLiteAuthPanel({
           : "Almost done — choose the name other players will see.");
       }
     } catch (error) {
+      if (generation !== undefined && generation !== authGeneration.current) return;
       explicitAuthPending.current = false;
       if (!auth.currentUser || auth.currentUser.isAnonymous) {
         explicitlySelectedUid.current = "";
@@ -291,11 +317,12 @@ export function RiftLiteAuthPanel({
       }
       setMessage(friendlyAuthError(error));
     } finally {
-      setBusy(false);
+      if (generation === undefined || generation === authGeneration.current) setBusy(false);
     }
   }
 
   async function emailAuth(create: boolean) {
+    let generation: number | undefined;
     explicitAuthPending.current = true;
     explicitAuthProvider.current = "email";
     explicitlySelectedUid.current = "";
@@ -310,6 +337,7 @@ export function RiftLiteAuthPanel({
       }
       const activeUser = auth.currentUser;
       if (!activeUser || activeUser.isAnonymous) throw new Error("Email sign in did not finish.");
+      generation = authGeneration.current;
       explicitlySelectedUid.current = activeUser.uid;
       explicitAuthPending.current = false;
       if (requiresDesktopEmailVerification(activeUser)) {
@@ -317,9 +345,10 @@ export function RiftLiteAuthPanel({
         if (create) {
           try {
             await sendVerificationEmailWithTimeout(activeUser);
+            if (generation !== authGeneration.current) return;
             setMessage(`Verification email sent to ${activeUser.email || email}. Open it, then return here.`);
           } finally {
-            endVerificationAction();
+            if (generation === authGeneration.current) endVerificationAction();
           }
         } else {
           setMessage(`Verify ${activeUser.email || email} before linking this desktop. Send a new verification email below if you need one.`);
@@ -328,6 +357,7 @@ export function RiftLiteAuthPanel({
       }
       if (create) endVerificationAction();
       const nextProfile = await loadProfile(activeUser);
+      if (generation !== authGeneration.current) return;
       if (nextProfile && shouldFinishProfile(activeUser, nextProfile)) {
         await finishAction(activeUser, nextProfile);
       } else {
@@ -336,6 +366,7 @@ export function RiftLiteAuthPanel({
           : "Almost done — choose the name other players will see.");
       }
     } catch (error) {
+      if (generation !== undefined && generation !== authGeneration.current) return;
       if (create) endVerificationAction();
       explicitAuthPending.current = false;
       if (!auth.currentUser || auth.currentUser.isAnonymous) {
@@ -344,12 +375,13 @@ export function RiftLiteAuthPanel({
       }
       setMessage(friendlyAuthError(error));
     } finally {
-      setBusy(false);
+      if (generation === undefined || generation === authGeneration.current) setBusy(false);
     }
   }
 
   async function saveProfile() {
     if (!user || user.isAnonymous) return;
+    const generation = authGeneration.current;
     const cleanName = displayName.trim();
     const cleanHandle = handle.trim().replace(/^@+/, "");
     if (!cleanName || isGeneratedName(cleanName)) {
@@ -380,15 +412,19 @@ export function RiftLiteAuthPanel({
         }),
       });
       const payload = await response.json() as { profile?: Profile; error?: string };
+      if (generation !== authGeneration.current || auth.currentUser?.uid !== user.uid) return;
       if (!response.ok || !payload.profile) throw new Error(payload.error ?? "Could not save your profile.");
       setProfile(payload.profile);
       const shouldFinish = shouldFinishProfile(user, payload.profile);
-      setMessage(shouldFinish ? "Profile ready." : "Profile saved. Confirm this is the account you want to link.");
+      setMessage(shouldFinish ? "Profile ready." : desktopLink
+        ? "Profile saved. Confirm this is the account you want to link."
+        : "Profile saved. Confirm your account before continuing.");
       if (shouldFinish) await finishAction(user, payload.profile);
     } catch (error) {
+      if (generation !== authGeneration.current) return;
       setMessage(friendlyAuthError(error));
     } finally {
-      setBusy(false);
+      if (generation === authGeneration.current) setBusy(false);
     }
   }
 
@@ -450,6 +486,7 @@ export function RiftLiteAuthPanel({
   }
 
   async function signOutForAccountSwitch() {
+    if (busy && actionUid.current) return;
     explicitAuthPending.current = false;
     explicitAuthProvider.current = null;
     explicitlySelectedUid.current = "";
@@ -464,7 +501,7 @@ export function RiftLiteAuthPanel({
       <Card className="mx-auto max-w-xl space-y-4 p-6">
         <CardTitle>{readyTitle}</CardTitle>
         <CardDescription>{message || `Signed in as ${profile?.displayName || user?.displayName || "RiftLite user"}.`}</CardDescription>
-        <Button asChild><a href="/hubs">Open My Hubs</a></Button>
+        <Button asChild><Link href={completionLink.href}>{completionLink.label}</Link></Button>
       </Card>
     );
   }
@@ -514,7 +551,7 @@ export function RiftLiteAuthPanel({
         <label className="grid gap-2 text-sm text-slate-300">Unique handle
           <input className="social-input" value={handle} onChange={(event) => { setHandleEdited(true); setHandle(event.target.value); }} placeholder="your-handle" />
         </label>
-        <Button disabled={busy} onClick={() => void saveProfile()}>{busy ? "Saving..." : actionLabel}</Button>
+        <Button disabled={busy} onClick={() => void saveProfile()}>{busy ? "Saving..." : requireActionConfirmation ? "Save profile" : actionLabel}</Button>
         {message ? <p className="text-sm text-cyan-200">{message}</p> : null}
       </Card>
     );
@@ -563,7 +600,7 @@ export function RiftLiteAuthPanel({
             <Button disabled={busy} onClick={() => void saveProfile()}>{busy ? "Saving..." : "Save changes"}</Button>
             {profile.publicProfile && profile.handle ? <Button asChild variant="secondary"><a href={`/user/${encodeURIComponent(profile.handle)}`}>Open public profile</a></Button> : null}
             <Button asChild variant="secondary"><a href="/hubs">My Hubs</a></Button>
-            <Button variant="secondary" onClick={() => void signOutForAccountSwitch()}>Sign out</Button>
+            <Button disabled={busy} variant="secondary" onClick={() => void signOutForAccountSwitch()}>Sign out</Button>
           </div>
           {message ? <p className="text-sm text-cyan-200">{message}</p> : null}
         </Card>
@@ -577,17 +614,19 @@ export function RiftLiteAuthPanel({
     };
     return (
       <Card className="mx-auto max-w-xl space-y-4 p-6" data-desktop-link-confirmation={desktopLink ? "true" : undefined}>
-        <CardTitle>{desktopLink ? "Link this desktop account?" : readyTitle}</CardTitle>
+        <CardTitle>{desktopLink ? "Link this desktop account?" : requireActionConfirmation ? `${actionLabel}?` : readyTitle}</CardTitle>
         <CardDescription>
           {desktopLink
             ? `Confirm that ${accountIdentityLabel(identity)} is the account this desktop should use.`
             : `Signed in as ${accountIdentityLabel(identity)}.`}
         </CardDescription>
-        {desktopLink ? (
+        {desktopLink || requireActionConfirmation ? (
           <div className="rounded-xl border border-amber-300/20 bg-amber-300/[0.05] p-4 text-sm text-slate-300">
             <p><strong className="text-white">Email:</strong> {identity.email || "Not supplied by provider"}</p>
-            <p className="mt-1"><strong className="text-white">Account ID:</strong> {accountIdHint(identity.uid)}</p>
-            <p className="mt-2 text-xs text-amber-100/80">New replay uploads, private hubs, Discord verification, and device sync will use this account.</p>
+            {desktopLink ? <p className="mt-1"><strong className="text-white">Account ID:</strong> {accountIdHint(identity.uid)}</p> : null}
+            <p className="mt-2 text-xs text-amber-100/80">{desktopLink
+              ? "New replay uploads, private hubs, Discord verification, and device sync will use this account."
+              : "Check that this is the same RiftLite account you use in the desktop app and for Discord verification."}</p>
           </div>
         ) : null}
         <Button disabled={busy} onClick={() => void finishAction(user, profile)}>
@@ -597,7 +636,7 @@ export function RiftLiteAuthPanel({
               ? `Link this desktop as @${profile.handle}`
               : actionLabel}
         </Button>
-        <Button variant="secondary" onClick={() => void signOutForAccountSwitch()}>Use a different account</Button>
+        <Button disabled={busy} variant="secondary" onClick={() => void signOutForAccountSwitch()}>Use a different account</Button>
         {message ? <p className="text-sm text-cyan-200">{message}</p> : null}
       </Card>
     );

@@ -139,7 +139,7 @@ describe("Sideboard Lab aggregate", () => {
       schema: "riftlite-sideboard-lab-pack",
       query: { resolved: { scope: "exact-deck", sharedCards: 40 } },
       source: {
-        cardRegistryPrints: 1180,
+        cardRegistryPrints: registryData.sourceRegistryPrints,
         formatPolicy: {
           observedRulesEpoch: "unknown",
           currentReference: {

@@ -219,12 +219,13 @@ export async function completeDiscordVerification(code: string, uid: string, pro
 
   const config = await getDiscordGuildConfig(completed.guildId);
   let roleAssigned = false;
-  const roleRequiresHubMembership = Boolean(config?.verifiedRoleId)
+  const hubMembershipRequired = Boolean(config?.hubId)
     && !await assertDiscordHubCapability(config!.hubId, uid, "view").then(() => true).catch(() => false);
+  const roleRequiresHubMembership = Boolean(config?.verifiedRoleId) && hubMembershipRequired;
   if (config?.verifiedRoleId && !roleRequiresHubMembership) {
     roleAssigned = await assignDiscordRole(completed.guildId, completed.discordUserId, config.verifiedRoleId).then(() => true).catch(() => false);
   }
-  return { link: completed.link, roleAssigned, configuredRole: Boolean(config?.verifiedRoleId), roleRequiresHubMembership };
+  return { link: completed.link, roleAssigned, configuredRole: Boolean(config?.verifiedRoleId), hubMembershipRequired, roleRequiresHubMembership };
 }
 
 export async function getLinkedRiftLiteUid(guildId: string, discordUserId: string) {

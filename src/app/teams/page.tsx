@@ -33,6 +33,7 @@ export default async function TeamsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Button asChild><Link href="/account/teams">My Teams &amp; invitations</Link></Button>
             <Button asChild variant="secondary">
               <Link href="/download">Create in Desktop</Link>
             </Button>
@@ -43,7 +44,7 @@ export default async function TeamsPage() {
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <FeatureCard
           title="Public or private"
-          body="Public teams get profile pages. Private teams stay inside RiftLite for closed testing groups."
+          body="Public teams get profile pages. Private teams stay hidden from the directory and welcome members by invitation."
         />
         <FeatureCard
           title="Applications and roles"

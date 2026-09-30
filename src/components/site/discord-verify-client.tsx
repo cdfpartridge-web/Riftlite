@@ -12,12 +12,16 @@ export function DiscordVerifyClient({ code }: { code: string }) {
       headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
     });
-    const payload = await response.json() as { error?: string; roleAssigned?: boolean; configuredRole?: boolean; roleRequiresHubMembership?: boolean };
+    const payload = await response.json() as { error?: string; roleAssigned?: boolean; configuredRole?: boolean; hubMembershipRequired?: boolean; roleRequiresHubMembership?: boolean };
     if (!response.ok) throw new Error(payload.error ?? "Discord verification failed.");
+    if (payload.hubMembershipRequired || payload.roleRequiresHubMembership) {
+      const roleMessage = payload.configuredRole || payload.roleRequiresHubMembership
+        ? " Then run /verify again to receive the testing role." : "";
+      return { message: `Discord verified. To use this server's hub commands, join its private RiftLite hub with the same RiftLite account you used here. Ask a hub admin for a fresh invitation.${roleMessage}` };
+    }
     if (payload.roleAssigned) return { message: "Discord verified and your testing role was assigned." };
-    if (payload.roleRequiresHubMembership) return { message: "Discord verified. Join this server's private RiftLite hub, then run /verify again to receive the testing role." };
     if (payload.configuredRole) return { message: "Discord verified. Ask an admin to check the bot role position if your role is missing." };
-    return { message: "Discord verified. This server has not configured an automatic role yet." };
+    return { message: "Discord verified. No automatic role is configured for this server; a role is optional." };
   }
 
   return (

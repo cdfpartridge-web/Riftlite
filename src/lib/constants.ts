@@ -105,6 +105,12 @@ export const DEFAULT_FILTERS: CommunityFilterParams = {
 };
 
 export const LEGENDS = [
+  "Ekko",
+  "Ziggs",
+  "Orianna",
+  "K'Sante",
+  "Seraphine",
+  "Jarvan IV",
   "Ahri",
   "Akali",
   "Ambessa",
@@ -158,6 +164,14 @@ export const LEGENDS = [
 ] as const;
 
 export const LEGEND_ALIASES = {
+  "boywhoshatteredtime": "Ekko",
+  "hexplosivesexpert": "Ziggs",
+  "ladyofclockwork": "Orianna",
+  "prideofnazumah": "K'Sante",
+  "starryeyedsongstress": "Seraphine",
+  "exemplarofdemacia": "Jarvan IV",
+  ksante: "K'Sante",
+  jarvaniv: "Jarvan IV",
   victor: "Viktor",
   viktor: "Viktor",
   hiddenweapon: "Akali",
@@ -197,6 +211,11 @@ export const LEGEND_ALIASES = {
 } as const;
 
 export const BATTLEFIELDS = [
+  "Cosmic Vista",
+  "Durand Memorial",
+  "Packed Amphitheater",
+  "Rakelstake",
+  "Ruined Monastery",
   "Aspirant's Climb",
   "Altar to Unity",
   "Back-Alley Bar",

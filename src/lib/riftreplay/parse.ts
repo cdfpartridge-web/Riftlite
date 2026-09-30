@@ -1,3 +1,4 @@
+import radiancePreview from "@/lib/cards/radiance-preview.json";
 import type {
   RawReplayMessage,
   ReplayCard,
@@ -38,6 +39,11 @@ const ZONE_LABELS: Record<string, string> = {
 };
 
 const KNOWN_CARD_CODES_BY_NAME: Record<string, string> = {
+  cosmicvista: "RAD-160",
+  durandmemorial: "RAD-161",
+  packedamphitheater: "RAD-164",
+  rakelstake: "RAD-165",
+  ruinedmonastery: "RAD-166",
   altartounity: "OGN-275",
   aspirantsclimb: "OGN-276",
   amateurrecital: "UNL-207",
@@ -956,7 +962,8 @@ function normalizeImageUrl(value: string) {
 
 function imageUrlFromCardCode(code?: string) {
   if (!code) return undefined;
-  return `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp`;
+  const preview = (radiancePreview.cards as Record<string, { imageUrl: string }>)[code.toUpperCase().replace(/\*$/, "S")];
+  return preview?.imageUrl || `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp`;
 }
 
 function cardCodeFromLoose(value: unknown) {

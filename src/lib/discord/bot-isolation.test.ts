@@ -88,9 +88,52 @@ describe("Discord server and private hub isolation", () => {
       return "admin";
     });
     await expect(completeDiscordVerification("VERIFY123", "outside-account", { displayName: "Player" }))
-      .resolves.toMatchObject({ roleAssigned: false, configuredRole: true, roleRequiresHubMembership: true });
+      .resolves.toMatchObject({ roleAssigned: false, configuredRole: true, hubMembershipRequired: true, roleRequiresHubMembership: true });
     expect(mocks.role).not.toHaveBeenCalled();
     expect(fake.docs.get("discordLinks/guild-a_discord-a")?.uid).toBe("outside-account");
+  });
+
+  it.each([true, false])("reports hub membership even without an automatic role (member: %s)", async (isMember) => {
+    const fake = database({
+      "hubs/hub-a": { role_mode: "account" },
+      "discordGuildConfigs/guild-a": config(),
+      "discordVerificationSessions/VERIFY123": { status: "pending", guildId: "guild-a", discordUserId: "discord-a", expiresAt: Date.now() + 60_000 },
+    });
+    mocks.db.mockReturnValue(fake.db);
+    mocks.capability.mockImplementation(async (_hub, _uid, capability) => {
+      if (capability === "view" && !isMember) throw new Error("Not a member");
+      return "admin";
+    });
+    const discordFetch = vi.fn();
+    vi.stubGlobal("fetch", discordFetch);
+
+    await expect(completeDiscordVerification("VERIFY123", "verifying-account", { displayName: "Player" }))
+      .resolves.toMatchObject({
+        roleAssigned: false,
+        configuredRole: false,
+        hubMembershipRequired: !isMember,
+        roleRequiresHubMembership: false,
+      });
+    expect(mocks.capability).toHaveBeenCalledWith("hub-a", "verifying-account", "view");
+    expect(fake.docs.get("discordLinks/guild-a_discord-a")?.uid).toBe("verifying-account");
+    expect(fake.docs.get("users/verifying-account")?.discordLinked).toBe(true);
+    expect(mocks.role).not.toHaveBeenCalled();
+    expect(discordFetch).not.toHaveBeenCalled();
+  });
+
+  it("still verifies an account when the server has no configured private hub", async () => {
+    const fake = database({
+      "discordVerificationSessions/VERIFY123": { status: "pending", guildId: "guild-a", discordUserId: "discord-a", expiresAt: Date.now() + 60_000 },
+    });
+    mocks.db.mockReturnValue(fake.db);
+
+    await expect(completeDiscordVerification("VERIFY123", "verifying-account", { displayName: "Player" }))
+      .resolves.toMatchObject({
+        roleAssigned: false, configuredRole: false, hubMembershipRequired: false, roleRequiresHubMembership: false,
+      });
+    expect(fake.docs.get("discordLinks/guild-a_discord-a")?.uid).toBe("verifying-account");
+    expect(mocks.capability).not.toHaveBeenCalled();
+    expect(mocks.role).not.toHaveBeenCalled();
   });
 
   it.each(["relinked", "missing"])("rejects a completed verification retry with a %s current guild link before granting a role", async (state) => {
@@ -136,7 +179,7 @@ describe("Discord server and private hub isolation", () => {
     vi.stubEnv("DISCORD_COMMUNITY_BOT_TOKEN", "synthetic-test-token");
 
     await expect(completeDiscordVerification("VERIFY123", "current-account", { displayName: "New Attempted Name" }))
-      .resolves.toMatchObject({ link: currentLink, roleAssigned: true });
+      .resolves.toMatchObject({ link: currentLink, roleAssigned: true, hubMembershipRequired: false, roleRequiresHubMembership: false });
     expect(fake.writes).toEqual([]);
     expect(fake.docs.get("discordLinks/guild-a_discord-a")).toEqual(currentLink);
     expect(discordFetch).toHaveBeenCalledExactlyOnceWith(

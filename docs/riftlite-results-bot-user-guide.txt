@@ -14,7 +14,7 @@ Choose your server and authorise. You need Manage Server permission. The bot doe
 /setup hub_id:YOUR_HUB_ID reports_channel:#testing-results
 You must own or co-own that RiftLite hub and have Discord Manage Server. Each hub connects to one Discord server. Use a separate hub for another server.
 
-5. Invite players through the hub's Create invite button, or privately share its name and password. Each player joins the hub and runs /verify in this server with their own RiftLite account.
+5. Use the hub's Create invite button for each player, preferably addressed to their RiftLite handle. Each invitation link is single-use. The player checks the account shown, chooses Join private hub, then runs /verify in this server with the SAME RiftLite account.
 
 Optional: add verified_role to /setup. Grant the bot Manage Roles and put its role above a basic member role. Join the hub before verifying to receive this role. A role alone does not grant access to hub results.
 
@@ -39,4 +39,4 @@ Results commands require verification and current membership of this server's co
 
 Optional replay sharing: open Review > Web Replays in the app, enable capture/upload for your platform and select this hub under Discord sharing. Future completed replays can then appear in the reports channel. Older replays are not automatically backfilled. Shared replays become Unlisted: anyone with the link can watch, including someone it is forwarded to. Turn off that destination to stop future sharing.
 
-Missing results? Ask an admin to check /status; check your hub's Sync switch, your RiftLite account and that the match reached the hub. Replace an expired verification link by running /verify again. For a missing optional role, check hub membership, Manage Roles and the bot's role position. Admins should remove Discord roles/channel access when offboarding players.
+Missing results? Ask an admin to check /status; check your hub's Sync switch, your RiftLite account and that the match reached the hub. If a hub invite was already used but My Hubs is empty, ask for a fresh invite addressed to your handle. Discord verification does not join the hub. Replace an expired verification link by running /verify again. For a missing optional role, check hub membership, Manage Roles and the bot's role position. Admins should remove Discord roles/channel access when offboarding players.

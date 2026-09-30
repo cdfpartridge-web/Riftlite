@@ -25,6 +25,12 @@ function riftAtlasLegendImageUrl(cardCode: string): string {
 }
 
 const LEGEND_IMAGE_OVERRIDES: Record<string, string> = {
+  "Ekko": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/8ca3ef446631784ce1d261e30f6a163843ffcb2b-744x1039.png?accountingTag=RB",
+  "Ziggs": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/69899f4d5e05ff0a060b9f38894cd77f9e17d195-744x1039.png?accountingTag=RB",
+  "Orianna": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/d1f940425d4d913d8f56c017254343bc898f4892-744x1039.png?accountingTag=RB",
+  "K'Sante": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/190a27bf844fa21105824efc19de4e71c3137df6-744x1039.png?accountingTag=RB",
+  "Seraphine": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/399262205b15aa3b6306eb1d80a308791dcbe2ca-744x1039.png?accountingTag=RB",
+  "Jarvan IV": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/e85c005f938e44655f926bb406a47359ae51ecc1-744x1039.png?accountingTag=RB",
   ...Object.fromEntries(Object.entries(RIFTATLAS_LEGEND_CARD_CODES).map(([legend, cardCode]) => [
     legend,
     riftAtlasLegendImageUrl(cardCode),

@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const firebaseHarness = vi.hoisted(() => ({
@@ -114,6 +114,110 @@ describe("RiftLite desktop account sign in", () => {
     expect(firebaseHarness.signInWithPopup).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/auth/link/bootstrap"))).toBe(false);
     expect(view.queryByRole("heading", { name: "Link this desktop account?" })).not.toBeInTheDocument();
+  });
+
+  it("requires the opted-in action confirmation even after a fresh sign-in and profile save", async () => {
+    const account = testUser("new-hub-account");
+    let profile = incompleteProfile(account.uid);
+    mockProfileFetch(() => profile, () => {
+      profile = completeProfile(account.uid);
+      return profile;
+    });
+    firebaseHarness.signInWithPopup.mockImplementation(async () => {
+      firebaseHarness.auth.currentUser = account;
+      firebaseHarness.listener?.(account);
+      return { user: account };
+    });
+    const onReady = vi.fn(async () => ({ message: "Joined." }));
+    const view = render(createElement(RiftLiteAuthPanel, {
+      actionLabel: "Join private hub",
+      requireActionConfirmation: true,
+      onReady,
+    }));
+    fireEvent.click(view.getByRole("button", { name: "Continue with Google" }));
+    await view.findByRole("heading", { name: "Choose your RiftLite name" });
+    fireEvent.change(view.getByPlaceholderText("Name other players will see"), { target: { value: "BMU" } });
+    fireEvent.change(view.getByPlaceholderText("your-handle"), { target: { value: "bmu" } });
+    fireEvent.click(view.getByRole("button", { name: "Save profile" }));
+
+    await view.findByRole("heading", { name: "Join private hub?" });
+    expect(onReady).not.toHaveBeenCalled();
+    expect(view.getByText(/Signed in as BMU \(@bmu\)/)).toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Join private hub" }));
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+  });
+
+  it.each(["success", "failure"])("ignores stale action %s after an external account switch without clearing the new action", async (outcome) => {
+    const first = testUser("first-account");
+    const second = testUser("second-account");
+    firebaseHarness.auth.currentUser = first;
+    mockProfileFetch(() => ({
+      ...completeProfile((firebaseHarness.auth.currentUser as TestUser).uid),
+      displayName: (firebaseHarness.auth.currentUser as TestUser).uid === first.uid ? "First Player" : "Second Player",
+    }));
+    const previous = deferred<{ message: string }>();
+    const current = deferred<{ message: string }>();
+    const onReady = vi.fn((activeUser: { uid: string }) => activeUser.uid === first.uid ? previous.promise : current.promise);
+    const view = render(createElement(RiftLiteAuthPanel, {
+      actionLabel: "Join team", requireActionConfirmation: true, onReady, readyTitle: "Team membership confirmed",
+    }));
+    await view.findByRole("heading", { name: "Join team?" });
+    fireEvent.click(view.getByRole("button", { name: "Join team" }));
+    expect(view.getByRole("button", { name: "Use a different account" })).toBeDisabled();
+    await act(async () => {
+      firebaseHarness.auth.currentUser = second;
+      firebaseHarness.listener?.(second);
+    });
+    await view.findByText("Signed in as Second Player (@bmu).");
+    expect(view.getByRole("button", { name: "Join team" })).toBeEnabled();
+    expect(view.queryByText("Join team...")).not.toBeInTheDocument();
+    fireEvent.click(view.getByRole("button", { name: "Join team" }));
+    await act(async () => {
+      if (outcome === "success") previous.resolve({ message: "First Player joined." });
+      else previous.reject(new Error("First Player request failed."));
+    });
+    expect(view.queryByText("First Player joined.")).not.toBeInTheDocument();
+    expect(view.queryByText("First Player request failed.")).not.toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Team membership confirmed" })).not.toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Join team..." })).toBeDisabled();
+    expect(view.getByRole("button", { name: "Use a different account" })).toBeDisabled();
+    await act(async () => current.resolve({ message: "Second Player joined." }));
+    await view.findByRole("heading", { name: "Team membership confirmed" });
+    expect(view.getByText("Second Player joined.")).toBeInTheDocument();
+    expect(onReady).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reuse an old action completion after signing out and back into the same account", async () => {
+    const account = testUser("returning-account");
+    firebaseHarness.auth.currentUser = account;
+    mockProfileFetch(completeProfile(account.uid));
+    const previous = deferred<{ message: string }>();
+    const onReady = vi.fn(() => previous.promise);
+    const view = render(createElement(RiftLiteAuthPanel, { actionLabel: "Join team", requireActionConfirmation: true, onReady }));
+    await view.findByRole("heading", { name: "Join team?" });
+    fireEvent.click(view.getByRole("button", { name: "Join team" }));
+    await act(async () => {
+      firebaseHarness.auth.currentUser = null;
+      firebaseHarness.listener?.(null);
+    });
+    await view.findByRole("heading", { name: "Create or sign in" });
+    await act(async () => {
+      firebaseHarness.auth.currentUser = account;
+      firebaseHarness.listener?.(account);
+    });
+    await view.findByRole("heading", { name: "Join team?" });
+    await act(async () => previous.resolve({ message: "Old action completed." }));
+    expect(view.queryByText("Old action completed.")).not.toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Join team" })).toBeEnabled();
+  });
+
+  it("keeps automatic completion for existing non-desktop flows unless confirmation is requested", async () => {
+    const account = testUser("automatic-flow-account");
+    firebaseHarness.auth.currentUser = account;
+    mockProfileFetch(completeProfile(account.uid));
+    const onReady = vi.fn(async () => ({ message: "Verified." }));
+    render(createElement(RiftLiteAuthPanel, { actionLabel: "Verify Discord", onReady }));
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
   });
 
   it("expands hinted email sign-in and auto-completes after a new profile is saved", async () => {
@@ -493,4 +597,11 @@ function jsonResponse(payload: unknown, status = 200) {
     headers: { "content-type": "application/json" },
     status,
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }

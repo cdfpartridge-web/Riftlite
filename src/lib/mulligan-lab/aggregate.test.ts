@@ -1,3 +1,4 @@
+import registryData from "@/lib/mulligan-lab/card-registry-v1.json";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -174,7 +175,7 @@ describe("Mulligan Lab observed-data aggregate", () => {
       },
       source: {
         includedPeriods: ["preseason", "current-season"],
-        cardRegistryPrints: 1180,
+        cardRegistryPrints: registryData.sourceRegistryPrints,
       },
     });
     expect(pack?.drills[0].context?.curve).toMatchObject({

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-13T08:58:20.672Z",
-  "sourceRegistryPrints": 1180,
+  "generatedAt": "2026-09-30T07:29:48.381Z",
+  "sourceRegistryPrints": 1277,
   "cards": {
     "OGN-001": {
       "basePrintId": "OGN-001",
@@ -3010,6 +3010,710 @@
       "supertype": "Signature",
       "costEnergy": 5,
       "costPower": 1
+    },
+    "RAD-001": {
+      "basePrintId": "RAD-001",
+      "name": "Amateur Demolitionist",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
+    "RAD-002": {
+      "basePrintId": "RAD-002",
+      "name": "Banner of Conquest",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 1,
+      "costPower": 1
+    },
+    "RAD-003": {
+      "basePrintId": "RAD-003",
+      "name": "Bilgewater Tracker",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
+    "RAD-012": {
+      "basePrintId": "RAD-012",
+      "name": "Runeblade Anvil",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 1,
+      "costPower": 0
+    },
+    "RAD-013": {
+      "basePrintId": "RAD-013",
+      "name": "Lost to the Sand",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 1
+    },
+    "RAD-023": {
+      "basePrintId": "RAD-023",
+      "name": "Ziggs, Short-Fused",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-023A": {
+      "basePrintId": "RAD-023",
+      "name": "Ziggs, Short-Fused",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-024": {
+      "basePrintId": "RAD-024",
+      "name": "Blossoming Dreamroot",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
+    "RAD-033": {
+      "basePrintId": "RAD-033",
+      "name": "Command: Attack",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 1,
+      "costPower": 1
+    },
+    "RAD-034": {
+      "basePrintId": "RAD-034",
+      "name": "Hunker Down",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 1,
+      "costPower": 0
+    },
+    "RAD-035": {
+      "basePrintId": "RAD-035",
+      "name": "Invigorating Bloom",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
+    "RAD-038": {
+      "basePrintId": "RAD-038",
+      "name": "Ahri, Confident",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-045": {
+      "basePrintId": "RAD-045",
+      "name": "K'Sante, Dauntless",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-045A": {
+      "basePrintId": "RAD-045",
+      "name": "K'Sante, Dauntless",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-046": {
+      "basePrintId": "RAD-046",
+      "name": "Resplendent Rostrum",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 8,
+      "costPower": 1
+    },
+    "RAD-055": {
+      "basePrintId": "RAD-055",
+      "name": "Clanging Sentry",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
+    "RAD-056": {
+      "basePrintId": "RAD-056",
+      "name": "Improvised Projectile",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 1
+    },
+    "RAD-059": {
+      "basePrintId": "RAD-059",
+      "name": "Supernova",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 9,
+      "costPower": 1
+    },
+    "RAD-061": {
+      "basePrintId": "RAD-061",
+      "name": "Ekko, Ingenious",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 3,
+      "costPower": 0
+    },
+    "RAD-061A": {
+      "basePrintId": "RAD-061",
+      "name": "Ekko, Ingenious",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 3,
+      "costPower": 0
+    },
+    "RAD-063": {
+      "basePrintId": "RAD-063",
+      "name": "Kai'Sa, Rebel",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-067": {
+      "basePrintId": "RAD-067",
+      "name": "Clocktower Guardian",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 8,
+      "costPower": 2
+    },
+    "RAD-068": {
+      "basePrintId": "RAD-068",
+      "name": "Orianna, Mechanical Marvel",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 0
+    },
+    "RAD-068A": {
+      "basePrintId": "RAD-068",
+      "name": "Orianna, Mechanical Marvel",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 0
+    },
+    "RAD-069": {
+      "basePrintId": "RAD-069",
+      "name": "Zero Point Inflection",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 9,
+      "costPower": 2
+    },
+    "RAD-070": {
+      "basePrintId": "RAD-070",
+      "name": "Hold 'Em",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
+    "RAD-073": {
+      "basePrintId": "RAD-073",
+      "name": "Pillaged Armory",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 1,
+      "costPower": 0
+    },
+    "RAD-081": {
+      "basePrintId": "RAD-081",
+      "name": "Elnuk Herd",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 6,
+      "costPower": 0
+    },
+    "RAD-082": {
+      "basePrintId": "RAD-082",
+      "name": "Primordial Roar",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 2
+    },
+    "RAD-083": {
+      "basePrintId": "RAD-083",
+      "name": "Stalwart Goatherd",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 0
+    },
+    "RAD-086": {
+      "basePrintId": "RAD-086",
+      "name": "K'Sante, Courageous",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 0
+    },
+    "RAD-086A": {
+      "basePrintId": "RAD-086",
+      "name": "K'Sante, Courageous",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 0
+    },
+    "RAD-090": {
+      "basePrintId": "RAD-090",
+      "name": "Evelynn, Consuming",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-090A": {
+      "basePrintId": "RAD-090",
+      "name": "Evelynn, Consuming",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-093": {
+      "basePrintId": "RAD-093",
+      "name": "Disposal Expert",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 0
+    },
+    "RAD-095": {
+      "basePrintId": "RAD-095",
+      "name": "Momentary Companion",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 0
+    },
+    "RAD-096": {
+      "basePrintId": "RAD-096",
+      "name": "Satchel Charge",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 1
+    },
+    "RAD-105": {
+      "basePrintId": "RAD-105",
+      "name": "Reckless Innovator",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
+    "RAD-106": {
+      "basePrintId": "RAD-106",
+      "name": "The Good Stuff",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 1
+    },
+    "RAD-115": {
+      "basePrintId": "RAD-115",
+      "name": "Transpositionist",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 6,
+      "costPower": 0
+    },
+    "RAD-116": {
+      "basePrintId": "RAD-116",
+      "name": "Concert Poster",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 1,
+      "costPower": 0
+    },
+    "RAD-125": {
+      "basePrintId": "RAD-125",
+      "name": "Dune Devourer",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 7,
+      "costPower": 1
+    },
+    "RAD-126": {
+      "basePrintId": "RAD-126",
+      "name": "Mournful Spirit",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 0
+    },
+    "RAD-127": {
+      "basePrintId": "RAD-127",
+      "name": "Rousing Display",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 5,
+      "costPower": 0
+    },
+    "RAD-132": {
+      "basePrintId": "RAD-132",
+      "name": "Heimerdinger, Academy Instructor",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 6,
+      "costPower": 1
+    },
+    "RAD-136": {
+      "basePrintId": "RAD-136",
+      "name": "Dockside Lock-Up",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 6,
+      "costPower": 2
+    },
+    "RAD-137": {
+      "basePrintId": "RAD-137",
+      "name": "Mordekaiser, Dominating",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 9,
+      "costPower": 2
+    },
+    "RAD-137A": {
+      "basePrintId": "RAD-137",
+      "name": "Mordekaiser, Dominating",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 9,
+      "costPower": 2
+    },
+    "RAD-138": {
+      "basePrintId": "RAD-138",
+      "name": "Seraphine, Not Alone",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-138A": {
+      "basePrintId": "RAD-138",
+      "name": "Seraphine, Not Alone",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-139": {
+      "basePrintId": "RAD-139",
+      "name": "Ekko, Boy Who Shattered Time",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-140": {
+      "basePrintId": "RAD-140",
+      "name": "Chronobreak",
+      "type": "Spell",
+      "supertype": "Signature",
+      "costEnergy": 2,
+      "costPower": 0
+    },
+    "RAD-141": {
+      "basePrintId": "RAD-141",
+      "name": "Ziggs, Hexplosives Expert",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-142": {
+      "basePrintId": "RAD-142",
+      "name": "Hexplosive Minefield",
+      "type": "Spell",
+      "supertype": "Signature",
+      "costEnergy": 2,
+      "costPower": 1
+    },
+    "RAD-145": {
+      "basePrintId": "RAD-145",
+      "name": "Orianna, Lady of Clockwork",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-147": {
+      "basePrintId": "RAD-147",
+      "name": "K'Sante, Pride of Nazumah",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-148": {
+      "basePrintId": "RAD-148",
+      "name": "Ntofo Strikes",
+      "type": "Spell",
+      "supertype": "Signature",
+      "costEnergy": 2,
+      "costPower": 1
+    },
+    "RAD-150": {
+      "basePrintId": "RAD-150",
+      "name": "Blade of the Exile",
+      "type": "Gear",
+      "supertype": "Signature",
+      "costEnergy": 3,
+      "costPower": 1
+    },
+    "RAD-151": {
+      "basePrintId": "RAD-151",
+      "name": "Seraphine, Starry-Eyed Songstress",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-155": {
+      "basePrintId": "RAD-155",
+      "name": "Jarvan IV, Exemplar of Demacia",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-156": {
+      "basePrintId": "RAD-156",
+      "name": "Demacian Standard",
+      "type": "Gear",
+      "supertype": "Signature",
+      "costEnergy": 2,
+      "costPower": 1
+    },
+    "RAD-160": {
+      "basePrintId": "RAD-160",
+      "name": "Cosmic Vista",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-161": {
+      "basePrintId": "RAD-161",
+      "name": "Durand Memorial",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-164": {
+      "basePrintId": "RAD-164",
+      "name": "Packed Amphitheater",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-165": {
+      "basePrintId": "RAD-165",
+      "name": "Rakelstake",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-166": {
+      "basePrintId": "RAD-166",
+      "name": "Ruined Monastery",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-167": {
+      "basePrintId": "RAD-167",
+      "name": "Neeko, Blending In",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 6,
+      "costPower": 1
+    },
+    "RAD-169": {
+      "basePrintId": "RAD-169",
+      "name": "Ziggs, Hexplosives Expert",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-169*": {
+      "basePrintId": "RAD-169",
+      "name": "Ziggs, Hexplosives Expert",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-171": {
+      "basePrintId": "RAD-171",
+      "name": "Orianna, Lady of Clockwork",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-171*": {
+      "basePrintId": "RAD-171",
+      "name": "Orianna, Lady of Clockwork",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-172": {
+      "basePrintId": "RAD-172",
+      "name": "K'Sante, Pride of Nazumah",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-174": {
+      "basePrintId": "RAD-174",
+      "name": "Seraphine, Starry-Eyed Songstress",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-174*": {
+      "basePrintId": "RAD-174",
+      "name": "Seraphine, Starry-Eyed Songstress",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-176": {
+      "basePrintId": "RAD-176",
+      "name": "Jarvan IV, Exemplar of Demacia",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-178": {
+      "basePrintId": "RAD-178",
+      "name": "K'Sante, Courageous",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 0
+    },
+    "RAD-179": {
+      "basePrintId": "RAD-179",
+      "name": "Aphelios, Exalted",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-180": {
+      "basePrintId": "RAD-180",
+      "name": "Ezreal, Dashing",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-181": {
+      "basePrintId": "RAD-181",
+      "name": "Yone, Blademaster",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-182": {
+      "basePrintId": "RAD-182",
+      "name": "Kayn, Unleashed",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 6,
+      "costPower": 1
+    },
+    "RAD-183": {
+      "basePrintId": "RAD-183",
+      "name": "Sett, Kingpin",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-R02": {
+      "basePrintId": "RAD-R02",
+      "name": "Calm Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-R02A": {
+      "basePrintId": "RAD-R02",
+      "name": "Calm Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-R03": {
+      "basePrintId": "RAD-R03",
+      "name": "Mind Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-R03A": {
+      "basePrintId": "RAD-R03",
+      "name": "Mind Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-SP4": {
+      "basePrintId": "RAD-SP4",
+      "name": "Kai'Sa, Rebel",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-SP5": {
+      "basePrintId": "RAD-SP5",
+      "name": "Seraphine, Not Alone",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-T02": {
+      "basePrintId": "RAD-T02",
+      "name": "Bomb",
+      "type": "Gear",
+      "supertype": "Token",
+      "costEnergy": 0,
+      "costPower": 0
     },
     "SFD-001": {
       "basePrintId": "SFD-001",
@@ -9275,7 +9979,23 @@
       "costEnergy": null,
       "costPower": null
     },
+    "VEN-189*": {
+      "basePrintId": "VEN-189",
+      "name": "Akali, Rogue Assassin",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "VEN-190": {
+      "basePrintId": "VEN-190",
+      "name": "Renekton, Butcher of the Sands",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "VEN-190*": {
       "basePrintId": "VEN-190",
       "name": "Renekton, Butcher of the Sands",
       "type": "Legend",
@@ -9291,7 +10011,23 @@
       "costEnergy": null,
       "costPower": null
     },
+    "VEN-191*": {
+      "basePrintId": "VEN-191",
+      "name": "Zed, Master of Shadows",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "VEN-192": {
+      "basePrintId": "VEN-192",
+      "name": "Nasus, Curator of the Sands",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "VEN-192*": {
       "basePrintId": "VEN-192",
       "name": "Nasus, Curator of the Sands",
       "type": "Legend",
@@ -9307,7 +10043,23 @@
       "costEnergy": null,
       "costPower": null
     },
+    "VEN-193*": {
+      "basePrintId": "VEN-193",
+      "name": "Shen, Eye of Twilight",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "VEN-194": {
+      "basePrintId": "VEN-194",
+      "name": "Jayce, Defender of Tomorrow",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "VEN-194*": {
       "basePrintId": "VEN-194",
       "name": "Jayce, Defender of Tomorrow",
       "type": "Legend",
@@ -9323,6 +10075,14 @@
       "costEnergy": null,
       "costPower": null
     },
+    "VEN-195*": {
+      "basePrintId": "VEN-195",
+      "name": "Mel, Soul's Reflection",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "VEN-196": {
       "basePrintId": "VEN-196",
       "name": "Ambessa, Matriarch of War",
@@ -9331,7 +10091,23 @@
       "costEnergy": null,
       "costPower": null
     },
+    "VEN-196*": {
+      "basePrintId": "VEN-196",
+      "name": "Ambessa, Matriarch of War",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "VEN-197": {
+      "basePrintId": "VEN-197",
+      "name": "Kennen, Heart of the Tempest",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "VEN-197*": {
       "basePrintId": "VEN-197",
       "name": "Kennen, Heart of the Tempest",
       "type": "Legend",

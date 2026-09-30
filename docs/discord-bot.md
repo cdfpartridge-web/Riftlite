@@ -1,6 +1,6 @@
 # RiftLite Results Bot
 
-Updated 10 September 2026. Application ID: `1524708623790510241` (previously RB Uk Testing). This is the private-hub results bot, separate from RiftLite's LFG applications.
+Updated 29 September 2026. Application ID: `1524708623790510241` (previously RB Uk Testing). This is the private-hub results bot, separate from RiftLite's LFG applications.
 
 ## What server owners install
 
@@ -18,7 +18,9 @@ The plain-text, two-message Discord guide is [riftlite-results-bot-user-guide.tx
 2. Run `/verify` inside the Discord server, open the private link and sign in with the same recoverable RiftLite account used in the app. Finish the player profile if prompted. Links expire after 15 minutes and must not be shared.
 3. Copy the hub ID from Private Hubs → Copy ID, or find it at https://www.riftlite.com/hubs.
 4. A Discord member with Manage Server and owner/co-owner permission in that hub runs `/setup hub_id:YOUR_HUB_ID reports_channel:#testing-results`.
-5. Invite players to the hub. They join, verify in this server and sync their chosen matches to the hub from RiftLite Desktop.
+5. Create a separate hub invitation for each player, preferably addressed to their RiftLite handle. Invitation links are single-use. Players check the account shown on the link, choose **Join private hub**, verify in this server with that same account and sync their chosen matches from RiftLite Desktop.
+
+If a link says it has already been used but the player's My Hubs is empty, request a fresh invitation addressed to that player's handle. The link's accepted status does not prove the current viewer joined. Discord verification links an account; it does not add hub membership, and an automatic Discord role is optional. Before the September invitation fix, simply previewing a generic hub invite while signed in could consume it for the previewer's account.
 
 A private hub connects to one Discord server. Another server needs a separate hub. Administrators can use `/disconnect` to remove the connection without deleting results, account links or goal history, then configure a new connection. A server with an ambiguous legacy mapping fails closed until its administrators resolve it.
 

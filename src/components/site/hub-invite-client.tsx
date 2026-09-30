@@ -30,8 +30,9 @@ export function HubInviteClient({ invite }: { invite: HubInviteSummary }) {
       headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ inviteId: invite.inviteId }),
     });
-    const payload = await response.json() as { error?: string; hub?: { name?: string } };
+    const payload = await response.json() as { error?: string; alreadyMember?: boolean; hub?: { name?: string } };
     if (!response.ok) throw new Error(payload.error ?? "Could not accept this invite.");
+    if (payload.alreadyMember) return { message: `Your account is already a member of ${payload.hub?.name ?? invite.hubName}. Open My Hubs to view it.` };
     return { message: `You joined ${payload.hub?.name ?? invite.hubName}. It will appear in RiftLite automatically after refresh.` };
   }
 
@@ -45,16 +46,23 @@ export function HubInviteClient({ invite }: { invite: HubInviteSummary }) {
           </CardDescription>
         </div>
         {invite.targetHandle ? <p className="rounded-2xl border border-cyan-300/20 bg-cyan-300/8 px-4 py-3 text-sm text-cyan-100">Reserved for @{invite.targetHandle}</p> : null}
-        {expired ? <p className="text-sm text-amber-200">This invite expired. Ask for a fresh link.</p> : null}
-        {closed ? <p className="text-sm text-slate-300">This invite is already {invite.status}.</p> : null}
-        <Button asChild variant="secondary"><a href="/download">Download RiftLite</a></Button>
+        {canAccept ? <p className="text-sm text-slate-300">This invite can be used by one new member. Check your account, then choose Join private hub. Ask the admin for a separate invite for each player.</p> : null}
+        {expired && !closed ? <p className="text-sm text-amber-200">This invite expired. Ask the hub admin for a fresh invite addressed to your RiftLite handle.</p> : null}
+        {closed ? <p className="text-sm text-slate-300">{invite.status === "accepted"
+          ? "This single-use invite has already been used. That does not mean your current account joined the hub. Check My Hubs, or ask the admin for a fresh invite addressed to your RiftLite handle."
+          : "This invite is no longer available. Ask the hub admin for a fresh invite addressed to your RiftLite handle."}</p> : null}
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="secondary"><a href="/hubs">Open My Hubs</a></Button>
+          <Button asChild variant="secondary"><a href="/download">Download RiftLite</a></Button>
+        </div>
       </Card>
       {canAccept ? (
         <RiftLiteAuthPanel
           actionLabel="Join private hub"
-          description="Sign in or create your RiftLite account. If you are new, choose your player name and the invite will finish automatically."
+          description="Sign in with the same RiftLite account you use in the desktop app and for Discord. You will confirm your account before joining."
           onReady={acceptInvite}
-          readyTitle={`Welcome to ${invite.hubName}`}
+          requireActionConfirmation
+          readyTitle={`Your membership in ${invite.hubName}`}
         />
       ) : null}
     </div>

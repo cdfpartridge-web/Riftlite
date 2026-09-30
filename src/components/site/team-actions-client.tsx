@@ -8,6 +8,7 @@ import {
 } from "firebase/auth";
 
 import { RiftLiteAuthPanel } from "@/components/site/riftlite-auth-panel";
+import { TeamInviteManager } from "@/components/site/team-invite-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { LEGENDS } from "@/lib/constants";
@@ -42,9 +43,20 @@ type TeamMember = {
   role: "owner" | "admin" | "member";
 };
 
-export function TeamActionsClient({ slug, recruitmentStatus }: { teamId: string; slug: string; recruitmentStatus: string }) {
+type TeamActionsProps = { teamId: string; slug: string; recruitmentStatus: string };
+
+export function TeamActionsClient(props: TeamActionsProps) {
   const auth = useMemo(() => getAuth(firebaseClientApp), []);
   const [user, setUser] = useState<User | null>(null);
+  useEffect(() => onAuthStateChanged(auth, (nextUser) => setUser(nextUser?.isAnonymous ? null : nextUser)), [auth]);
+  if (!user) {
+    return <RiftLiteAuthPanel actionLabel="Join the conversation" description="Create or sign in once, choose your RiftLite name, and continue to this team automatically." readyTitle="Team tools are ready" />;
+  }
+  return <AuthenticatedTeamActions key={`${user.uid}:${props.slug}`} {...props} user={user} />;
+}
+
+function AuthenticatedTeamActions({ slug, recruitmentStatus, user }: TeamActionsProps & { user: User }) {
+  const auth = useMemo(() => getAuth(firebaseClientApp), []);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -56,7 +68,6 @@ export function TeamActionsClient({ slug, recruitmentStatus }: { teamId: string;
   const [myRole, setMyRole] = useState<"" | "owner" | "admin" | "member">("");
   const [members, setMembers] = useState<TeamMember[]>([]);
 
-  useEffect(() => onAuthStateChanged(auth, setUser), [auth]);
   useEffect(() => {
     if (user) {
       void loadTeamTools();
@@ -68,7 +79,7 @@ export function TeamActionsClient({ slug, recruitmentStatus }: { teamId: string;
   }, [user, slug]);
 
   async function token() {
-    if (!auth.currentUser) throw new Error("Sign in first.");
+    if (!auth.currentUser || auth.currentUser.uid !== user.uid) throw new Error("Your account changed. Please try again.");
     return auth.currentUser.getIdToken();
   }
 
@@ -253,10 +264,6 @@ export function TeamActionsClient({ slug, recruitmentStatus }: { teamId: string;
     }
   }
 
-  if (!user) {
-    return <RiftLiteAuthPanel actionLabel="Join the conversation" description="Create or sign in once, choose your RiftLite name, and continue to this team automatically." readyTitle="Team tools are ready" />;
-  }
-
   const canManage = myRole === "owner" || myRole === "admin";
   const canPromoteAdmins = myRole === "owner";
   const application = applications[0] ?? null;
@@ -271,6 +278,7 @@ export function TeamActionsClient({ slug, recruitmentStatus }: { teamId: string;
               <CardDescription className="mt-2">Review applications, assign admins, remove inactive members, and moderate posts.</CardDescription>
             </div>
             <div className="grid gap-3">
+              <TeamInviteManager key={`${user.uid}:${slug}`} user={user} teamId={slug} />
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
                 <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Applications</div>
                 {applications.length ? (
@@ -335,8 +343,8 @@ export function TeamActionsClient({ slug, recruitmentStatus }: { teamId: string;
               <p className="rounded-2xl border border-cyan-300/20 bg-cyan-300/8 px-4 py-3 text-sm text-cyan-100">
                 Your application is {application.status}.
               </p>
-            ) : recruitmentStatus === "closed" ? (
-              <p className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">Recruitment is currently closed.</p>
+            ) : recruitmentStatus !== "open" ? (
+              <p className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">{recruitmentStatus === "invite-only" ? "This team is invite only. Ask an owner or admin for an invitation, then check My Teams." : "Recruitment is currently closed."}</p>
             ) : (
               <>
                 <textarea className="social-input min-h-28" onChange={(event) => setApplicationMessage(event.target.value)} placeholder="Tell the team what you are looking for..." value={applicationMessage} />

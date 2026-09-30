@@ -1,3 +1,4 @@
+import radiancePreview from "@/lib/cards/radiance-preview.json";
 import type {
   CanonicalReplayV2,
   JsonObject,
@@ -41,6 +42,7 @@ const OFFICIAL_CARD_IMAGE_ASSETS: Record<string, string> = {
   "VEN-197S": "853681913bcd2a2e2b42217e290b530b72518142-744x1039.png",
 };
 const RIFT_ATLAS_TOKEN_IMAGE_URLS: Record<string, string> = {
+  bomb: radiancePreview.cards["RAD-T02"].imageUrl,
   bird: "https://play.riftatlas.com/tokens/Bird.webp",
   gold: "https://play.riftatlas.com/tokens/Gold.webp",
   mech: "https://play.riftatlas.com/tokens/Mech.webp",
@@ -85,6 +87,11 @@ const NON_BOARD_ZONE_ALIASES = [
   "unknown",
 ];
 const BATTLEFIELD_CARD_CODES: Record<string, string> = {
+  cosmicvista: "RAD-160",
+  durandmemorial: "RAD-161",
+  packedamphitheater: "RAD-164",
+  rakelstake: "RAD-165",
+  ruinedmonastery: "RAD-166",
   abandonedhall: "UNL-205",
   acedemy: "UNL-216",
   altarofblood: "UNL-206",
@@ -468,6 +475,13 @@ export function cardImageUrl(card: ReplayCardState | undefined): string | undefi
     cardCodeFromValue(direct) ||
     cardCodeFromValue(card.id) ||
     cardCodeFromValue(card.name);
+  const previewArt = sourceCode && (radiancePreview.cards as Record<string, { imageUrl: string }>)[sourceCode]?.imageUrl;
+  if (previewArt) {
+    // Preserve captured preview/promotional artwork; use audited art when Atlas has not mirrored a print yet.
+    const captured = safeCardImageUrl(direct);
+    return captured && /^https:\/\/(?:cdn\.piltoverarchive\.com|cmsassets\.rgpub\.io)\//i.test(captured)
+      ? captured : previewArt;
+  }
   const exactArt = exactCardArtUrl(sourceCode);
   if (exactArt) return exactArt;
   const tokenImage = riftAtlasTokenImageUrl(card, direct);
@@ -498,7 +512,8 @@ function canonicalCardArtCode(
 }
 
 function publicCardImageUrl(code: string): string {
-  return `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp`;
+  return (radiancePreview.cards as Record<string, { imageUrl: string }>)[code]?.imageUrl
+    || `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp`;
 }
 
 function exactCardArtUrl(code: string | undefined): string | undefined {
@@ -559,6 +574,8 @@ export function safeCardImageUrl(value: string | undefined): string | undefined 
 
 export function cardCodeFromValue(value: string | undefined): string | undefined {
   if (!value) return undefined;
+  try { value = decodeURIComponent(value); } catch { /* Keep malformed legacy URLs readable. */ }
+  value = value.replace(/-star(?=[^a-z]|$)/gi, "*");
   const match = value.match(
     /\b([A-Z]{2,5}-(?:(?:SP|T)\d{1,3}|R\d{1,3}[A-Z]?|\d{1,4}(?:[A-Z]|\*)?))(?![A-Z0-9*])/i,
   );

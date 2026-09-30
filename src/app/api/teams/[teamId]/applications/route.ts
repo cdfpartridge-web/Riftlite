@@ -39,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tea
   const snap = await resolveTeamRef(auth.db, teamId);
   if (!snap) return socialJson({ error: "Team not found." }, 404);
   const team = snap.data() ?? {};
-  if (String(team.recruitmentStatus ?? "open") === "closed") {
+  if (cleanTeamVisibility(team.visibility) === "private" || String(team.recruitmentStatus ?? "open") !== "open") {
     return socialJson({ error: "This team is not currently accepting applications." }, 400);
   }
   const memberRole = await assertTeamRole(snap.id, auth.decoded.uid, ["owner", "admin", "member"]).catch(() => "");
