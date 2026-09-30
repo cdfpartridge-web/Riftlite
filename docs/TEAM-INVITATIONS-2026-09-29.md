@@ -1,6 +1,6 @@
 # Team invitations — 29 September 2026
 
-Implemented locally. Website, database indexes and desktop installers have not been published. Desktop remains v0.9.78. These are Team invitations; they do not add Private Hub membership or Discord permissions.
+Website and both required database indexes were published on 30 September 2026; see the [web release receipt](./WEB-RELEASE-2026-09-30.md). Desktop changes are included in v0.9.79, with installer status recorded in the desktop release receipt. These are Team invitations; they do not add Private Hub membership or Discord permissions. The validation details below retain the original 29 September local checkpoint.
 
 ## User flow
 

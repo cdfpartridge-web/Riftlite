@@ -1,6 +1,6 @@
 # Private hub invitation confirmation
 
-Status: implemented and validated locally; not deployed. No desktop version change is required.
+Status: published on 30 September 2026. See the [web release receipt](./WEB-RELEASE-2026-09-30.md). The dated implementation and validation details below describe the original local checkpoint.
 
 ## Problem
 
