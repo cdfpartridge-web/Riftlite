@@ -110,6 +110,20 @@ describe("private hub replay delivery", () => {
     expect(prepare).not.toHaveBeenCalled();
   });
 
+  it("retries a repaired destination without reposting the successful hub from a partial attempt", async () => {
+    configsMock.mockImplementation(async (hubId: string) => hubId === "hub-a" ? [config()] : []);
+    const first = await share(undefined, ["hub-a", "hub-b"]);
+    expect(first).toEqual([{ hubId: "hub-a", status: "shared" }, { hubId: "hub-b", status: "not-configured" }]);
+    const otherConfig = { guildId: OTHER_GUILD, hubId: "hub-b", reportsChannelId: CHANNEL, updatedAt: 8 };
+    documents.set("hubs/hub-b", { discordGuildId: OTHER_GUILD });
+    documents.set(`discordGuildConfigs/${OTHER_GUILD}`, otherConfig);
+    configsMock.mockImplementation(async (hubId: string) => [hubId === "hub-a" ? config() : otherConfig]);
+    postMock.mockClear();
+    expect(await share(undefined, ["hub-a", "hub-b"])).toEqual([{ hubId: "hub-a", status: "already-shared" }, { hubId: "hub-b", status: "shared" }]);
+    expect(postMock).toHaveBeenCalledOnce();
+    expect(postMock).toHaveBeenCalledWith(expect.objectContaining({ hubId: "hub-b", guildId: OTHER_GUILD }));
+  });
+
   it("retains an in-progress claim and retries a failed post with the same nonce", async () => {
     postMock.mockRejectedValueOnce(new Error("Discord unavailable"));
     await share();

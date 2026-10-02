@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import preview from "@/lib/cards/radiance-preview.json";
+import { mulliganCardMetadata } from "@/lib/mulligan-lab/registry";
 import { BATTLEFIELDS, LEGENDS } from "@/lib/constants";
 import { getLegendCardImageUrl } from "@/lib/legends";
+import { parseRiftReplayPayload } from "@/lib/riftreplay/parse";
 import type { ReplayCardState } from "@/lib/replay-v2";
 import { cardCodeFromValue, cardImageUrl, isBattlefieldCard } from "./model";
 
@@ -10,8 +12,28 @@ const card = (name: string, code?: string, imageUrl?: string): ReplayCardState =
 });
 
 describe("Radiance preview replay rendering", () => {
+  it.each(["Lost to the Sand", "Lost to the Sands"])("renders name-only %s captures without classifying the spell as a battlefield", (name) => {
+    expect(cardImageUrl(card(name))).toBe(preview.cards["RAD-013"].imageUrl);
+    expect(isBattlefieldCard(card(name))).toBe(false);
+    expect(cardImageUrl({ ...card(name), isPlaceholder: true })).toBeUndefined();
+
+    const replay = parseRiftReplayPayload({ messages: [{ parsed: {
+      type: "authoritative_snapshot",
+      snapshot: { players: [{ id: "self", board: { hand: [name] } }] },
+    } }] });
+    expect(replay.players[0].zones[0].cards[0]).toMatchObject({
+      name, code: "RAD-013", imageUrl: preview.cards["RAD-013"].imageUrl,
+    });
+  });
+
+  it("keeps captured preview art and exact collector codes ahead of the historical name alias", () => {
+    const captured = "https://cdn.piltoverarchive.com/temporary/captured-preview.png";
+    expect(cardImageUrl(card("Lost to the Sand", undefined, captured))).toBe(captured);
+    expect(cardImageUrl(card("Lost to the Sand", "RAD-004"))).toBe(preview.cards["RAD-004"].imageUrl);
+  });
+
   it("renders all revealed collector prints without relying on an Atlas mirror", () => {
-    expect(Object.keys(preview.cards)).toHaveLength(88);
+    expect(Object.keys(preview.cards)).toHaveLength(110);
     for (const [code, data] of Object.entries(preview.cards)) {
       expect(cardImageUrl(card(data.name, code, `/cards/${code}.webp`)), code).toBe(data.imageUrl);
       if (data.type === "Battlefield") {
@@ -19,11 +41,29 @@ describe("Radiance preview replay rendering", () => {
         expect(isBattlefieldCard(card(data.name)), data.name).toBe(true);
         expect(cardImageUrl(card(data.name))).toBe(data.imageUrl);
         expect(BATTLEFIELDS).toContain(data.name);
+        const legacy = parseRiftReplayPayload({ messages: [{ parsed: {
+          type: "authoritative_snapshot",
+          snapshot: { players: [{ id: "self", board: { battlefield: [data.name] } }] },
+        } }] });
+        expect(legacy.players[0].zones[0].cards[0].imageUrl, `${code} legacy name`).toBe(data.imageUrl);
       }
       if (data.type === "Legend") {
         expect(LEGENDS).toContain(data.champion);
-        expect(getLegendCardImageUrl(data.champion!)).toMatch(/^https:\/\/cmsassets\.rgpub\.io\//);
+        expect(Object.values(preview.cards).some((print) => (
+          print.type === "Legend" && print.champion === data.champion &&
+          print.imageUrl === getLegendCardImageUrl(data.champion!)
+        )), data.champion!).toBe(true);
       }
+    }
+  });
+
+  it("recognises every preview print in the training registry with the same audited identity", () => {
+    for (const [code, data] of Object.entries(preview.cards)) {
+      expect(mulliganCardMetadata(code.replace(/S$/, "*")), code).toMatchObject({
+        name: data.name,
+        type: data.type,
+        supertype: data.supertype,
+      });
     }
   });
 

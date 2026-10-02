@@ -80,6 +80,22 @@ describe("TCGA raw capture validation", () => {
 });
 
 describe("normalizeTcgaReplayRawCaptureV1", () => {
+  it.each([
+    ["RAD-SP3", "RAD-SP3"],
+    ["rad-r04a", "RAD-R04A"],
+    ["RAD-168*", "RAD-168*"],
+    ["RAD-SP3-not-a-code", undefined],
+  ])("preserves the exact revealed print %s without accepting arbitrary identifiers", (sourceCode, expectedCode) => {
+    const input = JSON.parse(JSON.stringify(fixture(), (key, value) => (
+      key === "id" && value === "OGN-012" ? sourceCode : value
+    ))) as TcgaReplayRawCaptureV1;
+    const replay = normalizeTcgaReplayRawCaptureV1(input, { replayId: "tcga_radiance_print" });
+    const state = projectReplayState(replay);
+    const hand = state.players[replay.series.perspectivePlayerId!].zones.hand;
+    expect(hand.find((entry) => entry.name === "Local Visible Hand")?.cardCode).toBe(expectedCode);
+    expect(inspectTcgaCanonicalReplay(input, replay)).toEqual({ integrityIssues: [], privacyIssues: [] });
+  });
+
   it("deterministically produces a playable snapshot/log replay with an unresolved result", () => {
     const first = normalizeTcgaReplayRawCaptureV1(fixture(), { replayId: "tcga_fixture" });
     const second = normalizeTcgaReplayRawCaptureV1(fixture(), { replayId: "tcga_fixture" });

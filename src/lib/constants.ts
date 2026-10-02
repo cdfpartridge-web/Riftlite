@@ -105,6 +105,7 @@ export const DEFAULT_FILTERS: CommunityFilterParams = {
 };
 
 export const LEGENDS = [
+  "Mordekaiser",
   "Ekko",
   "Ziggs",
   "Orianna",
@@ -164,6 +165,7 @@ export const LEGENDS = [
 ] as const;
 
 export const LEGEND_ALIASES = {
+  "ironrevenant": "Mordekaiser",
   "boywhoshatteredtime": "Ekko",
   "hexplosivesexpert": "Ziggs",
   "ladyofclockwork": "Orianna",
@@ -211,6 +213,9 @@ export const LEGEND_ALIASES = {
 } as const;
 
 export const BATTLEFIELDS = [
+  "Bandle Scouts' Academy",
+  "Black Market",
+  "Hunter's Circle",
   "Cosmic Vista",
   "Durand Memorial",
   "Packed Amphitheater",

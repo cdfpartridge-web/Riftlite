@@ -1,4 +1,5 @@
 import radiancePreview from "@/lib/cards/radiance-preview.json";
+import { CARD_NAME_CODE_ALIASES } from "@/lib/cards/name-aliases";
 import type {
   CanonicalReplayV2,
   JsonObject,
@@ -87,6 +88,9 @@ const NON_BOARD_ZONE_ALIASES = [
   "unknown",
 ];
 const BATTLEFIELD_CARD_CODES: Record<string, string> = {
+  bandlescoutsacademy: "RAD-157",
+  blackmarket: "RAD-158",
+  hunterscircle: "RAD-163",
   cosmicvista: "RAD-160",
   durandmemorial: "RAD-161",
   packedamphitheater: "RAD-164",
@@ -474,7 +478,8 @@ export function cardImageUrl(card: ReplayCardState | undefined): string | undefi
     cardCodeFromValue(card.cardCode) ||
     cardCodeFromValue(direct) ||
     cardCodeFromValue(card.id) ||
-    cardCodeFromValue(card.name);
+    cardCodeFromValue(card.name) ||
+    CARD_NAME_CODE_ALIASES[normalizeKey(card.name)];
   const previewArt = sourceCode && (radiancePreview.cards as Record<string, { imageUrl: string }>)[sourceCode]?.imageUrl;
   if (previewArt) {
     // Preserve captured preview/promotional artwork; use audited art when Atlas has not mirrored a print yet.

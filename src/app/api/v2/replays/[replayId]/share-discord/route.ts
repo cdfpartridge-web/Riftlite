@@ -8,6 +8,7 @@ import {
   readReplayDiscordRequestReceipt,
   writeReplayDiscordRequestReceipt,
 } from "@/lib/discord/replay-share-request";
+import { ReviewedReplayResultSchema, replayWithReviewedDiscordResult } from "@/lib/discord/replay-reviewed-result";
 import { isDiscordReplayResultResolved } from "@/lib/discord/replay-share";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2";
 import { normalizeReplayProviderCapture } from "@/lib/replay-v2/provider-normalization";
@@ -19,6 +20,7 @@ import {
   readBoundedJson,
   readCanonicalReplay,
   readOwnerRawReplay,
+  readOwnerReplayVisibility,
   replayApiError,
   requireReplayUser,
   updateReplayVisibility,
@@ -29,6 +31,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const ShareSchema = z.object({
+  retryDelivery: z.boolean().optional(),
+  reviewedResult: ReviewedReplayResultSchema.optional(),
   hubIds: z.array(z.string().trim().regex(/^[A-Za-z0-9_-]{1,128}$/)).min(1).max(10),
   activeDeck: z.object({
     title: z.string().trim().max(120).optional(),
@@ -49,14 +53,14 @@ export async function POST(request: Request, context: RouteContext) {
     const hubIds = Array.from(new Set(parsed.data.hubIds));
     const receiptInput = { ownerUid, replayId, hubIds };
     const receipt = await readReplayDiscordRequestReceipt(receiptInput);
-    if (receipt?.status === "complete" || receipt?.status === "terminal") {
+    if (receipt?.status === "complete" || (receipt?.status === "terminal" && !parsed.data.retryDelivery)) {
       return NextResponse.json({
         ok: receipt.status === "complete",
-        visibility: "unlisted",
+        visibility: await readOwnerReplayVisibility(ownerUid, replayId),
         results: receipt.results,
       }, { headers: { "Cache-Control": "no-store" } });
     }
-    if (receipt?.status === "result-pending") {
+    if (receipt?.status === "result-pending" && !parsed.data.reviewedResult) {
       throw new ReplayV2Error(
         409,
         "replay_result_pending",
@@ -71,6 +75,16 @@ export async function POST(request: Request, context: RouteContext) {
     let replay = JSON.parse(
       gunzipSync(bytes, { maxOutputLength: MAX_CANONICAL_JSON_BYTES }).toString("utf8"),
     ) as CanonicalReplayV2;
+    if (parsed.data.reviewedResult) {
+      const raw = await readOwnerRawReplay(ownerUid, replayId);
+      try {
+        replay = replayWithReviewedDiscordResult(replay, JSON.parse(
+          gunzipSync(raw.bytes, { maxOutputLength: MAX_RAW_JSON_BYTES }).toString("utf8"),
+        ), parsed.data.reviewedResult);
+      } catch {
+        throw new ReplayV2Error(409, "reviewed_result_mismatch", "The reviewed result could not be matched to this replay. Open its match and check the result before sharing.");
+      }
+    }
     if (!isDiscordReplayResultResolved(replay)) {
       // A ready canonical can predate a result-normalization fix. Re-read the
       // immutable owner raw artifact so an automatic desktop retry can recover

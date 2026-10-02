@@ -1,4 +1,5 @@
 import radiancePreview from "@/lib/cards/radiance-preview.json";
+import { CARD_NAME_CODE_ALIASES } from "@/lib/cards/name-aliases";
 import type {
   RawReplayMessage,
   ReplayCard,
@@ -39,6 +40,9 @@ const ZONE_LABELS: Record<string, string> = {
 };
 
 const KNOWN_CARD_CODES_BY_NAME: Record<string, string> = {
+  bandlescoutsacademy: "RAD-157",
+  blackmarket: "RAD-158",
+  hunterscircle: "RAD-163",
   cosmicvista: "RAD-160",
   durandmemorial: "RAD-161",
   packedamphitheater: "RAD-164",
@@ -809,7 +813,7 @@ function selectedBattlefieldCard(
 function enrichReplayCard(card: ReplayCard | null): ReplayCard | null {
   if (!card) return null;
   const normalizedName = normalizeZoneKey(card.name);
-  const code = card.code || KNOWN_CARD_CODES_BY_NAME[normalizedName];
+  const code = card.code || KNOWN_CARD_CODES_BY_NAME[normalizedName] || CARD_NAME_CODE_ALIASES[normalizedName];
   return {
     ...card,
     code,

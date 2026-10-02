@@ -467,6 +467,13 @@ export async function readOwnerRawReplay(ownerUid: string, replayId: string): Pr
   };
 }
 
+/** Read current privacy without reopening immutable replay artifacts. */
+export async function readOwnerReplayVisibility(ownerUid: string, replayId: string): Promise<ReplayVisibility> {
+  const db = replayDb();
+  const record = await ownedReplay(db, await replayOwnerIdentityUids(db, ownerUid), replayId);
+  return record.visibility;
+}
+
 export async function readOwnerReplayDeliveryStatus(
   ownerUid: string,
   replayId: string,

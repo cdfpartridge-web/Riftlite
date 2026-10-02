@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-30T07:29:48.381Z",
-  "sourceRegistryPrints": 1277,
+  "generatedAt": "2026-10-01T16:42:48.807Z",
+  "sourceRegistryPrints": 1299,
   "cards": {
     "OGN-001": {
       "basePrintId": "OGN-001",
@@ -3035,6 +3035,14 @@
       "costEnergy": 3,
       "costPower": 0
     },
+    "RAD-004": {
+      "basePrintId": "RAD-004",
+      "name": "Brawl",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 1
+    },
     "RAD-012": {
       "basePrintId": "RAD-012",
       "name": "Runeblade Anvil",
@@ -3045,10 +3053,18 @@
     },
     "RAD-013": {
       "basePrintId": "RAD-013",
-      "name": "Lost to the Sand",
+      "name": "Lost to the Sands",
       "type": "Spell",
       "supertype": null,
       "costEnergy": 3,
+      "costPower": 1
+    },
+    "RAD-015": {
+      "basePrintId": "RAD-015",
+      "name": "Akali, Brash",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
       "costPower": 1
     },
     "RAD-023": {
@@ -3073,6 +3089,14 @@
       "type": "Gear",
       "supertype": null,
       "costEnergy": 2,
+      "costPower": 0
+    },
+    "RAD-025": {
+      "basePrintId": "RAD-025",
+      "name": "Consult the Heavens",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 1,
       "costPower": 0
     },
     "RAD-033": {
@@ -3131,6 +3155,22 @@
       "costEnergy": 8,
       "costPower": 1
     },
+    "RAD-047": {
+      "basePrintId": "RAD-047",
+      "name": "Fanfare",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
+    "RAD-048": {
+      "basePrintId": "RAD-048",
+      "name": "High Note",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
     "RAD-055": {
       "basePrintId": "RAD-055",
       "name": "Clanging Sentry",
@@ -3146,6 +3186,14 @@
       "supertype": null,
       "costEnergy": 3,
       "costPower": 1
+    },
+    "RAD-057": {
+      "basePrintId": "RAD-057",
+      "name": "Piltovan Guidebot",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 0
     },
     "RAD-059": {
       "basePrintId": "RAD-059",
@@ -3219,6 +3267,14 @@
       "costEnergy": 3,
       "costPower": 0
     },
+    "RAD-071": {
+      "basePrintId": "RAD-071",
+      "name": "Nazuman Ntofo",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 1,
+      "costPower": 0
+    },
     "RAD-073": {
       "basePrintId": "RAD-073",
       "name": "Pillaged Armory",
@@ -3226,6 +3282,14 @@
       "supertype": null,
       "costEnergy": 1,
       "costPower": 0
+    },
+    "RAD-079": {
+      "basePrintId": "RAD-079",
+      "name": "Avalanche",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 5,
+      "costPower": 2
     },
     "RAD-081": {
       "basePrintId": "RAD-081",
@@ -3250,6 +3314,22 @@
       "supertype": null,
       "costEnergy": 4,
       "costPower": 0
+    },
+    "RAD-084": {
+      "basePrintId": "RAD-084",
+      "name": "Cataclysm",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-085": {
+      "basePrintId": "RAD-085",
+      "name": "Graves, Blasting Through",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
     },
     "RAD-086": {
       "basePrintId": "RAD-086",
@@ -3323,6 +3403,14 @@
       "costEnergy": 3,
       "costPower": 1
     },
+    "RAD-107": {
+      "basePrintId": "RAD-107",
+      "name": "Bedeviling Stranger",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
     "RAD-115": {
       "basePrintId": "RAD-115",
       "name": "Transpositionist",
@@ -3337,6 +3425,14 @@
       "type": "Gear",
       "supertype": null,
       "costEnergy": 1,
+      "costPower": 0
+    },
+    "RAD-117": {
+      "basePrintId": "RAD-117",
+      "name": "For Demacia!",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 3,
       "costPower": 0
     },
     "RAD-125": {
@@ -3443,6 +3539,14 @@
       "costEnergy": 2,
       "costPower": 1
     },
+    "RAD-143": {
+      "basePrintId": "RAD-143",
+      "name": "Mordekaiser, Iron Revenant",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "RAD-145": {
       "basePrintId": "RAD-145",
       "name": "Orianna, Lady of Clockwork",
@@ -3483,6 +3587,14 @@
       "costEnergy": null,
       "costPower": null
     },
+    "RAD-152": {
+      "basePrintId": "RAD-152",
+      "name": "Encore",
+      "type": "Spell",
+      "supertype": "Signature",
+      "costEnergy": 3,
+      "costPower": 1
+    },
     "RAD-155": {
       "basePrintId": "RAD-155",
       "name": "Jarvan IV, Exemplar of Demacia",
@@ -3499,6 +3611,22 @@
       "costEnergy": 2,
       "costPower": 1
     },
+    "RAD-157": {
+      "basePrintId": "RAD-157",
+      "name": "Bandle Scouts' Academy",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-158": {
+      "basePrintId": "RAD-158",
+      "name": "Black Market",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "RAD-160": {
       "basePrintId": "RAD-160",
       "name": "Cosmic Vista",
@@ -3510,6 +3638,14 @@
     "RAD-161": {
       "basePrintId": "RAD-161",
       "name": "Durand Memorial",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-163": {
+      "basePrintId": "RAD-163",
+      "name": "Hunter's Circle",
       "type": "Battlefield",
       "supertype": null,
       "costEnergy": null,
@@ -3547,6 +3683,22 @@
       "costEnergy": 6,
       "costPower": 1
     },
+    "RAD-168": {
+      "basePrintId": "RAD-168",
+      "name": "Ekko, Boy Who Shattered Time",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-168*": {
+      "basePrintId": "RAD-168",
+      "name": "Ekko, Boy Who Shattered Time",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "RAD-169": {
       "basePrintId": "RAD-169",
       "name": "Ziggs, Hexplosives Expert",
@@ -3558,6 +3710,14 @@
     "RAD-169*": {
       "basePrintId": "RAD-169",
       "name": "Ziggs, Hexplosives Expert",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-170": {
+      "basePrintId": "RAD-170",
+      "name": "Mordekaiser, Iron Revenant",
       "type": "Legend",
       "supertype": null,
       "costEnergy": null,
@@ -3690,6 +3850,22 @@
       "supertype": "Basic",
       "costEnergy": null,
       "costPower": null
+    },
+    "RAD-R04A": {
+      "basePrintId": "RAD-R04",
+      "name": "Body Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-SP3": {
+      "basePrintId": "RAD-SP3",
+      "name": "Evelynn, In Control",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
     },
     "RAD-SP4": {
       "basePrintId": "RAD-SP4",

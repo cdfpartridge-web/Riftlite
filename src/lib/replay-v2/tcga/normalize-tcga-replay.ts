@@ -1284,7 +1284,7 @@ function publicCardReference(card: ReplayCardState, source = "battlefield"): Jso
 
 function publicCardCode(value: JsonValue | undefined): string {
   const code = textValue(value).toUpperCase();
-  return /^[A-Z0-9]{2,8}-(?:[RT]?\d{1,4})[A-Z]?$/.test(code) ? code : "";
+  return /^[A-Z0-9]{2,8}-(?:(?:SP|R|T)?\d{1,4})[A-Z*]?$/.test(code) ? code : "";
 }
 
 function localizedName(value: JsonValue | undefined): string {

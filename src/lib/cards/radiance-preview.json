@@ -1,5 +1,5 @@
 {
-  "auditedAt": "2026-09-30",
+  "auditedAt": "2026-10-01",
   "sources": [
     "https://piltoverarchive.com/cards?sets=RAD",
     "https://playriftbound.com/en-us/card-gallery/"
@@ -26,6 +26,13 @@
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/b660759a6bcb9c7ca41ea969cf11463259e284c9-744x1039.png?accountingTag=RB"
     },
+    "RAD-004": {
+      "name": "Brawl",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790788934976-is7hcdpo3s.png"
+    },
     "RAD-012": {
       "name": "Runeblade Anvil",
       "type": "Gear",
@@ -34,11 +41,18 @@
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/11e2ddea70ec4dd8e562681a1ab1dfbc2b2dca0f-744x1039.png?accountingTag=RB"
     },
     "RAD-013": {
-      "name": "Lost to the Sand",
+      "name": "Lost to the Sands",
       "type": "Spell",
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/92071a0f4d495f5f7acdf78d060133b98d1cebae-744x1039.png?accountingTag=RB"
+    },
+    "RAD-015": {
+      "name": "Akali, Brash",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Akali",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790807820855-obaxe2xxu6n.png"
     },
     "RAD-023": {
       "name": "Ziggs, Short-Fused",
@@ -60,6 +74,13 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/5b819cc232389f3ef1438350d68c7801e181961c-744x1039.png?accountingTag=RB"
+    },
+    "RAD-025": {
+      "name": "Consult the Heavens",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790807717659-a7dubci4cft.webp"
     },
     "RAD-033": {
       "name": "Command: Attack",
@@ -110,6 +131,20 @@
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/df1c12e65cc3c63c96fb6c96b2071795f37f30a6-744x1039.png?accountingTag=RB"
     },
+    "RAD-047": {
+      "name": "Fanfare",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790822157151-cnfkcq86bll.webp"
+    },
+    "RAD-048": {
+      "name": "High Note",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790856733371-f16h1l54g88.webp"
+    },
     "RAD-055": {
       "name": "Clanging Sentry",
       "type": "Unit",
@@ -123,6 +158,13 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/ecbb970f955b8e12369921f30ad08cab04e59a3f-744x1039.png?accountingTag=RB"
+    },
+    "RAD-057": {
+      "name": "Piltovan Guidebot",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790809314749-pwnrkgeqq3m.png"
     },
     "RAD-059": {
       "name": "Supernova",
@@ -187,12 +229,26 @@
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/0d9af22d38d32b0ec2a6584d25abe201730f9e11-744x1039.png?accountingTag=RB"
     },
+    "RAD-071": {
+      "name": "Nazuman Ntofo",
+      "type": "Gear",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790776647561-w6j6aon4pz.png"
+    },
     "RAD-073": {
       "name": "Pillaged Armory",
       "type": "Gear",
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/374248eb65ca1e90a434652073dbbd3a12a11eda-744x1039.png?accountingTag=RB"
+    },
+    "RAD-079": {
+      "name": "Avalanche",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790789337611-38wzt0nuj3a.png"
     },
     "RAD-081": {
       "name": "Elnuk Herd",
@@ -214,6 +270,20 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/bff85727b58017cbd3921fd73e9b363f5a0205e4-744x1039.png?accountingTag=RB"
+    },
+    "RAD-084": {
+      "name": "Cataclysm",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790781570679-qo1cw3tqjah.png"
+    },
+    "RAD-085": {
+      "name": "Graves, Blasting Through",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Graves",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790851040006-yrpizl19cyk.png"
     },
     "RAD-086": {
       "name": "K'Sante, Courageous",
@@ -278,6 +348,13 @@
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/e7dcc9ad059b471373f0093453a0ca7537d6aa0f-744x1039.png?accountingTag=RB"
     },
+    "RAD-107": {
+      "name": "Bedeviling Stranger",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790765615873-5d1n6pffi4.png"
+    },
     "RAD-115": {
       "name": "Transpositionist",
       "type": "Unit",
@@ -291,6 +368,13 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/0e80322dac6065e3ee726f5f9a2650a88195a44c-744x1039.png?accountingTag=RB"
+    },
+    "RAD-117": {
+      "name": "For Demacia!",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790789109702-trz835s71i.png"
     },
     "RAD-125": {
       "name": "Dune Devourer",
@@ -383,6 +467,13 @@
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/65b599befcc6ed873de0e7965bf497a805505327-744x1040.png?accountingTag=RB"
     },
+    "RAD-143": {
+      "name": "Mordekaiser, Iron Revenant",
+      "type": "Legend",
+      "supertype": null,
+      "champion": "Mordekaiser",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790861904340-69cuehy8is7.png"
+    },
     "RAD-145": {
       "name": "Orianna, Lady of Clockwork",
       "type": "Legend",
@@ -418,6 +509,13 @@
       "champion": "Seraphine",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/399262205b15aa3b6306eb1d80a308791dcbe2ca-744x1039.png?accountingTag=RB"
     },
+    "RAD-152": {
+      "name": "Encore",
+      "type": "Spell",
+      "supertype": "Signature",
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790781443831-p9gq1bpwl3c.png"
+    },
     "RAD-155": {
       "name": "Jarvan IV, Exemplar of Demacia",
       "type": "Legend",
@@ -432,6 +530,20 @@
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/315b0f7901a83df38b9765f12b1edfdc7de566a3-744x1040.png?accountingTag=RB"
     },
+    "RAD-157": {
+      "name": "Bandle Scouts' Academy",
+      "type": "Battlefield",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790776491287-wgnx80p34.png"
+    },
+    "RAD-158": {
+      "name": "Black Market",
+      "type": "Battlefield",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790843655788-ar4rh14elc5.png"
+    },
     "RAD-160": {
       "name": "Cosmic Vista",
       "type": "Battlefield",
@@ -445,6 +557,13 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/b565fec4e11308f5f01416a1c914d50a1d17ca19-1039x744.png?accountingTag=RB"
+    },
+    "RAD-163": {
+      "name": "Hunter's Circle",
+      "type": "Battlefield",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790843714259-tcp81yfeqh.webp"
     },
     "RAD-164": {
       "name": "Packed Amphitheater",
@@ -474,6 +593,20 @@
       "champion": "Neeko",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/607da6f534ce1b960ad02586ed4cd47c996e2c42-744x1039.png?accountingTag=RB"
     },
+    "RAD-168": {
+      "name": "Ekko, Boy Who Shattered Time",
+      "type": "Legend",
+      "supertype": null,
+      "champion": "Ekko",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790780763402-ma5oycnmcxd.png"
+    },
+    "RAD-168S": {
+      "name": "Ekko, Boy Who Shattered Time",
+      "type": "Legend",
+      "supertype": null,
+      "champion": "Ekko",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790780819472-em758t7h7v.png"
+    },
     "RAD-169": {
       "name": "Ziggs, Hexplosives Expert",
       "type": "Legend",
@@ -487,6 +620,13 @@
       "supertype": null,
       "champion": "Ziggs",
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790464787974-zurkq8ijt1.png"
+    },
+    "RAD-170": {
+      "name": "Mordekaiser, Iron Revenant",
+      "type": "Legend",
+      "supertype": null,
+      "champion": "Mordekaiser",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790861929849-r5d1gj52nae.png"
     },
     "RAD-171": {
       "name": "Orianna, Lady of Clockwork",
@@ -599,6 +739,20 @@
       "supertype": "Basic",
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/7216a84b4c3c2446e9f96f1dae02cb4fd96283d8-744x1039.png?accountingTag=RB"
+    },
+    "RAD-R04A": {
+      "name": "Body Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790789187684-a5ei0j01o4.png"
+    },
+    "RAD-SP3": {
+      "name": "Evelynn, In Control",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Evelynn",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790781091015-r8bupi5784.png"
     },
     "RAD-SP4": {
       "name": "Kai'Sa, Rebel",

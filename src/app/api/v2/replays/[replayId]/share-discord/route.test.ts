@@ -8,6 +8,7 @@ const {
   readCanonicalReplayMock,
   readReplayDiscordRequestReceiptMock,
   readOwnerRawReplayMock,
+  readOwnerReplayVisibilityMock,
   shareReplayToDiscordFeedsMock,
   updateReplayVisibilityMock,
   writeReplayDiscordRequestReceiptMock,
@@ -17,6 +18,7 @@ const {
   readCanonicalReplayMock: vi.fn(),
   readReplayDiscordRequestReceiptMock: vi.fn(),
   readOwnerRawReplayMock: vi.fn(),
+  readOwnerReplayVisibilityMock: vi.fn(),
   shareReplayToDiscordFeedsMock: vi.fn(),
   updateReplayVisibilityMock: vi.fn(),
   writeReplayDiscordRequestReceiptMock: vi.fn(),
@@ -57,6 +59,7 @@ vi.mock("@/lib/replay-v2-server", () => {
     readBoundedJson: (request: Request) => request.json(),
     readCanonicalReplay: readCanonicalReplayMock,
     readOwnerRawReplay: readOwnerRawReplayMock,
+    readOwnerReplayVisibility: readOwnerReplayVisibilityMock,
     replayApiError: (error: unknown) => {
       const failure = error as { status?: number; code?: string; message?: string };
       return Response.json({ error: failure.code, message: failure.message }, {
@@ -80,6 +83,7 @@ describe("Discord replay share eligibility", () => {
       return [{ hubId: "hub-1", status: "shared" }];
     });
     readReplayDiscordRequestReceiptMock.mockResolvedValue(null);
+    readOwnerReplayVisibilityMock.mockResolvedValue("unlisted");
     writeReplayDiscordRequestReceiptMock.mockResolvedValue(undefined);
   });
 
@@ -109,7 +113,8 @@ describe("Discord replay share eligibility", () => {
     expect(readOwnerRawReplayMock).not.toHaveBeenCalled();
   });
 
-  it("returns a settled terminal receipt without reopening the replay artifact", async () => {
+  it("keeps current private visibility for a cached non-delivery without reopening the replay artifact", async () => {
+    readOwnerReplayVisibilityMock.mockResolvedValue("private");
     readReplayDiscordRequestReceiptMock.mockResolvedValue({
       status: "terminal",
       results: [{ hubId: "hub-1", status: "not-configured" }],
@@ -120,9 +125,41 @@ describe("Discord replay share eligibility", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       ok: false,
+      visibility: "private",
       results: [{ hubId: "hub-1", status: "not-configured" }],
     });
     expect(readCanonicalReplayMock).not.toHaveBeenCalled();
+  });
+
+  it("reports current privacy if a previously shared replay has since been made private", async () => {
+    readOwnerReplayVisibilityMock.mockResolvedValue("private");
+    readReplayDiscordRequestReceiptMock.mockResolvedValue({ status: "complete", results: [{ hubId: "hub-1", status: "shared" }] });
+    const response = await shareRequest();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, visibility: "private" });
+    expect(readOwnerReplayVisibilityMock).toHaveBeenCalledWith("owner-1", REPLAY_ID);
+    expect(readCanonicalReplayMock).not.toHaveBeenCalled();
+    expect(updateReplayVisibilityMock).not.toHaveBeenCalled();
+    expect(shareReplayToDiscordFeedsMock).not.toHaveBeenCalled();
+  });
+
+  it("rechecks terminal configuration failures only for an explicit delivery retry", async () => {
+    readReplayDiscordRequestReceiptMock.mockResolvedValue({ status: "terminal", results: [{ hubId: "hub-1", status: "not-configured" }] });
+    readCanonicalReplayMock.mockResolvedValue({ record: { platform: "atlas", status: "ready", visibility: "private" },
+      bytes: gzipSync(Buffer.from(JSON.stringify({ schema: "riftlite-canonical-replay", version: 2 }))) });
+    isDiscordReplayResultResolvedMock.mockReturnValue(true);
+    const response = await shareRequest({ retryDelivery: true });
+    expect(response.status).toBe(200);
+    expect(shareReplayToDiscordFeedsMock).toHaveBeenCalledWith(expect.objectContaining({ hubIds: ["hub-1"] }));
+    expect(writeReplayDiscordRequestReceiptMock).toHaveBeenCalledWith(expect.objectContaining({ receipt: { status: "complete", results: [{ hubId: "hub-1", status: "shared" }] } }));
+  });
+
+  it("does not bypass a successful delivery receipt even for explicit retry", async () => {
+    readReplayDiscordRequestReceiptMock.mockResolvedValue({ status: "complete", results: [{ hubId: "hub-1", status: "shared" }] });
+    const response = await shareRequest({ retryDelivery: true });
+    expect(response.status).toBe(200);
+    expect(shareReplayToDiscordFeedsMock).not.toHaveBeenCalled();
+    expect(updateReplayVisibilityMock).not.toHaveBeenCalled();
   });
 
   it("stores settled non-delivery results so later old-client retries stay cheap", async () => {
@@ -232,13 +269,41 @@ describe("Discord replay share eligibility", () => {
       expect.objectContaining({ replay: refreshed }),
     );
   });
+  it("releases a cached pending result using a reviewed result bound to the owned capture", async () => {
+    readReplayDiscordRequestReceiptMock.mockResolvedValue({ status: "result-pending" });
+    readCanonicalReplayMock.mockResolvedValue({ record: { platform: "atlas", status: "ready", visibility: "private" },
+      bytes: gzipSync(Buffer.from(JSON.stringify({ series: { perspectivePlayerId: "self", participants: [{ id: "opponent" }, { id: "self" }], games: [{ gameNumber: 1 }] } }))) });
+    readOwnerRawReplayMock.mockResolvedValue({ record: { platform: "atlas" }, bytes: gzipSync(Buffer.from(JSON.stringify({ capture: { captureSessionId: "capture-reviewed" } }))) });
+    isDiscordReplayResultResolvedMock.mockReturnValue(true);
+    const response = await shareRequest({ reviewedResult: { captureSessionId: "capture-reviewed", match: {
+      format: "bo1", result: "win", score: { perspective: 1, opponent: 0 }, games: [{ gameNumber: 1, result: "win" }]
+    } } });
+    expect(response.status).toBe(200);
+    expect(readOwnerRawReplayMock).toHaveBeenCalledWith("owner-1", REPLAY_ID);
+    expect(shareReplayToDiscordFeedsMock).toHaveBeenCalledWith(expect.objectContaining({ ownerUid: "owner-1", hubIds: ["hub-1"],
+      replay: expect.objectContaining({ series: expect.objectContaining({ result: expect.objectContaining({ winnerPlayerId: "self" }) }) }) }));
+  });
+
+  it("never changes visibility or posts a reviewed result from another capture", async () => {
+    readCanonicalReplayMock.mockResolvedValue({ record: { platform: "atlas", status: "ready", visibility: "private" },
+      bytes: gzipSync(Buffer.from(JSON.stringify({ series: { perspectivePlayerId: "self", participants: [{ id: "opponent" }, { id: "self" }], games: [{ gameNumber: 1 }] } }))) });
+    readOwnerRawReplayMock.mockResolvedValue({ record: { platform: "atlas" }, bytes: gzipSync(Buffer.from(JSON.stringify({ capture: { captureSessionId: "different-capture" } }))) });
+    const response = await shareRequest({ reviewedResult: { captureSessionId: "capture-reviewed", match: {
+      format: "bo1", result: "win", score: { perspective: 1, opponent: 0 }, games: [{ gameNumber: 1, result: "win" }]
+    } } });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: "reviewed_result_mismatch" });
+    expect(shareReplayToDiscordFeedsMock).not.toHaveBeenCalled();
+    expect(updateReplayVisibilityMock).not.toHaveBeenCalled();
+  });
+
 });
 
-function shareRequest(): Promise<Response> {
+function shareRequest(extra: Record<string, unknown> = {}): Promise<Response> {
   return POST(new Request(`https://www.riftlite.com/api/v2/replays/${REPLAY_ID}/share-discord`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ hubIds: ["hub-1"] }),
+    body: JSON.stringify({ hubIds: ["hub-1"], ...extra }),
   }), {
     params: Promise.resolve({ replayId: REPLAY_ID }),
   });
