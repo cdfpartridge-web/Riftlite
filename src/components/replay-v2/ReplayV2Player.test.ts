@@ -951,6 +951,46 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(view.container.querySelector("[data-combined-replay]")).not.toBeInTheDocument();
   });
 
+  it.each(["false", "unset"] as const)("shows an explicit hand reveal without Cards up, then respects %s and backward seeks", async (clearMode) => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/?t=0.001");
+    const replay = explicitlyRevealedHandReplay(clearMode);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+      headers: { "content-type": "application/json" }, status: 200,
+    })));
+    const view = render(createElement(ReplayV2Player, { replayId: `rp_hand_reveal_${clearMode}` }));
+    const handCard = (id: string) => view.container.querySelector(`[data-hand-cards] [data-card-id="${id}"]`);
+    try {
+      const timeline = await view.findByRole("slider", { name: "Replay progress" });
+      expect(view.getByRole("button", { name: "Cards up" })).toHaveAttribute("aria-pressed", "false");
+      expect(handCard("opponent-hand")).toHaveAccessibleName("Hidden card");
+      expect(handCard("named-private-hand")).toHaveAccessibleName("Hidden card");
+
+      fireEvent.change(timeline, { target: { value: "1000" } });
+      await waitFor(() => expect(handCard("opponent-hand")).toHaveAccessibleName("Eager Apprentice"));
+      expect(handCard("opponent-hand")).toHaveAttribute("data-card-code", "OGN-031");
+      expect(handCard("named-private-hand")).toHaveAccessibleName("Hidden card");
+
+      fireEvent.change(timeline, { target: { value: "2000" } });
+      await waitFor(() => expect(handCard("later-unknown")).toHaveAccessibleName("Hidden card"));
+      expect(handCard("opponent-hand")).toHaveAccessibleName("Eager Apprentice");
+
+      fireEvent.change(timeline, { target: { value: "3000" } });
+      await waitFor(() => expect(handCard("opponent-hand")).toHaveAccessibleName("Hidden card"));
+      expect(handCard("opponent-hand")).not.toHaveAttribute("data-card-code");
+
+      fireEvent.change(timeline, { target: { value: "1000" } });
+      await waitFor(() => expect(handCard("opponent-hand")).toHaveAccessibleName("Eager Apprentice"));
+      fireEvent.change(timeline, { target: { value: "1" } });
+      await waitFor(() => expect(handCard("opponent-hand")).toHaveAccessibleName("Hidden card"));
+      expect(handCard("opponent-hand")).not.toHaveAttribute("data-card-code");
+      expect(view.getByRole("button", { name: "Cards up" })).toHaveAttribute("aria-pressed", "false");
+    } finally {
+      view.unmount();
+      window.history.replaceState({}, "", previousUrl);
+    }
+  });
+
   it("reveals only opponent cards proven by the later timeline when Cards up is enabled", async () => {
     const replay = futureKnownAnalysisReplay();
     const snapshot = replay.events.find((event) => event.kind === "snapshot");
@@ -3661,6 +3701,49 @@ function futureKnownAnalysisReplay(): CanonicalReplayV2 {
       }],
     },
   });
+  return replay;
+}
+
+function explicitlyRevealedHandReplay(clearMode: "false" | "unset"): CanonicalReplayV2 {
+  const replay = futureKnownAnalysisReplay();
+  const snapshot = replay.events.find((event) => event.kind === "snapshot");
+  if (!snapshot || snapshot.kind !== "snapshot") throw new Error("Missing replay snapshot");
+  snapshot.snapshot.players.opponent.zones.hand.push(
+    replayCard("named-private-hand", "Private Knowledge", "SEC-001", "hand"),
+  );
+  const reveal = replay.events[3];
+  if (reveal.kind !== "action") throw new Error("Missing replay action");
+  reveal.actionType = "set_hand_reveal";
+  reveal.patch.operations = [{
+    id: "reveal-in-hand",
+    op: "patch_card_fields",
+    playerId: "opponent",
+    zone: "hand",
+    cardId: "opponent-hand",
+    fields: {
+      name: "Eager Apprentice", cardCode: "OGN-031", isPlaceholder: false,
+      revealedToOpponent: true,
+    },
+  }];
+  replay.events.push({
+    ...reveal, id: "later-draw", index: 4, at: 3_000, atMs: 2_000, actionType: "draw_card",
+    patch: { operations: [{
+      id: "later-draw-card", op: "zone_insert", playerId: "opponent", zone: "hand", index: 2,
+      cards: [hiddenCard("later-unknown")],
+    }] },
+  }, {
+    ...reveal, id: "end-hand-reveal", index: 5, at: 4_000, atMs: 3_000,
+    patch: { operations: [clearMode === "false" ? {
+      id: "hide-hand", op: "patch_card_fields", playerId: "opponent", zone: "hand",
+      cardId: "opponent-hand", fields: { revealedToOpponent: false },
+    } : {
+      id: "hide-hand", op: "unset_card_fields", playerId: "opponent", zone: "hand",
+      cardId: "opponent-hand", fields: ["revealedToOpponent"],
+    }] },
+  });
+  replay.source.endedAt = replay.series.endedAt = replay.series.games[0].endedAt = 4_200;
+  replay.series.games[0].endedAtMs = 3_200;
+  replay.series.games[0].eventEndIndex = 5;
   return replay;
 }
 

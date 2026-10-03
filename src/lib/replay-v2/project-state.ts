@@ -286,6 +286,13 @@ function applyRoomFields(state: ReplayState, fields: JsonObject) {
 }
 
 function applyCardFields(card: ReplayCardState, fields: JsonObject) {
+  if (fields.isPlaceholder === true) {
+    // A conceal patch replaces the visible identity, including provider artwork
+    // and aliases held in fields; merely hiding its face leaves stale knowledge.
+    card.name = "";
+    delete card.cardCode;
+    card.fields = { id: card.id };
+  }
   card.fields = { ...card.fields, ...cloneJson(fields) };
   if (typeof fields.name === "string") card.name = fields.name;
   if (typeof fields.cardCode === "string") card.cardCode = fields.cardCode;

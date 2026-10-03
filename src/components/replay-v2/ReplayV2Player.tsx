@@ -85,6 +85,7 @@ import {
   type ReplayClipRange,
 } from "./clip";
 import { buildDeckPeekPresentation, type DeckPeekPresentation } from "./deck-peek";
+import { isExplicitlyRevealedHandCard } from "./hand-visibility";
 import { anonymizeReplayPlayerNames } from "./player-anonymization";
 import {
   activeScene,
@@ -4271,7 +4272,8 @@ function SceneHand({ faceDown = false, label, player }: { faceDown?: boolean; la
 }
 
 function isKnownHandCard(card: ReplayCardState): boolean {
-  return card.fields.analysisKnowledge === "future_reveal" ||
+  return isExplicitlyRevealedHandCard(card) ||
+    card.fields.analysisKnowledge === "future_reveal" ||
     card.fields.analysisKnowledge === "previous_reveal";
 }
 

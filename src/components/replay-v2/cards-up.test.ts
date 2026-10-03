@@ -15,6 +15,103 @@ import {
 } from "./cards-up";
 
 describe("replay Cards up projection", () => {
+  it("learns an explicit in-hand reveal and remembers only that card after the reveal ends", () => {
+    const revealed = publicCard("revealed-hand", "Stupefy", "OGN-212", "hand");
+    const replay = replayFromEvents([
+      snapshotEvent(0, replayState({ base: [], hand: [hiddenCard(revealed.id)] })),
+      actionEvent(1, [{
+        id: "reveal-hand",
+        op: "patch_card_fields",
+        playerId: "opponent",
+        zone: "hand",
+        cardId: revealed.id,
+        fields: { ...revealed.fields, revealedToOpponent: true },
+      }], "set_hand_reveal"),
+      actionEvent(2, [{
+        id: "end-reveal",
+        op: "patch_card_fields",
+        playerId: "opponent",
+        zone: "hand",
+        cardId: revealed.id,
+        fields: { revealedToOpponent: false },
+      }, {
+        id: "later-draw",
+        op: "zone_insert",
+        playerId: "opponent",
+        zone: "hand",
+        index: 1,
+        cards: [hiddenCard("later-unknown")],
+      }]),
+    ]);
+    const cache = createReplayCardsUpProjectionCache(replay);
+
+    const after = projectReplayCardsUp(cache, 2);
+    expect(after.knownCardIds).toEqual([revealed.id]);
+    expect(after.state.players.opponent.zones.hand[0]).toMatchObject({
+      name: "Stupefy",
+      isPlaceholder: false,
+      fields: { analysisKnowledge: "previous_reveal", revealedToOpponent: false },
+    });
+    expect(after.state.players.opponent.zones.hand[1]).toMatchObject({
+      name: "", isPlaceholder: true,
+    });
+
+    const before = projectReplayCardsUp(cache, 0);
+    // Cards up may retrospectively identify this exact instance, but must never
+    // label it as information already revealed at this earlier point in time.
+    expect(before.state.players.opponent.zones.hand[0].fields.analysisKnowledge)
+      .toBe("future_reveal");
+    expect(cache.lastState?.players.opponent.zones.hand[0]).toMatchObject({
+      name: "", isPlaceholder: true,
+    });
+    expect(projectReplayCardsUp(cache, 1).state.players.opponent.zones.hand[0].fields.analysisKnowledge)
+      .toBe("previous_reveal");
+  });
+
+  it.each([false, undefined])("does not learn named private hand cards with reveal flag %s", (revealedToOpponent) => {
+    const privateCard = publicCard("private-hand", "Private Knowledge", "SEC-001", "hand");
+    if (revealedToOpponent !== undefined) privateCard.fields.revealedToOpponent = revealedToOpponent;
+    const replay = replayFromEvents([
+      snapshotEvent(0, replayState({ base: [], hand: [privateCard] })),
+    ]);
+    const projected = projectReplayCardsUp(createReplayCardsUpProjectionCache(replay), 0);
+    expect(projected.knownCardIds).toEqual([]);
+    expect(projected.state.players.opponent.zones.hand[0].fields.analysisKnowledge).toBeUndefined();
+  });
+
+  it("forgets an in-hand reveal across a private deck transition and a new game", () => {
+    const revealed = publicCard("revealed-hand", "Stupefy", "OGN-212", "hand");
+    revealed.fields.revealedToOpponent = true;
+    const replacement = hiddenCard(revealed.id);
+    const nextGame = snapshotEvent(3, replayState({ base: [], hand: [replacement] }));
+    nextGame.gameId = "game-2";
+    nextGame.snapshot.room.gameNumber = 2;
+    const replay = replayFromEvents([
+      snapshotEvent(0, replayState({ base: [], hand: [revealed] })),
+      actionEvent(1, [{
+        id: "hide-in-deck",
+        op: "zone_move",
+        cardId: revealed.id,
+        from: { playerId: "opponent", zone: "hand" },
+        to: { playerId: "opponent", zone: "deck", index: 0 },
+        card: { ...replacement, source: "deck" },
+      }]),
+      actionEvent(2, [{
+        id: "unknown-draw",
+        op: "zone_move",
+        cardId: revealed.id,
+        from: { playerId: "opponent", zone: "deck" },
+        to: { playerId: "opponent", zone: "hand", index: 0 },
+        card: replacement,
+      }]),
+      nextGame,
+    ]);
+    const cache = createReplayCardsUpProjectionCache(replay);
+    expect(projectReplayCardsUp(cache, 0).knownCardIds).toEqual([revealed.id]);
+    expect(projectReplayCardsUp(cache, 2).knownCardIds).toEqual([]);
+    expect(projectReplayCardsUp(cache, 3).knownCardIds).toEqual([]);
+  });
+
   it("keeps a publicly revealed card known when it returns to hand", () => {
     const returned = publicCard("returned-card", "Hidden Blade", "OGN-101");
     const replay = replayFromEvents([

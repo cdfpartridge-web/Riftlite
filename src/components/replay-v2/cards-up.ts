@@ -8,6 +8,7 @@ import {
   type ReplayChainEntry,
   type ReplayState,
 } from "@/lib/replay-v2";
+import { isExplicitlyRevealedHandCard } from "./hand-visibility";
 
 type PublicKnowledgeInterval = {
   card: ReplayCardState;
@@ -776,7 +777,12 @@ function cardLocations(state: ReplayState): Map<string, CardLocation> {
     for (const [zone, cards] of Object.entries(player.zones)) {
       const publicZone = PUBLIC_ZONES.has(normalizeZone(zone));
       for (const card of cards) {
-        result.set(card.id, { card, playerId: player.id, publicZone, zone });
+        result.set(card.id, {
+          card,
+          playerId: player.id,
+          publicZone: publicZone || (isHandZone(zone) && isExplicitlyRevealedHandCard(card)),
+          zone,
+        });
       }
     }
   }

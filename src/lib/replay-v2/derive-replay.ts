@@ -276,6 +276,7 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
           packet.id,
           currentGame?.gameNumber ?? observation.explicitGameNumber ?? 1,
           perspectivePlayerId,
+          packet.direction === "in",
         );
         if (staleSameGameSetupPhase) {
           snapshot.room.phase = "in_game";

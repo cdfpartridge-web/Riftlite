@@ -180,6 +180,7 @@ export function normalizeSnapshot(
   sourceMessageId: string,
   fallbackGameNumber: number,
   perspectivePlayerId = "",
+  allowRevealedOpponentHand = false,
 ): ReplaySnapshot {
   const snapshot = isRecord(value) ? value : {};
   const players: Record<string, ReplayPlayerState> = {};
@@ -204,6 +205,7 @@ export function normalizeSnapshot(
             cardIndex,
             id,
             perspectivePlayerId,
+            allowRevealedOpponentHand,
           ),
         );
       } else {
@@ -258,9 +260,27 @@ export function normalizePatchOperations(
   operations: ReplayPatchOperation[];
   unknownOperations: Extract<ReplayPatchOperation, { op: "unknown" }>[];
 } {
-  const operations = patchOperations(packet.payload ?? {}).map((value, index) =>
-    normalizePatchOperation(value, packet.id, index, perspectivePlayerId),
-  );
+  const allowRevealedOpponentHand = packet.direction === "in" && packet.packetType === "authoritative_patch_commit";
+  const operations = patchOperations(packet.payload ?? {}).flatMap((value, index) => {
+    const operation = normalizePatchOperation(value, packet.id, index, perspectivePlayerId, allowRevealedOpponentHand);
+    // Removing the provider's reveal flag must also remove the identity that was
+    // visible under it. Keep any other requested field removals in the same patch.
+    if (
+      operation.op === "unset_card_fields" &&
+      operation.fields.includes("revealedToOpponent") &&
+      isOpponentHand(operation.zone, operation.playerId, perspectivePlayerId)
+    ) {
+      return [operation, {
+        id: stableId("patch", operation.id, "conceal_hand_card"),
+        op: "patch_card_fields" as const,
+        playerId: operation.playerId,
+        zone: operation.zone,
+        cardId: operation.cardId,
+        fields: hiddenCardPatchFields(operation.playerId, operation.zone),
+      }];
+    }
+    return [operation];
+  });
   return {
     operations,
     unknownOperations: operations.filter(
@@ -301,6 +321,7 @@ function normalizePatchOperation(
   sourceMessageId: string,
   operationIndex: number,
   perspectivePlayerId: string,
+  allowRevealedOpponentHand: boolean,
 ): ReplayPatchOperation {
   const sourceOp = stringValue(value.op) || "unknown";
   const id = stableId("patch", sourceMessageId, operationIndex, sourceOp, value);
@@ -319,6 +340,7 @@ function normalizePatchOperation(
             cardIndex,
             playerId,
             perspectivePlayerId,
+            allowRevealedOpponentHand,
           ),
         )
         : [];
@@ -335,22 +357,28 @@ function normalizePatchOperation(
     case "zone_move": {
       const from = isRecord(value.from) ? value.from : {};
       const to = isRecord(value.to) ? value.to : {};
+      const targetPlayerId = stringValue(to.playerId);
+      const targetZone = stringValue(to.zone);
+      const needsConcealedCard = isHiddenZone(targetZone) &&
+        (!perspectivePlayerId || targetPlayerId !== perspectivePlayerId) &&
+        (stringValue(from.playerId) !== targetPlayerId || stringValue(from.zone).toLowerCase() !== targetZone.toLowerCase());
       return {
         id,
         op: sourceOp,
         cardId: stringValue(value.cardId),
         from: { playerId: stringValue(from.playerId), zone: stringValue(from.zone) },
-        to: { playerId: stringValue(to.playerId), zone: stringValue(to.zone), index: integerValue(to.index) ?? -1 },
-        ...(value.card !== undefined
+        to: { playerId: targetPlayerId, zone: targetZone, index: integerValue(to.index) ?? -1 },
+        ...(value.card !== undefined || needsConcealedCard
           ? {
               card: normalizeCardForPerspective(
-                value.card,
+                value.card ?? { id: stringValue(value.cardId) },
                 sourceMessageId,
                 operationIndex,
-                stringValue(to.zone) || "move",
+                targetZone || "move",
                 0,
-                stringValue(to.playerId),
+                targetPlayerId,
                 perspectivePlayerId,
+                allowRevealedOpponentHand,
               ),
             }
           : {}),
@@ -363,7 +391,7 @@ function normalizePatchOperation(
         playerId,
         zone,
         cardId: stringValue(value.cardId),
-        fields: sanitizeCardPatchFields(value.fields, playerId, zone, perspectivePlayerId),
+        fields: sanitizeCardPatchFields(value.fields, playerId, zone, perspectivePlayerId, allowRevealedOpponentHand),
       };
     case "unset_card_fields":
       return { id, op: sourceOp, playerId, zone, cardId: stringValue(value.cardId), fields: stringArray(value.fields) };
@@ -449,9 +477,16 @@ function normalizeCardForPerspective(
   cardIndex: number,
   ownerPlayerId: string,
   perspectivePlayerId: string,
+  allowRevealedOpponentHand: boolean,
 ): ReplayCardState {
   const card = normalizeCard(value, sourceMessageId, groupIndex, zone, cardIndex);
   if (!isHiddenZone(zone) || (perspectivePlayerId && ownerPlayerId === perspectivePlayerId)) return card;
+  if (
+    allowRevealedOpponentHand &&
+    isOpponentHand(zone, ownerPlayerId, perspectivePlayerId) &&
+    card.fields.revealedToOpponent === true &&
+    card.isPlaceholder !== true
+  ) return { ...card, isPlaceholder: false, fields: { ...card.fields, isPlaceholder: false } };
   return {
     id: card.id,
     name: "",
@@ -471,18 +506,46 @@ function isHiddenZone(zone: string) {
   return ["deck", "hand", "runedeck", "sideboard"].includes(zone.toLowerCase());
 }
 
+function isOpponentHand(zone: string, ownerPlayerId: string, perspectivePlayerId: string) {
+  return zone.toLowerCase() === "hand" && Boolean(ownerPlayerId && perspectivePlayerId && ownerPlayerId !== perspectivePlayerId);
+}
+
+function hiddenCardPatchFields(ownerPlayerId: string, zone: string): JsonObject {
+  return { ownerPlayerId, source: zone, isPlaceholder: true };
+}
+
 function sanitizeCardPatchFields(
   value: unknown,
   ownerPlayerId: string,
   zone: string,
   perspectivePlayerId: string,
+  allowRevealedOpponentHand: boolean,
 ): JsonObject {
   if (isHiddenZone(zone) && (!perspectivePlayerId || ownerPlayerId !== perspectivePlayerId)) {
-    return {
-      ownerPlayerId,
-      source: zone,
-      isPlaceholder: true,
-    };
+    const fields = sanitizedObject(value);
+    if (allowRevealedOpponentHand && isOpponentHand(zone, ownerPlayerId, perspectivePlayerId)) {
+      if (fields.revealedToOpponent === true && fields.isPlaceholder !== true) {
+        // The projector understands canonical names/codes, while Atlas can send
+        // either spelling in a field patch. A flag alone cannot invent a card.
+        const name = stringValue(fields.name) || stringValue(fields.cardName) || stringValue(fields.title);
+        const cardCode = stringValue(fields.cardCode) || stringValue(fields.code);
+        return {
+          ...fields,
+          ...(name ? { name } : {}),
+          ...(cardCode ? { cardCode } : {}),
+          ...(name || cardCode ? { isPlaceholder: false } : {}),
+        };
+      }
+      if (!("revealedToOpponent" in fields) && fields.isPlaceholder !== true) {
+        // An unrelated patch must neither disclose a new identity nor forget an
+        // identity already explicitly revealed for this exact hand instance.
+        return {
+          ownerPlayerId,
+          ...(typeof fields.exhausted === "boolean" ? { exhausted: fields.exhausted } : {}),
+        };
+      }
+    }
+    return hiddenCardPatchFields(ownerPlayerId, zone);
   }
   return sanitizedObject(value);
 }
