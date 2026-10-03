@@ -15,4 +15,14 @@ Ignored evidence and the scoped repair utility are in `output/reveal-hand-202610
 
 ## Publication
 
-Publication receipt will be added after candidate verification, promotion and the scoped repair. The previous live deployment is `dpl_GLPVDqpFc1vKCnRugLKt195t3ngo` (runtime source `23ab3cf0e92859d872201925fd1b0a2240b46789`). This is a website-only correction; no desktop installer update is required.
+Published on **3 October 2026 at approximately 17:29 BST**.
+
+- Runtime source: `4dbc946186abb89be6e47aaf9400672a39cac482`, pushed to `codex/opening-turns-lab-20260923`.
+- Deployment: `dpl_HfrE4qsvuzX83etiqS12mcUsrnGu`, https://riftlite-ohlfv49l5-cdfpartridge-3985s-projects.vercel.app.
+- Vercel's production build and TypeScript checks passed. Built with `--prod --skip-domain`, verified the candidate while the live domain remained on the previous deployment, then promoted.
+- Live checks passed for the replay page, all 13 referenced JavaScript bundles, the repaired public replay API and the Download page.
+- The scoped repair restored seven identities across 58 event/checkpoint card occurrences. Its transaction changed only `canonicalArtifact`; the raw capture, original canonical artifact and every other record field were preserved.
+- Live canonical SHA-256 matches the dry-run candidate exactly: `5ef27c7eec99825355dc18817caeb724e5473a2a962aed74c1588f2faf65ad65`.
+- Live Chromium verification with local interception removed shows all seven named cards and the hidden eighth draw at https://www.riftlite.com/replays/rl2_f4d30b5583c0e14e36429470c3c58689?t=770. Screenshot: `output/playwright/hand-reveal-live-after.png`. The browser reported only the unrelated `/favicon.ico` 404.
+
+The previous live deployment is `dpl_GLPVDqpFc1vKCnRugLKt195t3ngo` (runtime source `23ab3cf0e92859d872201925fd1b0a2240b46789`). Old canonical pointer and complete repair receipts are retained in ignored evidence for rollback. Other historical replays were not reprocessed. This is a website-only correction; no desktop installer update is required.
