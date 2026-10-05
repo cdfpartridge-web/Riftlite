@@ -2,13 +2,13 @@
 
 ## Status
 
-Local website changes only. No deployment, version change, or production replay mutation was performed. Existing local card-catalog updates and `next-env.d.ts` were preserved.
+This records the local implementation and validation. It was subsequently included in the [5 October website release](./WEB-RELEASE-2026-10-05.md). No production replay mutation was performed during implementation or release checks. Existing local card-catalog updates and `next-env.d.ts` were preserved.
 
 ## Report and cause
 
 The tester could change the default for future Web Replays but could not find visibility controls for past replays in desktop. This was a real capability mismatch: the embedded My replays library loads the desktop account using a signed HttpOnly session, while its visibility control required a Firebase browser user. The control was therefore hidden even when the owner was successfully authenticated. The PATCH endpoint also accepted only bearer tokens.
 
-Before deployment, the workaround is to sign in to the matching account on the website and open `/replays?scope=mine`, then use the existing Visibility dropdown on the replay card. This changes the selected uploaded replay; the desktop default concerns future uploads.
+Before deployment, the workaround was to sign in to the matching account on the website and open `/replays?scope=mine`, then use the existing Visibility dropdown on the replay card. This changes the selected uploaded replay; the desktop default concerns future uploads.
 
 ## New flow
 
