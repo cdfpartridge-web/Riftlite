@@ -31,6 +31,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const ShareSchema = z.object({
+  automatic: z.boolean().optional(),
   retryDelivery: z.boolean().optional(),
   reviewedResult: ReviewedReplayResultSchema.optional(),
   hubIds: z.array(z.string().trim().regex(/^[A-Za-z0-9_-]{1,128}$/)).min(1).max(10),
@@ -72,6 +73,11 @@ export async function POST(request: Request, context: RouteContext) {
     if (record.status !== "ready" || !bytes) {
       throw new ReplayV2Error(409, "replay_processing", "Replay processing is still in progress.");
     }
+    const privateReplayError = () => new ReplayV2Error(
+      403, "replay_visibility_changed",
+      "This replay is now Private. Automatic Discord sharing has stopped. Use Share to Discord to share it again.",
+    );
+    if (parsed.data.automatic && record.visibility === "private") throw privateReplayError();
     let replay = JSON.parse(
       gunzipSync(bytes, { maxOutputLength: MAX_CANONICAL_JSON_BYTES }).toString("utf8"),
     ) as CanonicalReplayV2;
@@ -120,6 +126,7 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
     let visibility = record.visibility;
+    let automaticShareBlocked = false;
     const results = await shareReplayToDiscordFeeds({
       ownerUid,
       replayId,
@@ -128,10 +135,23 @@ export async function POST(request: Request, context: RouteContext) {
       activeDeck: parsed.data.activeDeck,
       origin: process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://www.riftlite.com",
       beforeFirstPost: async () => {
+        if (parsed.data.automatic) {
+          // The owner may have changed privacy since the desktop queued this
+          // delivery. Re-read just before posting, without rewriting their choice.
+          visibility = await readOwnerReplayVisibility(ownerUid, replayId);
+          if (visibility === "private") {
+            automaticShareBlocked = true;
+            throw privateReplayError();
+          }
+          return;
+        }
         await updateReplayVisibility(ownerUid, replayId, "unlisted");
         visibility = "unlisted";
       },
     });
+    // The delivery helper records individual failed destinations. Surface this
+    // terminal privacy decision to the desktop so it stops future retries.
+    if (automaticShareBlocked) throw privateReplayError();
     const coversAllHubs = results.length === hubIds.length &&
       new Set(results.map((result) => result.hubId)).size === hubIds.length;
     const complete = coversAllHubs &&

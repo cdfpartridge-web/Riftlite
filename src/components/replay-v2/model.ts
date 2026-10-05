@@ -1,5 +1,6 @@
 import radiancePreview from "@/lib/cards/radiance-preview.json";
 import { CARD_NAME_CODE_ALIASES } from "@/lib/cards/name-aliases";
+import { auditedCapturedImageUrl, auditedPrintImageUrl } from "@/lib/cards/audited-print-art";
 import type {
   CanonicalReplayV2,
   JsonObject,
@@ -90,6 +91,8 @@ const NON_BOARD_ZONE_ALIASES = [
 const BATTLEFIELD_CARD_CODES: Record<string, string> = {
   bandlescoutsacademy: "RAD-157",
   blackmarket: "RAD-158",
+  blackrosesanctum: "RAD-159",
+  firelightshideout: "RAD-162",
   hunterscircle: "RAD-163",
   cosmicvista: "RAD-160",
   durandmemorial: "RAD-161",
@@ -172,7 +175,12 @@ const BATTLEFIELD_CARD_CODES: Record<string, string> = {
   windswepthillock: "OGN-297",
   zaunwarrens: "OGN-298",
 };
-const BATTLEFIELD_CARD_CODE_SET = new Set(Object.values(BATTLEFIELD_CARD_CODES));
+const BATTLEFIELD_CARD_CODE_SET = new Set([
+  ...Object.values(BATTLEFIELD_CARD_CODES),
+  ...Object.entries(radiancePreview.cards)
+    .filter(([, card]) => card.type === "Battlefield")
+    .map(([code]) => code),
+]);
 
 export type ReplayPlayerPair = {
   bottom: ReplayPlayerState;
@@ -480,6 +488,8 @@ export function cardImageUrl(card: ReplayCardState | undefined): string | undefi
     cardCodeFromValue(card.id) ||
     cardCodeFromValue(card.name) ||
     CARD_NAME_CODE_ALIASES[normalizeKey(card.name)];
+  const capturedAuditedArt = auditedCapturedImageUrl(sourceCode, direct);
+  if (capturedAuditedArt) return capturedAuditedArt;
   const previewArt = sourceCode && (radiancePreview.cards as Record<string, { imageUrl: string }>)[sourceCode]?.imageUrl;
   if (previewArt) {
     // Preserve captured preview/promotional artwork; use audited art when Atlas has not mirrored a print yet.
@@ -527,6 +537,8 @@ function exactCardArtUrl(code: string | undefined): string | undefined {
   if (officialAsset) {
     return `https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/${officialAsset}?accountingTag=RB`;
   }
+  const auditedArt = auditedPrintImageUrl(code);
+  if (auditedArt) return auditedArt;
   if (!/^[A-Z]{2,5}-(?:(?:SP|T)\d{1,3}|R\d{1,3}[A-Z]?|\d{1,4}[A-Z])$/.test(code)) {
     return undefined;
   }

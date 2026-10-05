@@ -310,9 +310,7 @@ describe("replay card image URLs", () => {
 
   it.each([
     ["Jhin, Meticulous Killer", "UNL-089A"],
-    ["Fury Rune", "OGN-007B"],
     ["Fury Rune", "VEN-R01"],
-    ["Mind Rune", "UNL-R03A"],
     ["Calm Rune", "SFD-R06B"],
     ["Jhin, Virtuoso", "OGN-305S"],
     ["Curator of the Sands", "VEN-192S"],
@@ -320,6 +318,14 @@ describe("replay card image URLs", () => {
     expect(cardCodeFromValue(`https://cards.example/${printCode}.webp`)).toBe(printCode);
     expect(cardImageUrl(card(`signed-${name}`, name, printCode)))
       .toBe(`https://assets.riftatlas-workers.com/riftbound/cards/small-v2/${printCode}.webp`);
+  });
+
+  it.each([
+    ["Fury Rune", "OGN-007B", "https://cdn.piltoverarchive.com/cards/OGN-007b.webp"],
+    ["Mind Rune", "UNL-R03A", "https://piltoverarchive.b-cdn.net/temporary/1772489382491-gffpct65jgb.png"],
+  ])("uses the audited %s artwork for %s", (name, printCode, imageUrl) => {
+    expect(cardCodeFromValue(`https://cards.example/${printCode}.webp`)).toBe(printCode);
+    expect(cardImageUrl(card(`alternate-${name}`, name, printCode))).toBe(imageUrl);
   });
 
   it.each([

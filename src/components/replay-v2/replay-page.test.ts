@@ -12,8 +12,17 @@ describe("replay page server props", () => {
     expect(result).toEqual({
       props: {
         embed: true,
+        manageVisibility: false,
         replayId: "rl2_public_embed",
       },
     });
+  });
+
+  it("opens only the explicit visibility editor request without granting owner access", async () => {
+    const result = await getServerSideProps({
+      params: { replayId: "rl2_owner_replay" },
+      query: { embed: "1", manage: "visibility" },
+    } as unknown as Parameters<typeof getServerSideProps>[0]);
+    expect(result).toEqual({ props: { replayId: "rl2_owner_replay", embed: true, manageVisibility: true } });
   });
 });

@@ -1,11 +1,14 @@
 import type { GetServerSideProps, InferGetServerSidePropsType } from "next";
 import Head from "next/head";
+import { useState } from "react";
+import { ReplayVisibilityDialog } from "@/components/replay-v2/library/ReplayVisibilityDialog";
 
 import { ReplayV2Player } from "@/components/replay-v2";
 
 type ReplayPageProps = {
   embed: boolean;
   replayId: string;
+  manageVisibility: boolean;
 };
 
 export const getServerSideProps: GetServerSideProps<ReplayPageProps> = async ({ params, query }) => {
@@ -20,6 +23,7 @@ export const getServerSideProps: GetServerSideProps<ReplayPageProps> = async ({ 
     props: {
       embed,
       replayId,
+      manageVisibility: query.manage === "visibility",
     },
   };
 };
@@ -27,7 +31,9 @@ export const getServerSideProps: GetServerSideProps<ReplayPageProps> = async ({ 
 export default function ReplayPage({
   embed,
   replayId,
+  manageVisibility,
 }: InferGetServerSidePropsType<typeof getServerSideProps>) {
+  const [showVisibility, setShowVisibility] = useState(manageVisibility);
   const canonicalPath = `/replays/${encodeURIComponent(replayId)}`;
   return (
     <>
@@ -41,6 +47,7 @@ export default function ReplayPage({
         {embed ? <meta content="noindex,nofollow" name="robots" /> : null}
       </Head>
       <ReplayV2Player embed={embed} replayId={replayId} />
+      {showVisibility ? <ReplayVisibilityDialog replayId={replayId} onClose={() => setShowVisibility(false)} /> : null}
     </>
   );
 }

@@ -120,6 +120,35 @@ describe("embedded replay library", () => {
     );
   });
 
+  it("lets a linked desktop owner explicitly save visibility on an existing replay", async () => {
+    const replay = { ...publicReplay("rl2_visibility", "LeBlanc vs Viktor"), visibility: "private" };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => new Response(JSON.stringify(
+      init?.method === "PATCH" ? { replay: { ...replay, visibility: "unlisted" } } : { items: [replay] },
+    ), { headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(createElement(ReplayLibrary, { embedded: true }));
+    fireEvent.click(await view.findByRole("button", { name: "Change visibility" }));
+    expect(view.getByRole("dialog", { name: "Change visibility" })).toBeInTheDocument();
+    expect(view.getByText(/Your default for future uploads stays the same/)).toBeInTheDocument();
+    fireEvent.click(view.getByRole("radio", { name: /Unlisted/ }));
+    expect(fetchMock.mock.calls.filter((call) => call[1]?.method === "PATCH")).toHaveLength(0);
+    fireEvent.click(view.getByRole("button", { name: "Save visibility" }));
+    await view.findByText("Saved. This replay is now unlisted. Its link has not changed.");
+    expect(fetchMock).toHaveBeenCalledWith("/api/v2/replays/rl2_visibility", expect.objectContaining({
+      method: "PATCH", credentials: "include", body: JSON.stringify({ visibility: "unlisted" }),
+    }));
+    fireEvent.click(view.getByRole("button", { name: "Done" }));
+    expect(view.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(view.getAllByText("Unlisted")).not.toHaveLength(0);
+  });
+
+  it("does not show visibility management on public cards", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [publicReplay("rl2_public", "Public replay")] }))));
+    const view = render(createElement(ReplayLibrary));
+    await view.findByRole("heading", { name: "Public replay" });
+    expect(view.queryByRole("button", { name: "Change visibility" })).not.toBeInTheDocument();
+  });
+
   it("shows the persisted partial-capture warning on a ready replay", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify({
       items: String(input).includes("scope=mine") ? [{

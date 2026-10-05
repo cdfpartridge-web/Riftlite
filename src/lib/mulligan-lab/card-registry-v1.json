@@ -1,8 +1,56 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-01T16:42:48.807Z",
-  "sourceRegistryPrints": 1299,
+  "generatedAt": "2026-10-05T11:19:14.308Z",
+  "sourceRegistryPrints": 1365,
   "cards": {
+    "ARC-001": {
+      "basePrintId": "ARC-001",
+      "name": "Vi, Destructive",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 2,
+      "costPower": 1
+    },
+    "ARC-002": {
+      "basePrintId": "ARC-002",
+      "name": "Caitlyn, Patrolling",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 3,
+      "costPower": 1
+    },
+    "ARC-003": {
+      "basePrintId": "ARC-003",
+      "name": "Heimerdinger, Inventor",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 3,
+      "costPower": 1
+    },
+    "ARC-004": {
+      "basePrintId": "ARC-004",
+      "name": "Warwick, Hunter",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 6,
+      "costPower": 1
+    },
+    "ARC-005": {
+      "basePrintId": "ARC-005",
+      "name": "Jinx, Rebel",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
+    },
+    "ARC-006": {
+      "basePrintId": "ARC-006",
+      "name": "Viktor, Leader",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
     "OGN-001": {
       "basePrintId": "OGN-001",
       "name": "Blazing Scorcher",
@@ -60,6 +108,14 @@
       "costPower": null
     },
     "OGN-007A": {
+      "basePrintId": "OGN-007",
+      "name": "Fury Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "OGN-007B": {
       "basePrintId": "OGN-007",
       "name": "Fury Rune",
       "type": "Rune",
@@ -380,6 +436,14 @@
       "costPower": null
     },
     "OGN-042A": {
+      "basePrintId": "OGN-042",
+      "name": "Calm Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "OGN-042B": {
       "basePrintId": "OGN-042",
       "name": "Calm Rune",
       "type": "Rune",
@@ -803,6 +867,14 @@
       "costEnergy": null,
       "costPower": null
     },
+    "OGN-089B": {
+      "basePrintId": "OGN-089",
+      "name": "Mind Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
     "OGN-090": {
       "basePrintId": "OGN-090",
       "name": "Orb of Regret",
@@ -1139,6 +1211,14 @@
       "costEnergy": null,
       "costPower": null
     },
+    "OGN-126B": {
+      "basePrintId": "OGN-126",
+      "name": "Body Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
     "OGN-127": {
       "basePrintId": "OGN-127",
       "name": "Cannon Barrage",
@@ -1347,6 +1427,14 @@
       "costEnergy": 6,
       "costPower": null
     },
+    "OGN-151B": {
+      "basePrintId": "OGN-151",
+      "name": "Lee Sin, Centered",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 6,
+      "costPower": 0
+    },
     "OGN-152": {
       "basePrintId": "OGN-152",
       "name": "Mistfall",
@@ -1492,6 +1580,14 @@
       "costPower": null
     },
     "OGN-166A": {
+      "basePrintId": "OGN-166",
+      "name": "Chaos Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "OGN-166B": {
       "basePrintId": "OGN-166",
       "name": "Chaos Rune",
       "type": "Rune",
@@ -1763,6 +1859,14 @@
       "costEnergy": 2,
       "costPower": null
     },
+    "OGN-197B": {
+      "basePrintId": "OGN-197",
+      "name": "Teemo, Scout",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 2,
+      "costPower": 0
+    },
     "OGN-198": {
       "basePrintId": "OGN-198",
       "name": "The Harrowing",
@@ -1916,6 +2020,14 @@
       "costPower": null
     },
     "OGN-214A": {
+      "basePrintId": "OGN-214",
+      "name": "Order Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "OGN-214B": {
       "basePrintId": "OGN-214",
       "name": "Order Rune",
       "type": "Rune",
@@ -3043,6 +3155,14 @@
       "costEnergy": 3,
       "costPower": 1
     },
+    "RAD-005": {
+      "basePrintId": "RAD-005",
+      "name": "Lingering Animus",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
     "RAD-012": {
       "basePrintId": "RAD-012",
       "name": "Runeblade Anvil",
@@ -3059,6 +3179,14 @@
       "costEnergy": 3,
       "costPower": 1
     },
+    "RAD-014": {
+      "basePrintId": "RAD-014",
+      "name": "Shimmering Swimmer",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
     "RAD-015": {
       "basePrintId": "RAD-015",
       "name": "Akali, Brash",
@@ -3066,6 +3194,30 @@
       "supertype": "Champion",
       "costEnergy": 5,
       "costPower": 1
+    },
+    "RAD-016": {
+      "basePrintId": "RAD-016",
+      "name": "Coalesced Energy",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 2
+    },
+    "RAD-017": {
+      "basePrintId": "RAD-017",
+      "name": "Detonation Amplifier",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-018": {
+      "basePrintId": "RAD-018",
+      "name": "Drakehound Packmaster",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 9,
+      "costPower": 2
     },
     "RAD-023": {
       "basePrintId": "RAD-023",
@@ -3099,6 +3251,22 @@
       "costEnergy": 1,
       "costPower": 0
     },
+    "RAD-026": {
+      "basePrintId": "RAD-026",
+      "name": "Entrenched Boar",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
+    "RAD-027": {
+      "basePrintId": "RAD-027",
+      "name": "Iridescent Avian",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
     "RAD-033": {
       "basePrintId": "RAD-033",
       "name": "Command: Attack",
@@ -3123,6 +3291,22 @@
       "costEnergy": 3,
       "costPower": 0
     },
+    "RAD-036": {
+      "basePrintId": "RAD-036",
+      "name": "Storm Raptor",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 6,
+      "costPower": 0
+    },
+    "RAD-037": {
+      "basePrintId": "RAD-037",
+      "name": "Watchful Curator",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 1
+    },
     "RAD-038": {
       "basePrintId": "RAD-038",
       "name": "Ahri, Confident",
@@ -3130,6 +3314,22 @@
       "supertype": "Champion",
       "costEnergy": 4,
       "costPower": 1
+    },
+    "RAD-043": {
+      "basePrintId": "RAD-043",
+      "name": "Riven, Broken Blade",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 0
+    },
+    "RAD-043A": {
+      "basePrintId": "RAD-043",
+      "name": "Riven, Broken Blade",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 0
     },
     "RAD-045": {
       "basePrintId": "RAD-045",
@@ -3194,6 +3394,14 @@
       "supertype": null,
       "costEnergy": 4,
       "costPower": 0
+    },
+    "RAD-058": {
+      "basePrintId": "RAD-058",
+      "name": "Riptide Mage",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 1
     },
     "RAD-059": {
       "basePrintId": "RAD-059",
@@ -3275,6 +3483,14 @@
       "costEnergy": 1,
       "costPower": 0
     },
+    "RAD-072": {
+      "basePrintId": "RAD-072",
+      "name": "Overloaded Traveler",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
     "RAD-073": {
       "basePrintId": "RAD-073",
       "name": "Pillaged Armory",
@@ -3347,6 +3563,14 @@
       "costEnergy": 5,
       "costPower": 0
     },
+    "RAD-087": {
+      "basePrintId": "RAD-087",
+      "name": "Portable Portal",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
     "RAD-090": {
       "basePrintId": "RAD-090",
       "name": "Evelynn, Consuming",
@@ -3361,6 +3585,22 @@
       "type": "Unit",
       "supertype": "Champion",
       "costEnergy": 5,
+      "costPower": 1
+    },
+    "RAD-091": {
+      "basePrintId": "RAD-091",
+      "name": "Jarvan IV, Martial Paragon",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-091A": {
+      "basePrintId": "RAD-091",
+      "name": "Jarvan IV, Martial Paragon",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
       "costPower": 1
     },
     "RAD-093": {
@@ -3387,6 +3627,22 @@
       "costEnergy": 3,
       "costPower": 1
     },
+    "RAD-097": {
+      "basePrintId": "RAD-097",
+      "name": "Siren of the Shallows",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
+    "RAD-098": {
+      "basePrintId": "RAD-098",
+      "name": "Siren's Song",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
     "RAD-105": {
       "basePrintId": "RAD-105",
       "name": "Reckless Innovator",
@@ -3409,6 +3665,30 @@
       "type": "Unit",
       "supertype": null,
       "costEnergy": 2,
+      "costPower": 0
+    },
+    "RAD-109": {
+      "basePrintId": "RAD-109",
+      "name": "Evelynn, In Control",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-109A": {
+      "basePrintId": "RAD-109",
+      "name": "Evelynn, In Control",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-110": {
+      "basePrintId": "RAD-110",
+      "name": "Lulu, Whimsical",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 3,
       "costPower": 0
     },
     "RAD-115": {
@@ -3435,6 +3715,22 @@
       "costEnergy": 3,
       "costPower": 0
     },
+    "RAD-118": {
+      "basePrintId": "RAD-118",
+      "name": "Herald of the Emperor",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 5,
+      "costPower": 0
+    },
+    "RAD-119": {
+      "basePrintId": "RAD-119",
+      "name": "Hunting Dog",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 0
+    },
     "RAD-125": {
       "basePrintId": "RAD-125",
       "name": "Dune Devourer",
@@ -3457,6 +3753,30 @@
       "type": "Spell",
       "supertype": null,
       "costEnergy": 5,
+      "costPower": 0
+    },
+    "RAD-128": {
+      "basePrintId": "RAD-128",
+      "name": "Steadfast Outrider",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 4,
+      "costPower": 0
+    },
+    "RAD-129": {
+      "basePrintId": "RAD-129",
+      "name": "Trifarian Captain",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
+    "RAD-130": {
+      "basePrintId": "RAD-130",
+      "name": "Battlefield Armorer",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 3,
       "costPower": 0
     },
     "RAD-132": {
@@ -3547,6 +3867,14 @@
       "costEnergy": null,
       "costPower": null
     },
+    "RAD-144": {
+      "basePrintId": "RAD-144",
+      "name": "Realm of Death",
+      "type": "Spell",
+      "supertype": "Signature",
+      "costEnergy": 2,
+      "costPower": 1
+    },
     "RAD-145": {
       "basePrintId": "RAD-145",
       "name": "Orianna, Lady of Clockwork",
@@ -3595,6 +3923,14 @@
       "costEnergy": 3,
       "costPower": 1
     },
+    "RAD-153": {
+      "basePrintId": "RAD-153",
+      "name": "Evelynn, Agony's Embrace",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "RAD-155": {
       "basePrintId": "RAD-155",
       "name": "Jarvan IV, Exemplar of Demacia",
@@ -3627,6 +3963,14 @@
       "costEnergy": null,
       "costPower": null
     },
+    "RAD-159": {
+      "basePrintId": "RAD-159",
+      "name": "Black Rose Sanctum",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "RAD-160": {
       "basePrintId": "RAD-160",
       "name": "Cosmic Vista",
@@ -3643,9 +3987,17 @@
       "costEnergy": null,
       "costPower": null
     },
+    "RAD-162": {
+      "basePrintId": "RAD-162",
+      "name": "Firelights' Hideout",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "RAD-163": {
       "basePrintId": "RAD-163",
-      "name": "Hunter's Circle",
+      "name": "Hunters' Circle",
       "type": "Battlefield",
       "supertype": null,
       "costEnergy": null,
@@ -3723,6 +4075,14 @@
       "costEnergy": null,
       "costPower": null
     },
+    "RAD-170*": {
+      "basePrintId": "RAD-170",
+      "name": "Mordekaiser, Iron Revenant",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "RAD-171": {
       "basePrintId": "RAD-171",
       "name": "Orianna, Lady of Clockwork",
@@ -3758,6 +4118,14 @@
     "RAD-174*": {
       "basePrintId": "RAD-174",
       "name": "Seraphine, Starry-Eyed Songstress",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-175": {
+      "basePrintId": "RAD-175",
+      "name": "Evelynn, Agony's Embrace",
       "type": "Legend",
       "supertype": null,
       "costEnergy": null,
@@ -3819,6 +4187,22 @@
       "costEnergy": 4,
       "costPower": 1
     },
+    "RAD-184": {
+      "basePrintId": "RAD-184",
+      "name": "Packed Amphitheater",
+      "type": "Battlefield",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-R01A": {
+      "basePrintId": "RAD-R01",
+      "name": "Fury Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
     "RAD-R02": {
       "basePrintId": "RAD-R02",
       "name": "Calm Rune",
@@ -3851,6 +4235,14 @@
       "costEnergy": null,
       "costPower": null
     },
+    "RAD-R04": {
+      "basePrintId": "RAD-R04",
+      "name": "Body Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
     "RAD-R04A": {
       "basePrintId": "RAD-R04",
       "name": "Body Rune",
@@ -3858,6 +4250,46 @@
       "supertype": "Basic",
       "costEnergy": null,
       "costPower": null
+    },
+    "RAD-R05": {
+      "basePrintId": "RAD-R05",
+      "name": "Chaos Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-R05A": {
+      "basePrintId": "RAD-R05",
+      "name": "Chaos Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-R06A": {
+      "basePrintId": "RAD-R06",
+      "name": "Order Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "RAD-SP1": {
+      "basePrintId": "RAD-SP1",
+      "name": "Ahri, Confident",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-SP2": {
+      "basePrintId": "RAD-SP2",
+      "name": "Akali, Brash",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 5,
+      "costPower": 1
     },
     "RAD-SP3": {
       "basePrintId": "RAD-SP3",
@@ -6187,6 +6619,22 @@
       "costEnergy": null,
       "costPower": null
     },
+    "SFD-T01": {
+      "basePrintId": "SFD-T01",
+      "name": "Mech",
+      "type": "Unit",
+      "supertype": "Token",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "SFD-T02": {
+      "basePrintId": "SFD-T02",
+      "name": "Sand Soldier",
+      "type": "Unit",
+      "supertype": "Token",
+      "costEnergy": null,
+      "costPower": null
+    },
     "SFD-T03": {
       "basePrintId": "SFD-T03",
       "name": "Gold // Buff",
@@ -8435,6 +8883,54 @@
       "costEnergy": 10,
       "costPower": 3
     },
+    "UNL-R01A": {
+      "basePrintId": "UNL-R01",
+      "name": "Fury Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "UNL-R02A": {
+      "basePrintId": "UNL-R02",
+      "name": "Calm Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "UNL-R03A": {
+      "basePrintId": "UNL-R03",
+      "name": "Mind Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "UNL-R04A": {
+      "basePrintId": "UNL-R04",
+      "name": "Body Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "UNL-R05A": {
+      "basePrintId": "UNL-R05",
+      "name": "Chaos Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "UNL-R06A": {
+      "basePrintId": "UNL-R06",
+      "name": "Order Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "costEnergy": null,
+      "costPower": null
+    },
     "UNL-T01": {
       "basePrintId": "UNL-T01",
       "name": "Baron Pit",
@@ -8852,6 +9348,14 @@
       "costPower": null
     },
     "VEN-041": {
+      "basePrintId": "VEN-041",
+      "name": "Riven, Shattered",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 3,
+      "costPower": 1
+    },
+    "VEN-041A": {
       "basePrintId": "VEN-041",
       "name": "Riven, Shattered",
       "type": "Unit",
@@ -10387,9 +10891,33 @@
       "costEnergy": 4,
       "costPower": null
     },
+    "VEN-T01": {
+      "basePrintId": "VEN-T01",
+      "name": "Empowered",
+      "type": "Card",
+      "supertype": "Token",
+      "costEnergy": null,
+      "costPower": null
+    },
     "VEN-T04": {
       "basePrintId": "VEN-T04",
       "name": "Recruit (NX)",
+      "type": "Unit",
+      "supertype": "Token",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "VEN-T05": {
+      "basePrintId": "VEN-T05",
+      "name": "Shadow Clone",
+      "type": "Unit",
+      "supertype": "Token",
+      "costEnergy": null,
+      "costPower": null
+    },
+    "VEN-T06": {
+      "basePrintId": "VEN-T06",
+      "name": "Tentacle",
       "type": "Unit",
       "supertype": "Token",
       "costEnergy": null,

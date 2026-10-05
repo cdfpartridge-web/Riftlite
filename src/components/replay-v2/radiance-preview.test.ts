@@ -12,6 +12,17 @@ const card = (name: string, code?: string, imageUrl?: string): ReplayCardState =
 });
 
 describe("Radiance preview replay rendering", () => {
+  it.each(["Hunter's Circle", "Hunters' Circle"])("keeps the historical spelling %s readable", (name) => {
+    expect(cardImageUrl(card(name))).toBe(preview.cards["RAD-163"].imageUrl);
+    expect(isBattlefieldCard(card(name))).toBe(true);
+  });
+
+  it("preserves the alternate Packed Amphitheater art while name-only captures use the ordinary print", () => {
+    expect(preview.cards["RAD-184"].imageUrl).not.toBe(preview.cards["RAD-164"].imageUrl);
+    expect(cardImageUrl(card("Packed Amphitheater", "RAD-184"))).toBe(preview.cards["RAD-184"].imageUrl);
+    expect(cardImageUrl(card("Packed Amphitheater"))).toBe(preview.cards["RAD-164"].imageUrl);
+  });
+
   it.each(["Lost to the Sand", "Lost to the Sands"])("renders name-only %s captures without classifying the spell as a battlefield", (name) => {
     expect(cardImageUrl(card(name))).toBe(preview.cards["RAD-013"].imageUrl);
     expect(isBattlefieldCard(card(name))).toBe(false);
@@ -33,19 +44,21 @@ describe("Radiance preview replay rendering", () => {
   });
 
   it("renders all revealed collector prints without relying on an Atlas mirror", () => {
-    expect(Object.keys(preview.cards)).toHaveLength(110);
+    expect(Object.keys(preview.cards)).toHaveLength(150);
     for (const [code, data] of Object.entries(preview.cards)) {
       expect(cardImageUrl(card(data.name, code, `/cards/${code}.webp`)), code).toBe(data.imageUrl);
       if (data.type === "Battlefield") {
+        const defaultArt = Object.values(preview.cards)
+          .find((print) => print.type === "Battlefield" && print.name === data.name)!.imageUrl;
         expect(isBattlefieldCard(card("Unknown field", code)), code).toBe(true);
         expect(isBattlefieldCard(card(data.name)), data.name).toBe(true);
-        expect(cardImageUrl(card(data.name))).toBe(data.imageUrl);
+        expect(cardImageUrl(card(data.name))).toBe(defaultArt);
         expect(BATTLEFIELDS).toContain(data.name);
         const legacy = parseRiftReplayPayload({ messages: [{ parsed: {
           type: "authoritative_snapshot",
           snapshot: { players: [{ id: "self", board: { battlefield: [data.name] } }] },
         } }] });
-        expect(legacy.players[0].zones[0].cards[0].imageUrl, `${code} legacy name`).toBe(data.imageUrl);
+        expect(legacy.players[0].zones[0].cards[0].imageUrl, `${code} legacy name`).toBe(defaultArt);
       }
       if (data.type === "Legend") {
         expect(LEGENDS).toContain(data.champion);
@@ -81,5 +94,27 @@ describe("Radiance preview replay rendering", () => {
   it("renders an Atlas Bomb token that only supplies its token name and relative image path", () => {
     expect(cardImageUrl({ ...card("Bomb", undefined, "/tokens/Bomb.webp"), source: "token" }))
       .toBe(preview.cards["RAD-T02"].imageUrl);
+  });
+
+  it.each([
+    ["RAD-168*/167", "RAD-168S"],
+    ["/cards/RAD-168%2A.webp", "RAD-168S"],
+    ["/cards/RAD-168-star-167.webp", "RAD-168S"],
+    ["rad-168s", "RAD-168S"],
+    ["RAD-SP3/006", "RAD-SP3"],
+    ["RAD-R02A", "RAD-R02A"],
+    ["RAD-T02", "RAD-T02"],
+  ])("preserves exact legacy collector artwork for %s", (capturedCode, expectedCode) => {
+    const data = (preview.cards as Record<string, { name: string; imageUrl: string }>)[expectedCode];
+    expect(data).toBeDefined();
+    const replay = parseRiftReplayPayload({ messages: [{ parsed: {
+      type: "authoritative_snapshot",
+      snapshot: { players: [{ id: "self", board: { hand: [{
+        id: "exact-print", name: data.name, cardCode: capturedCode,
+      }] } }] },
+    } }] });
+    expect(replay.players[0].zones[0].cards[0]).toMatchObject({
+      code: expectedCode, imageUrl: data.imageUrl,
+    });
   });
 });

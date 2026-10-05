@@ -84,6 +84,10 @@ describe("normalizeTcgaReplayRawCaptureV1", () => {
     ["RAD-SP3", "RAD-SP3"],
     ["rad-r04a", "RAD-R04A"],
     ["RAD-168*", "RAD-168*"],
+    ["RAD-153", "RAD-153"],
+    ["RAD-170*", "RAD-170*"],
+    ["RAD-175", "RAD-175"],
+    ["ARC-001", "ARC-001"],
     ["RAD-SP3-not-a-code", undefined],
   ])("preserves the exact revealed print %s without accepting arbitrary identifiers", (sourceCode, expectedCode) => {
     const input = JSON.parse(JSON.stringify(fixture(), (key, value) => (

@@ -1,0 +1,873 @@
+{
+  "auditedAt": "2026-10-05",
+  "sources": [
+    "https://piltoverarchive.com/cards",
+    "https://playriftbound.com/en-us/card-gallery/"
+  ],
+  "cards": {
+    "ARC-001": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1760416626325-f3zxpz5s8g7.webp"
+    },
+    "ARC-002": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1760416743034-mjx1r8rnhhi.webp"
+    },
+    "ARC-003": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1760416827138-ytd8qmfc3v.webp"
+    },
+    "ARC-004": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1760416787235-exutfmhlgxf.webp"
+    },
+    "ARC-005": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1760416716990-we9v5u8rbb.webp"
+    },
+    "ARC-006": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1760416556879-01whuib9pmfi.webp"
+    },
+    "OGN-007B": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/OGN-007b.webp"
+    },
+    "OGN-042B": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/OGN-042b.webp"
+    },
+    "OGN-089B": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/OGN-089b.webp"
+    },
+    "OGN-126B": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/OGN-126b.webp"
+    },
+    "OGN-151B": {
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1780803602466-0tqzyobe1zq.webp"
+    },
+    "OGN-166B": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/OGN-166b.webp"
+    },
+    "OGN-197B": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/OGN-197b.webp"
+    },
+    "OGN-214B": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/OGN-214b.webp"
+    },
+    "SFD-T01": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/SFD-T01.webp"
+    },
+    "SFD-T02": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/SFD-T02.webp"
+    },
+    "UNL-R01A": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1772489366582-j850d8b51vc.png"
+    },
+    "UNL-R02A": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1772489327958-x4rjerafcx.png"
+    },
+    "UNL-R03A": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1772489382491-gffpct65jgb.png"
+    },
+    "UNL-R04A": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1772489304316-2thnys211eo.png"
+    },
+    "UNL-R05A": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1772489349570-60fm8rfv2nl.png"
+    },
+    "UNL-R06A": {
+      "imageUrl": "https://piltoverarchive.b-cdn.net/temporary/1772489400276-1xifka38ob4.png"
+    },
+    "VEN-041A": {
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1784307810372-cx0ignwgqkr.jpg"
+    },
+    "VEN-T01": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/VEN-T01.webp"
+    },
+    "VEN-T05": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/VEN-T05.webp"
+    },
+    "VEN-T06": {
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/VEN-T06.webp"
+    }
+  },
+  "imageUrlAliasesByPrintId": {
+    "OGN-247": [
+      "https://cdn.piltoverarchive.com/cards/OGN-247.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/3ea826277086945a2cdfda4e41b771075aa8b15b-744x1039.png?accountingTag=RB"
+    ],
+    "OGN-249": [
+      "https://cdn.piltoverarchive.com/cards/OGN-249.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/8ef9c1827ccbba313d4591275e831854afffa5b1-744x1039.png?accountingTag=RB"
+    ],
+    "OGN-251": [
+      "https://cdn.piltoverarchive.com/cards/OGN-251.webp"
+    ],
+    "OGN-253": [
+      "https://cdn.piltoverarchive.com/cards/OGN-253.webp"
+    ],
+    "OGN-255": [
+      "https://cdn.piltoverarchive.com/cards/OGN-255.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/56457c7986d3f140b7123a988149cc30a83493a7-744x1039.png?accountingTag=RB"
+    ],
+    "OGN-257": [
+      "https://cdn.piltoverarchive.com/cards/OGN-257.webp"
+    ],
+    "OGN-259": [
+      "https://cdn.piltoverarchive.com/cards/OGN-259.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/33e3d5596de0f560087d40414d62b8245d1dbb0d-744x1039.png?accountingTag=RB"
+    ],
+    "OGN-261": [
+      "https://cdn.piltoverarchive.com/cards/OGN-261.webp"
+    ],
+    "OGN-263": [
+      "https://cdn.piltoverarchive.com/cards/OGN-263.webp"
+    ],
+    "OGN-265": [
+      "https://cdn.piltoverarchive.com/cards/OGN-265.webp"
+    ],
+    "OGN-267": [
+      "https://cdn.piltoverarchive.com/cards/OGN-267.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/e0635cebc3dd8ee5355dbbc090ca27ebeacebad7-744x1039.png?accountingTag=RB"
+    ],
+    "OGN-269": [
+      "https://cdn.piltoverarchive.com/cards/OGN-269.webp"
+    ],
+    "OGN-299": [
+      "https://cdn.piltoverarchive.com/cards/OGN-299.webp"
+    ],
+    "OGN-299S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-299s.webp"
+    ],
+    "OGN-300": [
+      "https://cdn.piltoverarchive.com/cards/OGN-300.webp"
+    ],
+    "OGN-300S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-300s.webp"
+    ],
+    "OGN-301": [
+      "https://cdn.piltoverarchive.com/cards/OGN-301.webp"
+    ],
+    "OGN-301S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-301s.webp"
+    ],
+    "OGN-302": [
+      "https://cdn.piltoverarchive.com/cards/OGN-302.webp"
+    ],
+    "OGN-302S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-302s.webp"
+    ],
+    "OGN-303": [
+      "https://cdn.piltoverarchive.com/cards/OGN-303.webp"
+    ],
+    "OGN-303S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-303s.webp"
+    ],
+    "OGN-304": [
+      "https://cdn.piltoverarchive.com/cards/OGN-304.webp"
+    ],
+    "OGN-304S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-304s.webp"
+    ],
+    "OGN-305": [
+      "https://cdn.piltoverarchive.com/cards/OGN-305.webp"
+    ],
+    "OGN-305S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-305s.webp"
+    ],
+    "OGN-306": [
+      "https://cdn.piltoverarchive.com/cards/OGN-306.webp"
+    ],
+    "OGN-306S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-306s.webp"
+    ],
+    "OGN-307": [
+      "https://cdn.piltoverarchive.com/cards/OGN-307.webp"
+    ],
+    "OGN-307S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-307s.webp"
+    ],
+    "OGN-308": [
+      "https://cdn.piltoverarchive.com/cards/OGN-308.webp"
+    ],
+    "OGN-308S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-308s.webp"
+    ],
+    "OGN-309": [
+      "https://cdn.piltoverarchive.com/cards/OGN-309.webp"
+    ],
+    "OGN-309S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-309s.webp"
+    ],
+    "OGN-310": [
+      "https://cdn.piltoverarchive.com/cards/OGN-310.webp"
+    ],
+    "OGN-310S": [
+      "https://cdn.piltoverarchive.com/cards/OGN-310s.webp"
+    ],
+    "OGS-017": [
+      "https://cdn.piltoverarchive.com/cards/OGS-017.webp"
+    ],
+    "OGS-019": [
+      "https://cdn.piltoverarchive.com/cards/OGS-019.webp"
+    ],
+    "OGS-021": [
+      "https://cdn.piltoverarchive.com/cards/OGS-021.webp"
+    ],
+    "OGS-023": [
+      "https://cdn.piltoverarchive.com/cards/OGS-023.webp"
+    ],
+    "RAD-001": [
+      "https://cdn.piltoverarchive.com/cards/RAD-001.webp"
+    ],
+    "RAD-002": [
+      "https://cdn.piltoverarchive.com/cards/RAD-002.webp"
+    ],
+    "RAD-003": [
+      "https://cdn.piltoverarchive.com/cards/RAD-003.webp"
+    ],
+    "RAD-004": [
+      "https://cdn.piltoverarchive.com/cards/RAD-004.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/38fd13c7522bb47dcc5ce1596aeb6a638087ee09-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-012": [
+      "https://cdn.piltoverarchive.com/cards/RAD-012.webp"
+    ],
+    "RAD-013": [
+      "https://cdn.piltoverarchive.com/cards/RAD-013.webp"
+    ],
+    "RAD-014": [
+      "https://cdn.piltoverarchive.com/cards/RAD-014.webp"
+    ],
+    "RAD-015": [
+      "https://cdn.piltoverarchive.com/cards/RAD-015.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/20997ddaef2cd714c36e5473c156faf331b80b7b-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-016": [
+      "https://cdn.piltoverarchive.com/cards/RAD-016.webp"
+    ],
+    "RAD-023": [
+      "https://cdn.piltoverarchive.com/cards/RAD-023.webp"
+    ],
+    "RAD-023A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-023a.webp"
+    ],
+    "RAD-024": [
+      "https://cdn.piltoverarchive.com/cards/RAD-024.webp"
+    ],
+    "RAD-025": [
+      "https://cdn.piltoverarchive.com/cards/RAD-025.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/120b20ee26d221cea31f510090cef037e74c023f-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-026": [
+      "https://cdn.piltoverarchive.com/cards/RAD-026.webp"
+    ],
+    "RAD-033": [
+      "https://cdn.piltoverarchive.com/cards/RAD-033.webp"
+    ],
+    "RAD-034": [
+      "https://cdn.piltoverarchive.com/cards/RAD-034.webp"
+    ],
+    "RAD-035": [
+      "https://cdn.piltoverarchive.com/cards/RAD-035.webp"
+    ],
+    "RAD-036": [
+      "https://cdn.piltoverarchive.com/cards/RAD-036.webp"
+    ],
+    "RAD-037": [
+      "https://cdn.piltoverarchive.com/cards/RAD-037.webp"
+    ],
+    "RAD-038": [
+      "https://cdn.piltoverarchive.com/temporary/1790379856360-1cbp857fr3y.jpg",
+      "https://cdn.piltoverarchive.com/temporary/1790379906737-nco9pod88y.jpg",
+      "https://cdn.piltoverarchive.com/cards/RAD-038.webp"
+    ],
+    "RAD-045": [
+      "https://cdn.piltoverarchive.com/cards/RAD-045.webp"
+    ],
+    "RAD-045A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-045a.webp"
+    ],
+    "RAD-046": [
+      "https://cdn.piltoverarchive.com/cards/RAD-046.webp"
+    ],
+    "RAD-047": [
+      "https://cdn.piltoverarchive.com/cards/RAD-047.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/75a3d8fbfd8caeabfd5be38513a6624c61f5230f-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-048": [
+      "https://cdn.piltoverarchive.com/cards/RAD-048.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/afba3669ea1063dafb0e4c2c766694e00540eb13-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-055": [
+      "https://cdn.piltoverarchive.com/cards/RAD-055.webp"
+    ],
+    "RAD-056": [
+      "https://cdn.piltoverarchive.com/cards/RAD-056.webp"
+    ],
+    "RAD-057": [
+      "https://cdn.piltoverarchive.com/cards/RAD-057.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/9558ced7593f5a26911eb6e1393aae3289842e20-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-058": [
+      "https://cdn.piltoverarchive.com/cards/RAD-058.webp"
+    ],
+    "RAD-059": [
+      "https://cdn.piltoverarchive.com/cards/RAD-059.webp"
+    ],
+    "RAD-061": [
+      "https://cdn.piltoverarchive.com/cards/RAD-061.webp"
+    ],
+    "RAD-061A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-061a.webp"
+    ],
+    "RAD-063": [
+      "https://cdn.piltoverarchive.com/cards/RAD-063.webp"
+    ],
+    "RAD-067": [
+      "https://cdn.piltoverarchive.com/cards/RAD-067.webp"
+    ],
+    "RAD-068": [
+      "https://cdn.piltoverarchive.com/cards/RAD-068.webp"
+    ],
+    "RAD-068A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-068a.webp"
+    ],
+    "RAD-069": [
+      "https://cdn.piltoverarchive.com/cards/RAD-069.webp"
+    ],
+    "RAD-070": [
+      "https://cdn.piltoverarchive.com/cards/RAD-070.webp"
+    ],
+    "RAD-071": [
+      "https://cdn.piltoverarchive.com/cards/RAD-071.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/9d518a6db3ae174096b09cf80cece2997f685ede-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-072": [
+      "https://cdn.piltoverarchive.com/cards/RAD-072.webp"
+    ],
+    "RAD-073": [
+      "https://cdn.piltoverarchive.com/cards/RAD-073.webp"
+    ],
+    "RAD-079": [
+      "https://cdn.piltoverarchive.com/cards/RAD-079.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/7b2103352935061e19cf90036a6aa4cd35ad5922-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-081": [
+      "https://cdn.piltoverarchive.com/cards/RAD-081.webp"
+    ],
+    "RAD-082": [
+      "https://cdn.piltoverarchive.com/cards/RAD-082.webp"
+    ],
+    "RAD-083": [
+      "https://cdn.piltoverarchive.com/cards/RAD-083.webp"
+    ],
+    "RAD-084": [
+      "https://cdn.piltoverarchive.com/cards/RAD-084.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/dc551ece6cf007c76a3a16feba5f26fb7dd4ed65-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-085": [
+      "https://cdn.piltoverarchive.com/cards/RAD-085.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/5bc0671f9f78630e2932052bb9f7f42ef2742c86-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-086": [
+      "https://cdn.piltoverarchive.com/cards/RAD-086.webp"
+    ],
+    "RAD-086A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-086a.webp"
+    ],
+    "RAD-090": [
+      "https://cdn.piltoverarchive.com/cards/RAD-090.webp"
+    ],
+    "RAD-090A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-090a.webp"
+    ],
+    "RAD-091": [
+      "https://cdn.piltoverarchive.com/cards/RAD-091.webp"
+    ],
+    "RAD-091A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-091a.webp"
+    ],
+    "RAD-093": [
+      "https://cdn.piltoverarchive.com/cards/RAD-093.webp"
+    ],
+    "RAD-095": [
+      "https://cdn.piltoverarchive.com/cards/RAD-095.webp"
+    ],
+    "RAD-096": [
+      "https://cdn.piltoverarchive.com/cards/RAD-096.webp"
+    ],
+    "RAD-097": [
+      "https://cdn.piltoverarchive.com/cards/RAD-097.webp"
+    ],
+    "RAD-098": [
+      "https://cdn.piltoverarchive.com/cards/RAD-098.webp"
+    ],
+    "RAD-105": [
+      "https://cdn.piltoverarchive.com/cards/RAD-105.webp"
+    ],
+    "RAD-106": [
+      "https://cdn.piltoverarchive.com/cards/RAD-106.webp"
+    ],
+    "RAD-107": [
+      "https://cdn.piltoverarchive.com/cards/RAD-107.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/d112a706fe957e5cea58ea1e4366ac02e3ba292b-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-109": [
+      "https://cdn.piltoverarchive.com/cards/RAD-109.webp"
+    ],
+    "RAD-109A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-109a.webp"
+    ],
+    "RAD-110": [
+      "https://cdn.piltoverarchive.com/cards/RAD-110.webp"
+    ],
+    "RAD-115": [
+      "https://cdn.piltoverarchive.com/cards/RAD-115.webp"
+    ],
+    "RAD-116": [
+      "https://cdn.piltoverarchive.com/cards/RAD-116.webp"
+    ],
+    "RAD-117": [
+      "https://cdn.piltoverarchive.com/cards/RAD-117.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/5d119653fcba423c150815de3a412922c4e481e8-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-118": [
+      "https://cdn.piltoverarchive.com/cards/RAD-118.webp"
+    ],
+    "RAD-125": [
+      "https://cdn.piltoverarchive.com/cards/RAD-125.webp"
+    ],
+    "RAD-126": [
+      "https://cdn.piltoverarchive.com/cards/RAD-126.webp"
+    ],
+    "RAD-127": [
+      "https://cdn.piltoverarchive.com/cards/RAD-127.webp"
+    ],
+    "RAD-128": [
+      "https://cdn.piltoverarchive.com/cards/RAD-128.webp"
+    ],
+    "RAD-129": [
+      "https://cdn.piltoverarchive.com/cards/RAD-129.webp"
+    ],
+    "RAD-132": [
+      "https://cdn.piltoverarchive.com/cards/RAD-132.webp"
+    ],
+    "RAD-136": [
+      "https://cdn.piltoverarchive.com/cards/RAD-136.webp"
+    ],
+    "RAD-137": [
+      "https://cdn.piltoverarchive.com/cards/RAD-137.webp"
+    ],
+    "RAD-137A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-137a.webp"
+    ],
+    "RAD-138": [
+      "https://cdn.piltoverarchive.com/cards/RAD-138.webp"
+    ],
+    "RAD-138A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-138a.webp"
+    ],
+    "RAD-139": [
+      "https://cdn.piltoverarchive.com/cards/RAD-139.webp"
+    ],
+    "RAD-140": [
+      "https://cdn.piltoverarchive.com/cards/RAD-140.webp"
+    ],
+    "RAD-141": [
+      "https://cdn.piltoverarchive.com/cards/RAD-141.webp"
+    ],
+    "RAD-142": [
+      "https://cdn.piltoverarchive.com/cards/RAD-142.webp"
+    ],
+    "RAD-143": [
+      "https://cdn.piltoverarchive.com/cards/RAD-143.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/90ec3319518771820909592eee963d34dab037bc-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-145": [
+      "https://cdn.piltoverarchive.com/cards/RAD-145.webp"
+    ],
+    "RAD-147": [
+      "https://cdn.piltoverarchive.com/cards/RAD-147.webp"
+    ],
+    "RAD-148": [
+      "https://cdn.piltoverarchive.com/cards/RAD-148.webp"
+    ],
+    "RAD-150": [
+      "https://cdn.piltoverarchive.com/cards/RAD-150.webp"
+    ],
+    "RAD-151": [
+      "https://cdn.piltoverarchive.com/cards/RAD-151.webp"
+    ],
+    "RAD-152": [
+      "https://cdn.piltoverarchive.com/cards/RAD-152.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/0200aeca5d0a1cca4b8ab5b3f3910207118ee4e4-744x1040.png?accountingTag=RB"
+    ],
+    "RAD-153": [
+      "https://cdn.piltoverarchive.com/cards/RAD-153.webp"
+    ],
+    "RAD-155": [
+      "https://cdn.piltoverarchive.com/cards/RAD-155.webp"
+    ],
+    "RAD-156": [
+      "https://cdn.piltoverarchive.com/cards/RAD-156.webp"
+    ],
+    "RAD-157": [
+      "https://cdn.piltoverarchive.com/cards/RAD-157.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/f5bb93e1ad9005fd42a9129b91f72877f1dedbe1-1039x744.png?accountingTag=RB"
+    ],
+    "RAD-158": [
+      "https://cdn.piltoverarchive.com/cards/RAD-158.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/9a02ae108f32a8b88be47a94b5f0d39b5a06a6a1-1039x744.png?accountingTag=RB"
+    ],
+    "RAD-160": [
+      "https://cdn.piltoverarchive.com/cards/RAD-160.webp"
+    ],
+    "RAD-161": [
+      "https://cdn.piltoverarchive.com/cards/RAD-161.webp"
+    ],
+    "RAD-162": [
+      "https://cdn.piltoverarchive.com/cards/RAD-162.webp"
+    ],
+    "RAD-163": [
+      "https://cdn.piltoverarchive.com/cards/RAD-163.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/e7e25d90506d805f1996e7f751cb5b6baa8ec305-1039x744.png?accountingTag=RB"
+    ],
+    "RAD-164": [
+      "https://cdn.piltoverarchive.com/cards/RAD-164.webp"
+    ],
+    "RAD-165": [
+      "https://cdn.piltoverarchive.com/cards/RAD-165.webp"
+    ],
+    "RAD-166": [
+      "https://cdn.piltoverarchive.com/cards/RAD-166.webp"
+    ],
+    "RAD-167": [
+      "https://cdn.piltoverarchive.com/cards/RAD-167.webp"
+    ],
+    "RAD-168": [
+      "https://cdn.piltoverarchive.com/cards/RAD-168.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/0a921eca1acad149fd4bcb13244e3af25feac488-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-169": [
+      "https://cdn.piltoverarchive.com/cards/RAD-169.webp"
+    ],
+    "RAD-170": [
+      "https://cdn.piltoverarchive.com/cards/RAD-170.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/57ad15a4a09ffc2038e1b8548d861eb74d46d4f7-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-171": [
+      "https://cdn.piltoverarchive.com/cards/RAD-171.webp"
+    ],
+    "RAD-172": [
+      "https://cdn.piltoverarchive.com/cards/RAD-172.webp"
+    ],
+    "RAD-174": [
+      "https://cdn.piltoverarchive.com/cards/RAD-174.webp"
+    ],
+    "RAD-175": [
+      "https://cdn.piltoverarchive.com/cards/RAD-175.webp"
+    ],
+    "RAD-176": [
+      "https://cdn.piltoverarchive.com/cards/RAD-176.webp"
+    ],
+    "RAD-178": [
+      "https://cdn.piltoverarchive.com/cards/RAD-178.webp"
+    ],
+    "RAD-179": [
+      "https://cdn.piltoverarchive.com/cards/RAD-179.webp"
+    ],
+    "RAD-180": [
+      "https://cdn.piltoverarchive.com/cards/RAD-180.webp"
+    ],
+    "RAD-181": [
+      "https://cdn.piltoverarchive.com/cards/RAD-181.webp"
+    ],
+    "RAD-182": [
+      "https://cdn.piltoverarchive.com/cards/RAD-182.webp"
+    ],
+    "RAD-183": [
+      "https://cdn.piltoverarchive.com/cards/RAD-183.webp"
+    ],
+    "RAD-R02A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-R02a.webp"
+    ],
+    "RAD-R03A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-R03a.webp"
+    ],
+    "RAD-R04A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-R04a.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/90b2706af9f1eaf167065087a09a8451f303ffe1-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-R05A": [
+      "https://cdn.piltoverarchive.com/cards/RAD-R05a.webp"
+    ],
+    "RAD-SP2": [
+      "https://cdn.piltoverarchive.com/cards/RAD-SP2.webp"
+    ],
+    "RAD-SP3": [
+      "https://cdn.piltoverarchive.com/cards/RAD-SP3.webp",
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/f79b82a0a56c2e4af641beb84762abcd6b058195-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-SP4": [
+      "https://cdn.piltoverarchive.com/cards/RAD-SP4.webp"
+    ],
+    "RAD-SP5": [
+      "https://cdn.piltoverarchive.com/cards/RAD-SP5.webp"
+    ],
+    "SFD-181": [
+      "https://cdn.piltoverarchive.com/cards/SFD-181.webp"
+    ],
+    "SFD-183": [
+      "https://cdn.piltoverarchive.com/cards/SFD-183.webp"
+    ],
+    "SFD-185": [
+      "https://cdn.piltoverarchive.com/cards/SFD-185.webp"
+    ],
+    "SFD-187": [
+      "https://cdn.piltoverarchive.com/cards/SFD-187.webp"
+    ],
+    "SFD-189": [
+      "https://cdn.piltoverarchive.com/cards/SFD-189.webp"
+    ],
+    "SFD-193": [
+      "https://cdn.piltoverarchive.com/cards/SFD-193.webp"
+    ],
+    "SFD-195": [
+      "https://cdn.piltoverarchive.com/cards/SFD-195.webp"
+    ],
+    "SFD-197": [
+      "https://cdn.piltoverarchive.com/cards/SFD-197.webp"
+    ],
+    "SFD-199": [
+      "https://cdn.piltoverarchive.com/cards/SFD-199.webp"
+    ],
+    "SFD-201": [
+      "https://cdn.piltoverarchive.com/cards/SFD-201.webp"
+    ],
+    "SFD-203": [
+      "https://cdn.piltoverarchive.com/cards/SFD-203.webp"
+    ],
+    "SFD-205": [
+      "https://cdn.piltoverarchive.com/cards/SFD-205.webp"
+    ],
+    "SFD-240": [
+      "https://cdn.piltoverarchive.com/cards/SFD-240.webp"
+    ],
+    "SFD-241": [
+      "https://cdn.piltoverarchive.com/cards/SFD-241.webp"
+    ],
+    "SFD-242": [
+      "https://cdn.piltoverarchive.com/cards/SFD-242.webp"
+    ],
+    "SFD-243": [
+      "https://cdn.piltoverarchive.com/cards/SFD-243.webp"
+    ],
+    "SFD-244": [
+      "https://cdn.piltoverarchive.com/cards/SFD-244.webp"
+    ],
+    "SFD-245": [
+      "https://cdn.piltoverarchive.com/cards/SFD-245.webp"
+    ],
+    "SFD-246": [
+      "https://cdn.piltoverarchive.com/cards/SFD-246.webp"
+    ],
+    "SFD-247": [
+      "https://cdn.piltoverarchive.com/cards/SFD-247.webp"
+    ],
+    "SFD-248": [
+      "https://cdn.piltoverarchive.com/cards/SFD-248.webp"
+    ],
+    "SFD-249": [
+      "https://cdn.piltoverarchive.com/cards/SFD-249.webp"
+    ],
+    "SFD-250": [
+      "https://cdn.piltoverarchive.com/cards/SFD-250.webp"
+    ],
+    "SFD-251": [
+      "https://cdn.piltoverarchive.com/cards/SFD-251.webp"
+    ],
+    "UNL-181": [
+      "https://cdn.piltoverarchive.com/cards/UNL-181.webp"
+    ],
+    "UNL-183": [
+      "https://cdn.piltoverarchive.com/cards/UNL-183.webp"
+    ],
+    "UNL-185": [
+      "https://cdn.piltoverarchive.com/cards/UNL-185.webp"
+    ],
+    "UNL-187": [
+      "https://cdn.piltoverarchive.com/cards/UNL-187.webp"
+    ],
+    "UNL-189": [
+      "https://cdn.piltoverarchive.com/cards/UNL-189.webp"
+    ],
+    "UNL-191": [
+      "https://cdn.piltoverarchive.com/cards/UNL-191.webp"
+    ],
+    "UNL-193": [
+      "https://cdn.piltoverarchive.com/cards/UNL-193.webp"
+    ],
+    "UNL-195": [
+      "https://cdn.piltoverarchive.com/cards/UNL-195.webp"
+    ],
+    "UNL-197": [
+      "https://cdn.piltoverarchive.com/cards/UNL-197.webp"
+    ],
+    "UNL-199": [
+      "https://cdn.piltoverarchive.com/cards/UNL-199.webp"
+    ],
+    "UNL-201": [
+      "https://cdn.piltoverarchive.com/cards/UNL-201.webp"
+    ],
+    "UNL-203": [
+      "https://cdn.piltoverarchive.com/cards/UNL-203.webp"
+    ],
+    "UNL-226": [
+      "https://cdn.piltoverarchive.com/cards/UNL-226.webp"
+    ],
+    "UNL-226S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-226*.webp"
+    ],
+    "UNL-227": [
+      "https://cdn.piltoverarchive.com/cards/UNL-227.webp"
+    ],
+    "UNL-227S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-227*.webp"
+    ],
+    "UNL-228": [
+      "https://cdn.piltoverarchive.com/cards/UNL-228.webp"
+    ],
+    "UNL-228S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-228*.webp"
+    ],
+    "UNL-229": [
+      "https://cdn.piltoverarchive.com/cards/UNL-229.webp"
+    ],
+    "UNL-229S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-229*.webp"
+    ],
+    "UNL-230": [
+      "https://cdn.piltoverarchive.com/cards/UNL-230.webp"
+    ],
+    "UNL-230S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-230*.webp"
+    ],
+    "UNL-231": [
+      "https://cdn.piltoverarchive.com/cards/UNL-231.webp"
+    ],
+    "UNL-231S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-231*.webp"
+    ],
+    "UNL-232": [
+      "https://cdn.piltoverarchive.com/cards/UNL-232.webp"
+    ],
+    "UNL-232S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-232*.webp"
+    ],
+    "UNL-233": [
+      "https://cdn.piltoverarchive.com/cards/UNL-233.webp"
+    ],
+    "UNL-233S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-233*.webp"
+    ],
+    "UNL-234": [
+      "https://cdn.piltoverarchive.com/cards/UNL-234.webp"
+    ],
+    "UNL-234S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-234*.webp"
+    ],
+    "UNL-235": [
+      "https://cdn.piltoverarchive.com/cards/UNL-235.webp"
+    ],
+    "UNL-235S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-235*.webp"
+    ],
+    "UNL-236": [
+      "https://cdn.piltoverarchive.com/cards/UNL-236.webp"
+    ],
+    "UNL-236S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-236*.webp"
+    ],
+    "UNL-237": [
+      "https://cdn.piltoverarchive.com/cards/UNL-237.webp"
+    ],
+    "UNL-237S": [
+      "https://cdn.piltoverarchive.com/cards/UNL-237*.webp"
+    ],
+    "VEN-139": [
+      "https://cdn.piltoverarchive.com/cards/VEN-139.webp"
+    ],
+    "VEN-141": [
+      "https://cdn.piltoverarchive.com/cards/VEN-141.webp"
+    ],
+    "VEN-143": [
+      "https://cdn.piltoverarchive.com/cards/VEN-143.webp"
+    ],
+    "VEN-145": [
+      "https://cdn.piltoverarchive.com/cards/VEN-145.webp"
+    ],
+    "VEN-147": [
+      "https://cdn.piltoverarchive.com/cards/VEN-147.webp"
+    ],
+    "VEN-149": [
+      "https://cdn.piltoverarchive.com/cards/VEN-149.webp"
+    ],
+    "VEN-151": [
+      "https://cdn.piltoverarchive.com/cards/VEN-151.webp"
+    ],
+    "VEN-153": [
+      "https://cdn.piltoverarchive.com/cards/VEN-153.webp"
+    ],
+    "VEN-155": [
+      "https://cdn.piltoverarchive.com/cards/VEN-155.webp"
+    ],
+    "VEN-189": [
+      "https://cdn.piltoverarchive.com/cards/VEN-189.webp"
+    ],
+    "VEN-189S": [
+      "https://cdn.piltoverarchive.com/cards/VEN-189*.webp"
+    ],
+    "VEN-190": [
+      "https://cdn.piltoverarchive.com/cards/VEN-190.webp"
+    ],
+    "VEN-190S": [
+      "https://cdn.piltoverarchive.com/cards/VEN-190*.webp"
+    ],
+    "VEN-191": [
+      "https://cdn.piltoverarchive.com/cards/VEN-191.webp"
+    ],
+    "VEN-191S": [
+      "https://cdn.piltoverarchive.com/cards/VEN-191*.webp"
+    ],
+    "VEN-192": [
+      "https://cdn.piltoverarchive.com/cards/VEN-192.webp"
+    ],
+    "VEN-192S": [
+      "https://cdn.piltoverarchive.com/cards/VEN-192*.webp"
+    ],
+    "VEN-193": [
+      "https://cdn.piltoverarchive.com/cards/VEN-193.webp"
+    ],
+    "VEN-193S": [
+      "https://cdn.piltoverarchive.com/cards/VEN-193*.webp"
+    ],
+    "VEN-194": [
+      "https://cdn.piltoverarchive.com/cards/VEN-194.webp"
+    ],
+    "VEN-194S": [
+      "https://cdn.piltoverarchive.com/cards/VEN-194*.webp"
+    ],
+    "VEN-195": [
+      "https://cdn.piltoverarchive.com/cards/VEN-195.webp"
+    ],
+    "VEN-195S": [
+      "https://cdn.piltoverarchive.com/cards/VEN-195*.webp"
+    ],
+    "VEN-196": [
+      "https://cdn.piltoverarchive.com/cards/VEN-196.webp"
+    ],
+    "VEN-196S": [
+      "https://cdn.piltoverarchive.com/cards/VEN-196*.webp"
+    ],
+    "VEN-197": [
+      "https://cdn.piltoverarchive.com/cards/VEN-197.webp"
+    ],
+    "VEN-197S": [
+      "https://cdn.piltoverarchive.com/cards/VEN-197*.webp"
+    ]
+  }
+}

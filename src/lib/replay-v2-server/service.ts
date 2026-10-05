@@ -509,6 +509,12 @@ export async function updateReplayVisibility(
   });
 }
 
+export async function readOwnerReplayVisibilityDetails(ownerUid: string, replayId: string) {
+  const db = replayDb();
+  const record = await ownedReplay(db, await replayOwnerIdentityUids(db, ownerUid), replayId);
+  return { replayId: record.replayId, visibility: record.visibility, title: record.title };
+}
+
 /** Full post-game lists are owner-only attachments, never part of canonical/public playback. */
 export async function readOwnerReplayDecks(ownerUid:string,replayId:string):Promise<AtlasMatchHistory|null> {
   const db=replayDb();

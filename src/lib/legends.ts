@@ -1,3 +1,5 @@
+import radiancePreview from "@/lib/cards/radiance-preview.json";
+
 const CHAMPION_ID_MAP: Record<string, string> = {
   "Kai'Sa": "Kaisa",
   "Kha'Zix": "Khazix",
@@ -25,6 +27,7 @@ function riftAtlasLegendImageUrl(cardCode: string): string {
 }
 
 const LEGEND_IMAGE_OVERRIDES: Record<string, string> = {
+  "Evelynn": radiancePreview.cards["RAD-153"].imageUrl,
   "Mordekaiser": "https://cdn.piltoverarchive.com/temporary/1790861904340-69cuehy8is7.png",
   "Ekko": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/8ca3ef446631784ce1d261e30f6a163843ffcb2b-744x1039.png?accountingTag=RB",
   "Ziggs": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/69899f4d5e05ff0a060b9f38894cd77f9e17d195-744x1039.png?accountingTag=RB",

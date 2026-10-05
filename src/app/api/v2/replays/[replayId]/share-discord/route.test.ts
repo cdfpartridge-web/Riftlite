@@ -199,6 +199,46 @@ describe("Discord replay share eligibility", () => {
     expect(shareReplayToDiscordFeedsMock).not.toHaveBeenCalled();
   });
 
+  it.each(["public", "unlisted"])("preserves current %s visibility for automatic Discord delivery", async (visibility) => {
+    readCanonicalReplayMock.mockResolvedValue({ record: { platform: "atlas", status: "ready", visibility: "unlisted" },
+      bytes: gzipSync(Buffer.from(JSON.stringify({ schema: "riftlite-canonical-replay", version: 2 }))) });
+    isDiscordReplayResultResolvedMock.mockReturnValue(true);
+    readOwnerReplayVisibilityMock.mockResolvedValue(visibility);
+    const response = await shareRequest({ automatic: true, retryDelivery: true });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, visibility });
+    expect(updateReplayVisibilityMock).not.toHaveBeenCalled();
+    expect(readOwnerReplayVisibilityMock).toHaveBeenCalledWith("owner-1", REPLAY_ID);
+  });
+
+  it("blocks automatic sharing of an owner's Private replay before attempting delivery", async () => {
+    readCanonicalReplayMock.mockResolvedValue({ record: { platform: "atlas", status: "ready", visibility: "private" },
+      bytes: gzipSync(Buffer.from(JSON.stringify({ schema: "riftlite-canonical-replay", version: 2 }))) });
+    const response = await shareRequest({ automatic: true, retryDelivery: true });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: "replay_visibility_changed" });
+    expect(shareReplayToDiscordFeedsMock).not.toHaveBeenCalled();
+    expect(updateReplayVisibilityMock).not.toHaveBeenCalled();
+  });
+
+  it("stops an automatic post if privacy changed while its destination was being prepared", async () => {
+    readCanonicalReplayMock.mockResolvedValue({ record: { platform: "atlas", status: "ready", visibility: "unlisted" },
+      bytes: gzipSync(Buffer.from(JSON.stringify({ schema: "riftlite-canonical-replay", version: 2 }))) });
+    isDiscordReplayResultResolvedMock.mockReturnValue(true);
+    readOwnerReplayVisibilityMock.mockResolvedValue("private");
+    // The real delivery helper converts a failed before-send guard to a failed
+    // destination. The route must still return the terminal privacy error.
+    shareReplayToDiscordFeedsMock.mockImplementation(async ({ beforeFirstPost }: { beforeFirstPost: () => Promise<void> }) => {
+      try { await beforeFirstPost(); } catch { return [{ hubId: "hub-1", status: "failed" }]; }
+      throw new Error("A Private replay should not be posted.");
+    });
+    const response = await shareRequest({ automatic: true });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: "replay_visibility_changed" });
+    expect(updateReplayVisibilityMock).not.toHaveBeenCalled();
+    expect(writeReplayDiscordRequestReceiptMock).not.toHaveBeenCalled();
+  });
+
   it("does not change TCGA visibility when its result is unresolved", async () => {
     readCanonicalReplayMock.mockResolvedValue({
       record: { platform: "tcga", status: "ready" },

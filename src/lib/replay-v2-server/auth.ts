@@ -18,6 +18,18 @@ export async function requireReplayViewerUser(request: Request): Promise<string>
   return uid;
 }
 
+/** Bearer clients are explicit; browser session mutations must originate on this site. */
+export async function requireReplayMutationUser(request: Request): Promise<string> {
+  if (/^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "")) {
+    return requireReplayUser(request);
+  }
+  if (request.headers.get("origin") !== new URL(request.url).origin ||
+      request.headers.get("sec-fetch-site") === "cross-site") {
+    throw new ReplayV2Error(403, "replay_origin_required", "Open this replay in RiftLite to change its visibility.");
+  }
+  return requireReplayViewerUser(request);
+}
+
 export async function optionalReplayUser(request: Request): Promise<string> {
   const match = /^Bearer\s+(.+)$/i.exec(request.headers.get("authorization") ?? "");
   const token = match?.[1]?.trim() ?? "";

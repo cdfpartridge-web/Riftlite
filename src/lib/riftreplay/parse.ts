@@ -1,5 +1,6 @@
 import radiancePreview from "@/lib/cards/radiance-preview.json";
 import { CARD_NAME_CODE_ALIASES } from "@/lib/cards/name-aliases";
+import { auditedCapturedImageUrl, auditedPrintImageUrl } from "@/lib/cards/audited-print-art";
 import type {
   RawReplayMessage,
   ReplayCard,
@@ -42,6 +43,8 @@ const ZONE_LABELS: Record<string, string> = {
 const KNOWN_CARD_CODES_BY_NAME: Record<string, string> = {
   bandlescoutsacademy: "RAD-157",
   blackmarket: "RAD-158",
+  blackrosesanctum: "RAD-159",
+  firelightshideout: "RAD-162",
   hunterscircle: "RAD-163",
   cosmicvista: "RAD-160",
   durandmemorial: "RAD-161",
@@ -734,11 +737,12 @@ function cardFromUnknown(value: unknown, fallbackId: string): ReplayCard | null 
   if (!name) return null;
   const id = stringValue(source.id) || stringValue(source.instanceId) || stringValue(source.cardInstanceId) || stringValue(source.cardId) || fallbackId;
   const code = looseCode || stringValue(source.cardCode) || stringValue(source.code) || stringValue(source.variantNumber);
+  const capturedImage = findImageUrl(source);
   return enrichReplayCard({
     id,
     name,
     exhausted: booleanValue(source.exhausted) ?? booleanValue(source.isExhausted),
-    imageUrl: findImageUrl(source) || imageUrlFromCardCode(code),
+    imageUrl: auditedCapturedImageUrl(code, capturedImage) || capturedImage || imageUrlFromCardCode(code),
     isCopy: booleanValue(source.isCopy) ?? booleanValue(source.copy) ?? /copy|token/i.test(stringValue(source.source)),
     type: stringValue(source.type) || stringValue(source.cardType),
     ownerId: stringValue(source.ownerPlayerId) || stringValue(source.ownerId),
@@ -967,14 +971,18 @@ function normalizeImageUrl(value: string) {
 function imageUrlFromCardCode(code?: string) {
   if (!code) return undefined;
   const preview = (radiancePreview.cards as Record<string, { imageUrl: string }>)[code.toUpperCase().replace(/\*$/, "S")];
-  return preview?.imageUrl || `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp`;
+  return preview?.imageUrl || auditedPrintImageUrl(code) || `https://cdn.piltoverarchive.com/cards/${encodeURIComponent(code)}.webp`;
 }
 
 function cardCodeFromLoose(value: unknown) {
-  const raw = stringValue(value);
+  let raw = stringValue(value);
   if (!raw) return "";
-  const match = raw.match(/\b([A-Z]{3}-\d{3}[a-z]?)\b/i);
-  return match ? `${match[1].slice(0, 3).toUpperCase()}-${match[1].slice(4)}` : "";
+  try { raw = decodeURIComponent(raw); } catch { /* Keep malformed legacy URLs readable. */ }
+  raw = raw.replace(/-star(?=[^a-z]|$)/gi, "*");
+  const match = raw.match(
+    /\b([A-Z]{2,5}-(?:(?:SP|T)\d{1,3}|R\d{1,3}[A-Z]?|\d{1,4}(?:[A-Z]|\*)?))(?![A-Z0-9*])/i,
+  );
+  return match ? match[1].replace(/\*$/, "S").toUpperCase() : "";
 }
 
 function groupZonesByPlayer(zones: Map<string, ReplayZone>) {

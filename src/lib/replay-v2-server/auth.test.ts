@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   canonicalIdentityUid: vi.fn(),
@@ -17,8 +17,10 @@ vi.mock("@/lib/identity-server", () => ({
 
 import {
   requireFirebaseBearerUser,
+  requireReplayMutationUser,
   verifiedRecoverableAccountUid,
 } from "@/lib/replay-v2-server/auth";
+import { REPLAY_EMBED_COOKIE, signReplayEmbedSession } from "./session";
 
 describe("Replay V2 bearer authentication", () => {
   beforeEach(() => {
@@ -100,6 +102,41 @@ describe("Replay V2 bearer authentication", () => {
 
     await expect(requireFirebaseBearerUser(request("token"))).rejects.toThrow("invalid or expired");
     await expect(requireFirebaseBearerUser(request())).rejects.toThrow("token is required");
+  });
+});
+
+describe("replay visibility session mutations", () => {
+  const secret = "test-replay-session-secret-at-least-32-bytes";
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv("REPLAY_EMBED_SESSION_SECRET", secret);
+    mocks.canonicalIdentityUid.mockImplementation(async (uid: string) => uid);
+    mocks.getFirestoreAdmin.mockReturnValue(fakeDb(null));
+  });
+  afterEach(() => vi.unstubAllEnvs());
+  function mutation(origin?: string, token = signReplayEmbedSession("owner-1", secret)) {
+    return new Request("https://www.riftlite.com/api/v2/replays/rl2_test", {
+      method: "PATCH", headers: { cookie: `${REPLAY_EMBED_COOKIE}=${token}`, ...(origin ? { origin } : {}) },
+    });
+  }
+  it("accepts a current signed owner session from the same origin", async () => {
+    await expect(requireReplayMutationUser(mutation("https://www.riftlite.com"))).resolves.toBe("owner-1");
+  });
+  it.each([undefined, "null", "https://evil.example", "https://riftlite.com.evil.example"])("rejects cookie mutation from %s before resolving identity", async (origin) => {
+    await expect(requireReplayMutationUser(mutation(origin))).rejects.toMatchObject({ status: 403, code: "replay_origin_required" });
+    expect(mocks.canonicalIdentityUid).not.toHaveBeenCalled();
+  });
+  it("rejects expired sessions even from the same origin", async () => {
+    await expect(requireReplayMutationUser(mutation("https://www.riftlite.com", signReplayEmbedSession("owner-1", secret, Date.now() - 11 * 60_000)))).rejects.toMatchObject({ status: 401 });
+  });
+  it("retains bearer desktop API compatibility without an Origin header", async () => {
+    mocks.verifyFirebaseIdToken.mockResolvedValue({ uid: "owner-1", email_verified: true, firebase: { identities: { email: ["owner@example.com"] }, sign_in_provider: "password" } });
+    await expect(requireReplayMutationUser(request("token"))).resolves.toBe("owner-1");
+  });
+  it("does not let an invalid bearer credential fall through to the cookie", async () => {
+    mocks.verifyFirebaseIdToken.mockResolvedValue(null);
+    const req = mutation("https://www.riftlite.com"); req.headers.set("authorization", "Bearer invalid");
+    await expect(requireReplayMutationUser(req)).rejects.toMatchObject({ status: 401 });
   });
 });
 

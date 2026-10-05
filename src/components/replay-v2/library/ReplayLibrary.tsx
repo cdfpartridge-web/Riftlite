@@ -29,6 +29,7 @@ import {
 } from "@/components/replay-v2/library/upload-helpers";
 
 import styles from "./ReplayLibrary.module.css";
+import { ReplayVisibilityDialog } from "./ReplayVisibilityDialog";
 
 type ReplayScope = "public" | "mine";
 type ReplayVisibility = "private" | "unlisted" | "public";
@@ -143,6 +144,7 @@ export function ReplayLibrary({
   const [busyReplayId, setBusyReplayId] = useState("");
   const [cardMessages, setCardMessages] = useState<Record<string, string>>({});
   const [pendingDelete, setPendingDelete] = useState<ReplaySummary | null>(null);
+  const [pendingVisibility, setPendingVisibility] = useState<ReplaySummary | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState(ALL_DATES);
@@ -419,36 +421,6 @@ export function ReplayLibrary({
     }
   }
 
-  async function updateVisibility(replay: ReplaySummary, nextVisibility: ReplayVisibility) {
-    if (!user || replay.visibility === nextVisibility) return;
-    setBusyReplayId(replay.replayId);
-    setCardMessage(replay.replayId, "Saving visibility…");
-    try {
-      const response = await authenticatedFetch(
-        user,
-        `/api/v2/replays/${encodeURIComponent(replay.replayId)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ visibility: nextVisibility }),
-        },
-      );
-      const payload = await readJson(response);
-      if (!response.ok) throw new Error(apiError(payload, "Visibility could not be changed."));
-      setMyReplays((current) =>
-        current.map((item) =>
-          item.replayId === replay.replayId ? { ...item, visibility: nextVisibility } : item,
-        ),
-      );
-      setCardMessage(replay.replayId, `Visibility set to ${nextVisibility}.`);
-      await loadPublicReplays();
-    } catch (error) {
-      setCardMessage(replay.replayId, errorMessage(error, "Visibility could not be changed."));
-    } finally {
-      setBusyReplayId("");
-    }
-  }
-
   async function retryProcessing(replayId: string) {
     if (!user) return;
     setBusyReplayId(replayId);
@@ -666,6 +638,10 @@ export function ReplayLibrary({
               ) : null}
             </div>
 
+            {scope === "mine" && sourceReplays.length > 0 ? (
+              <p className={styles.visibilityGuidance}>To change a past replay, choose <strong>Change visibility</strong> on its card. This changes that replay only.</p>
+            ) : null}
+
             {!loading && !listError ? <div className="space-y-2"><DateFilterControl label="Replay date" value={dateFilter} onChange={setDateFilter} /><p className="text-xs text-slate-400">Uses the recorded date in your local time, or upload date when unavailable. Filters apply to loaded replays{scope === "public" && publicHasMore ? "; load more below to include older uploads" : ""}.</p></div> : null}
 
             {!loading && !listError && sourceReplays.length > 0 ? (
@@ -709,6 +685,7 @@ export function ReplayLibrary({
                   <ReplayCard
                     busy={busyReplayId === replay.replayId}
                     canDelete={scope === "mine" && Boolean(user || (embedded && !embeddedOwnerUnavailable))}
+                    canManage={scope === "mine" && Boolean(user || (embedded && !embeddedOwnerUnavailable))}
                     embedded={embedded}
                     key={replay.replayId}
                     message={cardMessages[replay.replayId]}
@@ -717,7 +694,7 @@ export function ReplayLibrary({
                     onDelete={(trigger) => requestReplayDelete(replay, trigger)}
                     onRetry={() => void retryProcessing(replay.replayId)}
                     onShare={() => void shareReplay(replay)}
-                    onVisibility={(next) => void updateVisibility(replay, next)}
+                    onVisibility={() => setPendingVisibility(replay)}
                     replay={replay}
                   />
                 ))}
@@ -741,6 +718,16 @@ export function ReplayLibrary({
           </section>
         ) : null}
       </section>
+      {pendingVisibility ? <ReplayVisibilityDialog
+        replayId={pendingVisibility.replayId}
+        replay={pendingVisibility}
+        onClose={() => setPendingVisibility(null)}
+        onSaved={(nextVisibility) => {
+          setMyReplays((current) => current.map((item) => item.replayId === pendingVisibility.replayId ? { ...item, visibility: nextVisibility } : item));
+          setPublicLoaded(false);
+          setPublicReplays((current) => current.filter((item) => item.replayId !== pendingVisibility.replayId));
+        }}
+      /> : null}
       {pendingDelete ? (
         <div
           className={styles.deleteDialogBackdrop}
@@ -969,6 +956,7 @@ function UploadPanel({
 function ReplayCard({
   busy,
   canDelete,
+  canManage,
   embedded,
   message,
   mine,
@@ -981,6 +969,7 @@ function ReplayCard({
 }: {
   busy: boolean;
   canDelete: boolean;
+  canManage: boolean;
   embedded: boolean;
   message?: string;
   mine: boolean;
@@ -988,7 +977,7 @@ function ReplayCard({
   onDelete: (trigger: HTMLButtonElement) => void;
   onRetry: () => void;
   onShare: () => void;
-  onVisibility: (visibility: ReplayVisibility) => void;
+  onVisibility: () => void;
   replay: ReplaySummary;
 }) {
   const path = `/replays/${encodeURIComponent(replay.replayId)}${embedded ? "?embed=1" : ""}`;
@@ -1026,19 +1015,10 @@ function ReplayCard({
         {replay.status === "uploading" ? <p className={styles.processingMessage}>Select the original capture above to safely resume this upload.</p> : null}
       </div>
 
-      {mine ? (
+      {canManage ? (
         <div className={styles.cardVisibility}>
-          <label htmlFor={`visibility-${replay.replayId}`}>Visibility</label>
-          <select
-            disabled={busy}
-            id={`visibility-${replay.replayId}`}
-            onChange={(event) => onVisibility(event.target.value as ReplayVisibility)}
-            value={replay.visibility}
-          >
-            <option value="private">Private</option>
-            <option value="unlisted">Unlisted</option>
-            <option value="public">Public</option>
-          </select>
+          <div><span>Who can watch?</span><strong>{visibilityLabel(replay.visibility)}</strong></div>
+          <button type="button" disabled={busy} onClick={onVisibility}>Change visibility</button>
         </div>
       ) : null}
 

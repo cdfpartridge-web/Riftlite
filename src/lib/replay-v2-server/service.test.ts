@@ -25,6 +25,7 @@ import {
   listPublicReplays,
   readCanonicalReplay,
   readOwnerReplayDeliveryStatus,
+  readOwnerReplayVisibilityDetails,
   serializeReplay,
   updateReplayVisibility,
 } from "@/lib/replay-v2-server/service";
@@ -393,6 +394,16 @@ describe("historical replay owner aliases", () => {
     );
     await expect(readCanonicalReplay(record.replayId, "owner-1"))
       .resolves.toMatchObject({ record: { ownerUid: "desktop-alias" } });
+  });
+
+  it("reads only visibility metadata for the proven owner and rejects unrelated readers and changes", async () => {
+    const record = { ...replayRecord(), ownerUid: "desktop-alias", title: "Akali vs Irelia", visibility: "private" as const };
+    const fake = fakeAliasReplayDb(record, false);
+    getFirestoreAdminMock.mockReturnValue(fake.db);
+    await expect(readOwnerReplayVisibilityDetails("owner-1", record.replayId)).resolves.toEqual({ replayId: record.replayId, visibility: "private", title: "Akali vs Irelia" });
+    await expect(readOwnerReplayVisibilityDetails("unrelated", record.replayId)).rejects.toMatchObject({ code: "replay_owner_required" });
+    await expect(updateReplayVisibility("unrelated", record.replayId, "public")).rejects.toMatchObject({ code: "replay_owner_required" });
+    expect(fake.transaction.update).not.toHaveBeenCalled();
   });
 
   it("lets the linked canonical account delete a replay uploaded by its proven desktop alias", async () => {

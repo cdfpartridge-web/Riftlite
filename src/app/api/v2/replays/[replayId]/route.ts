@@ -10,8 +10,9 @@ import {
   optionalReplayUser,
   readBoundedJson,
   readCanonicalReplay,
+  readOwnerReplayVisibilityDetails,
   replayApiError,
-  requireReplayUser,
+  requireReplayMutationUser,
   requireReplayViewerUser,
   serializeReplay,
   updateReplayVisibility,
@@ -32,6 +33,10 @@ export async function GET(request: Request, context: RouteContext) {
     requestedReplayId = replayId;
     if (!isReplayId(replayId)) {
       throw new ReplayV2Error(400, "invalid_replay_id", "Replay id is invalid.");
+    }
+    if (new URL(request.url).searchParams.get("manage") === "visibility") {
+      const ownerUid = await requireReplayViewerUser(request);
+      return noStoreJson({ replay: await readOwnerReplayVisibilityDetails(ownerUid, replayId) });
     }
     const viewerUid = await optionalReplayUser(request);
     const { record, bytes } = await readCanonicalReplay(replayId, viewerUid);
@@ -65,6 +70,7 @@ export async function GET(request: Request, context: RouteContext) {
       },
     });
   } catch (error) {
+    if (new URL(request.url).searchParams.get("manage") === "visibility") return replayApiError(error);
     const developmentFallback = await readPublicProductionReplayInDevelopment(
       request,
       requestedReplayId,
@@ -125,7 +131,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (!isReplayId(replayId)) {
       throw new ReplayV2Error(400, "invalid_replay_id", "Replay id is invalid.");
     }
-    const ownerUid = await requireReplayUser(request);
+    const ownerUid = await requireReplayMutationUser(request);
     const parsed = VisibilityUpdateSchema.safeParse(
       await readBoundedJson(request, MAX_VISIBILITY_JSON_BYTES),
     );
