@@ -19,7 +19,7 @@ export function POST(req: NextRequest) {
   const response = NextResponse.json(
     result?.customToken
       ? { customToken: result.customToken, uid: result.uid ?? "" }
-      : { error: result?.error || "Discord account recovery expired. Start again from RiftLite." },
+      : { error: result?.error || "Discord sign in expired. Start again from RiftLite." },
     { status: result?.customToken ? 200 : 409 },
   );
   response.cookies.set(DISCORD_ACCOUNT_RESULT_COOKIE, "", {

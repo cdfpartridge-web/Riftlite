@@ -8,7 +8,6 @@ import {
   discordAccountClientId,
   discordAccountClientSecret,
   discordAccountRedirectUri,
-  discordLinkedRiftLiteUid,
   exchangeDiscordAccountCode,
   readDiscordAccountUserId,
   sealDiscordAccountValue,
@@ -19,6 +18,8 @@ import {
 } from "@/lib/discord/account-auth";
 import { createFirebaseCustomToken, getFirestoreAdmin } from "@/lib/firebase/admin";
 import { claimLinkedIdentityAssociation } from "@/lib/social/server";
+import { resolveDiscordAccountUid } from "@/lib/discord/account-registration";
+import { discordAccountReturnTo } from "@/lib/account-link";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,17 +33,18 @@ export async function GET(req: NextRequest) {
     clientSecret,
   );
   if (!db || !clientId || !clientSecret || !state) {
-    return Response.json({ error: "Discord account recovery expired. Start again from RiftLite." }, { status: 400 });
+    return Response.json({ error: "Discord sign in expired. Start again from RiftLite." }, { status: 400 });
   }
 
   const finish = (result: Omit<DiscordAccountResult, "expiresAt">) => {
-    const redirect = new URL("/link-device", req.nextUrl.origin);
-    redirect.search = new URLSearchParams({
+    const desktopLink = Boolean(state.sessionId && state.code);
+    const redirect = new URL(desktopLink ? "/link-device" : "/account", req.nextUrl.origin);
+    redirect.search = new URLSearchParams(desktopLink ? {
       session: state.sessionId,
       code: state.code,
       provider: "discord",
       discord: "complete",
-    }).toString();
+    } : { discord: "complete", returnTo: discordAccountReturnTo(state.returnTo) }).toString();
     const response = NextResponse.redirect(redirect);
     response.cookies.set(DISCORD_ACCOUNT_STATE_COOKIE, "", {
       httpOnly: true,
@@ -71,7 +73,8 @@ export async function GET(req: NextRequest) {
     }
     const authorizationCode = req.nextUrl.searchParams.get("code")?.trim() ?? "";
     if (!authorizationCode) throw new Error("Discord sign in was cancelled or did not return a code.");
-    const link = await validateDiscordDesktopLink(db, state.sessionId, state.code);
+    if (Boolean(state.sessionId) !== Boolean(state.code)) throw new Error("Desktop link session is incomplete. Start again from RiftLite.");
+    const link = state.sessionId ? await validateDiscordDesktopLink(db, state.sessionId, state.code) : null;
     const accessToken = await exchangeDiscordAccountCode({
       code: authorizationCode,
       clientId,
@@ -79,15 +82,12 @@ export async function GET(req: NextRequest) {
       redirectUri: discordAccountRedirectUri(req.nextUrl.origin),
     });
     const discordUserId = await readDiscordAccountUserId(accessToken);
-    const uid = await discordLinkedRiftLiteUid(db, discordUserId);
-    if (link.expectedUid && link.expectedUid !== uid) {
-      throw new Error("This Discord user is linked to a different RiftLite account than the one stored on this device.");
-    }
+    const uid = await resolveDiscordAccountUid(db, discordUserId, link?.expectedUid ?? "");
     await claimLinkedIdentityAssociation(db, uid, uid);
     const customToken = await createFirebaseCustomToken(uid);
-    if (!customToken) throw new Error("RiftLite could not prepare the recovered account sign-in.");
+    if (!customToken) throw new Error("RiftLite could not prepare your account sign-in.");
     return finish({ customToken, uid });
   } catch (error) {
-    return finish({ error: error instanceof Error ? error.message : "Discord account recovery failed." });
+    return finish({ error: error instanceof Error ? error.message : "Discord sign in failed." });
   }
 }

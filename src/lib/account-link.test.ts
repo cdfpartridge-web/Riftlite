@@ -11,6 +11,8 @@ import {
   desktopLinkSessionOwnedBy,
   desktopLinkSignInIsVerified,
   discordAccountRecoveryUrl,
+  discordAccountReturnTo,
+  discordAccountSignInUrl,
   linkedAccountUidFromCanonicalizedAuth,
   shouldAutomaticallyFinishAccountAction,
 } from "@/lib/account-link";
@@ -19,6 +21,14 @@ import {
 } from "@/lib/account-connection";
 
 describe("desktop account linking", () => {
+  it("keeps public Discord return destinations on ordinary local pages", () => {
+    expect(discordAccountReturnTo("/discord/verify?code=abc#details")).toBe("/discord/verify?code=abc#details");
+    expect(discordAccountSignInUrl("/hubs")).toBe("/api/auth/discord/start?returnTo=%2Fhubs");
+    expect(discordAccountReturnTo("/account?discord=complete&returnTo=%2Fhubs")).toBe("/account");
+    for (const unsafe of ["https://evil.example", "//evil.example", "/\\evil.example", "/api/auth/discord/start", "/link-device?session=bad", "/_next/data", "/hubs\nheader", "/safe/..//evil.example", "/%2e%2e//evil.example", "/%61pi/auth/discord/start", "/%5Cevil.example", "/%2Fexample.com"]) {
+      expect(discordAccountReturnTo(unsafe), unsafe).toBe("/account");
+    }
+  });
   it("never auto-finishes a desktop link for an existing browser session", () => {
     expect(shouldAutomaticallyFinishAccountAction(true, true, "website-user", "")).toBe(false);
     expect(shouldAutomaticallyFinishAccountAction(true, true, "website-user", "another-user")).toBe(false);

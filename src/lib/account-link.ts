@@ -33,6 +33,28 @@ export function discordAccountRecoveryUrl(sessionId: string, code: string): stri
   return `/api/auth/discord/start?${query}`;
 }
 
+/** Public OAuth returns only to an ordinary same-origin page. */
+export function discordAccountReturnTo(value: unknown): string {
+  if (typeof value !== "string" || value.length > 2048 || !value.startsWith("/")
+    || value.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(value)) return "/account";
+  try {
+    const url = new URL(value, "https://riftlite.invalid");
+    const decodedPath = decodeURIComponent(url.pathname);
+    if (url.origin !== "https://riftlite.invalid" || url.pathname.startsWith("//")
+      || decodedPath.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(decodedPath)
+      || /^\/(?:api|_next|link-device)(?:\/|$)/.test(decodedPath)) return "/account";
+    url.searchParams.delete("discord");
+    url.searchParams.delete("returnTo");
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return "/account";
+  }
+}
+
+export function discordAccountSignInUrl(returnTo = "/account"): string {
+  return `/api/auth/discord/start?${new URLSearchParams({ returnTo: discordAccountReturnTo(returnTo) })}`;
+}
+
 export function desktopLinkAllowsIdentity(expectedUid: string, selectedUid: string): boolean {
   const expected = expectedUid.trim();
   const selected = selectedUid.trim();

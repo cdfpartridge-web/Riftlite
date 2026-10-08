@@ -17,6 +17,7 @@ export type DiscordAccountState = {
   state: string;
   sessionId: string;
   code: string;
+  returnTo?: string;
   expiresAt: number;
 };
 
@@ -42,11 +43,12 @@ export function discordAccountRedirectUri(origin: string): string {
     || new URL(DISCORD_ACCOUNT_CALLBACK_PATH, origin).toString();
 }
 
-export function newDiscordAccountState(sessionId: string, code: string, now = Date.now()): DiscordAccountState {
+export function newDiscordAccountState(sessionId: string, code: string, now = Date.now(), returnTo = "/account"): DiscordAccountState {
   return {
     state: randomBytes(24).toString("base64url"),
     sessionId,
     code,
+    returnTo,
     expiresAt: now + 10 * 60 * 1000,
   };
 }

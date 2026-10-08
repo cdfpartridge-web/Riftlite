@@ -43,8 +43,8 @@ describe("Radiance preview replay rendering", () => {
     expect(cardImageUrl(card("Lost to the Sand", "RAD-004"))).toBe(preview.cards["RAD-004"].imageUrl);
   });
 
-  it("renders all revealed collector prints without relying on an Atlas mirror", () => {
-    expect(Object.keys(preview.cards)).toHaveLength(150);
+  it("renders all revealed collector prints from their audited artwork", () => {
+    expect(Object.keys(preview.cards)).toHaveLength(200);
     for (const [code, data] of Object.entries(preview.cards)) {
       expect(cardImageUrl(card(data.name, code, `/cards/${code}.webp`)), code).toBe(data.imageUrl);
       if (data.type === "Battlefield") {

@@ -38,6 +38,8 @@ import {
 import { firebaseClientApp } from "@/lib/firebase/client";
 import { ReplayHistoryDeckPanel } from "./ReplayHistoryDeckPanel";
 import { ReplayArtworkImage } from "./ReplayArtworkImage";
+import { CardStatusBadge } from "./CardStatusBadge";
+import { cardStatuses, cardStatusText } from "./card-status";
 import { ReplaySoundControls } from "./ReplaySoundControls";
 import { useReplaySounds } from "./use-replay-sounds";
 
@@ -3504,6 +3506,7 @@ function CardTile({
     && card.fields.revealedToOpponent !== true;
   const duplicate = !hidden && isDuplicateCard(card);
   const labels = hidden ? [] : customCardLabels(card);
+  const statuses = hidden ? [] : cardStatuses(card);
   const whiteCounter = hidden ? undefined : cardCounterValue(card, "whiteCounter");
   const redCounter = hidden ? undefined : cardCounterValue(card, "redCounter");
   const attachmentTargetId = hidden ? undefined : attachedToCardId(card);
@@ -3545,7 +3548,7 @@ function CardTile({
             }${analysisChainTargetIds?.length
               ? `, ${analysisChainTargetIds.length} ${analysisChainTargetIds.length === 1 ? "target" : "targets"} linked`
               : ""
-            }`
+            }${statuses.length ? `, ${statuses.map(cardStatusText).join(", ")}` : ""}`
       }
       className={`${styles.cardMotion} ${styles[`cardSize${capitalize(size)}`]} ${
         inspected ? styles.inspectedCard : ""
@@ -3562,6 +3565,7 @@ function CardTile({
       data-card-hidden-at-battlefield={gameplayHidden ? "true" : undefined}
       data-card-id={card.id}
       data-card-label-count={labels.length || undefined}
+      data-card-status-count={statuses.length || undefined}
       data-card-motion-id={motionId}
       data-card-red-counter={redCounter !== undefined ? formatCounterValue(redCounter) : undefined}
       data-card-size={size}
@@ -3596,7 +3600,7 @@ function CardTile({
           <b className={styles.cardCost}>{looseNumber(card.fields.cost)}</b>
         ) : null}
       </span>
-      {gameplayHidden || duplicate || labels.length || futureKnown || previouslyKnown || whatIf ? (
+      {gameplayHidden || duplicate || statuses.length || futureKnown || previouslyKnown || whatIf ? (
         <span className={styles.cardTagStack}>
           {whatIf ? <span className={`${styles.duplicateTag} ${styles.whatIfTag}`}>What if</span> : null}
           {futureKnown ? (
@@ -3607,15 +3611,7 @@ function CardTile({
           ) : null}
           {gameplayHidden ? <span className={`${styles.duplicateTag} ${styles.hiddenCardTag}`}>Hidden</span> : null}
           {duplicate ? <span className={styles.duplicateTag}>Duplicate</span> : null}
-          {labels.map((label, index) => (
-            <span
-              className={`${styles.duplicateTag} ${styles.customLabelTag}`}
-              data-card-custom-label={label}
-              key={`${label}-${index}`}
-            >
-              {label}
-            </span>
-          ))}
+          {statuses.map((status, index) => <CardStatusBadge key={`${status.kind}-${index}`} status={status} />)}
         </span>
       ) : null}
       {whiteCounter !== undefined || redCounter !== undefined ? (
@@ -5068,7 +5064,7 @@ function HoverCardPreview({
   if (!image || imageFailed || card.isPlaceholder) return null;
 
   const battlefield = isBattlefieldCard(card);
-  const labels = customCardLabels(card);
+  const statuses = cardStatuses(card);
   const whiteCounter = cardCounterValue(card, "whiteCounter");
   const redCounter = cardCounterValue(card, "redCounter");
   return (
@@ -5085,18 +5081,10 @@ function HoverCardPreview({
       <span className={styles.hoverCardPreviewFrame}>
         <ReplayArtworkImage alt="" battlefield={battlefield} draggable={false} onError={() => setImageFailed(true)} src={image} />
       </span>
-      {isDuplicateCard(card) || labels.length ? (
+      {isDuplicateCard(card) || statuses.length ? (
         <span className={styles.hoverCardTagStack}>
           {isDuplicateCard(card) ? <span className={styles.hoverDuplicateTag}>Duplicate</span> : null}
-          {labels.map((label, index) => (
-            <span
-              className={`${styles.hoverDuplicateTag} ${styles.hoverCustomLabelTag}`}
-              data-hover-card-custom-label={label}
-              key={`${label}-${index}`}
-            >
-              {label}
-            </span>
-          ))}
+          {statuses.map((status, index) => <CardStatusBadge key={`${status.kind}-${index}`} preview status={status} />)}
         </span>
       ) : null}
       {whiteCounter !== undefined || redCounter !== undefined ? (

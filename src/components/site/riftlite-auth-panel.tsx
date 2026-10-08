@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   createUserWithEmailAndPassword,
@@ -22,6 +22,7 @@ import {
   accountIdHint,
   accountIdentityLabel,
   discordAccountRecoveryUrl,
+  discordAccountSignInUrl,
   shouldAutomaticallyFinishAccountAction,
 } from "@/lib/account-link";
 import { firebaseClientApp } from "@/lib/firebase/client";
@@ -44,6 +45,17 @@ export type AuthProviderHint = "google" | "email" | "discord";
 export type RiftLiteReadyResult = { message?: string } | void;
 
 const VERIFICATION_EMAIL_TIMEOUT_MS = 20_000;
+
+function subscribeToLocation(onChange: () => void) {
+  window.addEventListener("popstate", onChange);
+  return () => window.removeEventListener("popstate", onChange);
+}
+
+function currentLocation() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function serverLocation() { return "/account"; }
 
 async function sendVerificationEmailWithTimeout(activeUser: User) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -111,6 +123,9 @@ export function RiftLiteAuthPanel({
   const observedAuthKey = useRef("");
   const authGeneration = useRef(0);
   const discordCompletionStarted = useRef(false);
+  const discordExchangePending = useRef(false);
+  const returnLocation = useSyncExternalStore(subscribeToLocation, currentLocation, serverLocation);
+  const discordSignInHref = discordAccountSignInUrl(returnLocation);
 
   function beginVerificationAction(action: "checking" | "sending") {
     if (verificationActionRef.current) return false;
@@ -207,36 +222,57 @@ export function RiftLiteAuthPanel({
   ), [desktopLink, requireActionConfirmation, requiresDesktopEmailVerification]);
 
   useEffect(() => {
-    if (!desktopLink || !discordCompletion || discordCompletionStarted.current) return;
+    if (!discordCompletion || discordCompletionStarted.current) return;
     discordCompletionStarted.current = true;
+    discordExchangePending.current = true;
+    if (!desktopLink && window.location.search) {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("discord");
+      cleanUrl.searchParams.delete("returnTo");
+      window.history.replaceState(window.history.state, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+    }
     explicitAuthPending.current = true;
     explicitAuthProvider.current = "discord";
     explicitlySelectedUid.current = "";
     setBusy(true);
     setMessage("Finishing Discord sign in...");
     void (async () => {
+      let generation: number | undefined;
       try {
         const response = await fetch("/api/auth/discord/token", { method: "POST" });
         const payload = await response.json() as { customToken?: string; error?: string };
         if (!response.ok || !payload.customToken) {
-          throw new Error(payload.error ?? "Discord account recovery did not finish.");
+          throw new Error(payload.error ?? "Discord sign in did not finish.");
         }
         const credential = await signInWithCustomToken(auth, payload.customToken);
+        discordExchangePending.current = false;
+        observedAuthKey.current = `account:${credential.user.uid}`;
+        generation = ++authGeneration.current;
         explicitlySelectedUid.current = credential.user.uid;
         explicitAuthPending.current = false;
-        setMessage("Discord identity verified. Loading your existing RiftLite account...");
+        setUser(credential.user);
+        setMessage("Discord identity verified. Loading your RiftLite account...");
+        const nextProfile = await loadProfile(credential.user);
+        if (nextProfile && shouldFinishProfile(credential.user, nextProfile)) {
+          await finishAction(credential.user, nextProfile);
+        }
       } catch (error) {
+        if (generation !== undefined && generation !== authGeneration.current) return;
+        discordExchangePending.current = false;
         explicitAuthPending.current = false;
         explicitlySelectedUid.current = "";
         explicitAuthProvider.current = null;
         setMessage(friendlyAuthError(error));
       } finally {
-        setBusy(false);
+        if (generation === undefined || generation === authGeneration.current) setBusy(false);
       }
     })();
-  }, [auth, desktopLink, discordCompletion]);
+  }, [auth, desktopLink, discordCompletion, finishAction, loadProfile, shouldFinishProfile]);
 
   useEffect(() => onAuthStateChanged(auth, (nextUser) => {
+    // The browser may already hold another account. Only the user returned by
+    // the Discord proof exchange may complete this explicit provider choice.
+    if (discordExchangePending.current) return;
     if (nextUser?.isAnonymous && !desktopLink) {
       void signOut(auth);
       setUser(null);
@@ -653,14 +689,15 @@ export function RiftLiteAuthPanel({
       </div>
       <Button autoFocus={preferredProvider === "google"} disabled={busy} onClick={() => void googleSignIn()}>Continue with Google</Button>
       <Button disabled={busy} variant="secondary" onClick={() => setEmailExpanded((value) => !value)}>Continue with email</Button>
-      {desktopLink ? (
-        <Button asChild variant="secondary">
-          <a autoFocus={preferredProvider === "discord"} href={discordAccountRecoveryUrl(desktopLink.sessionId, desktopLink.code)}>
+        <Button asChild variant="secondary" disabled={busy}>
+          <a autoFocus={preferredProvider === "discord"}
+            aria-disabled={busy}
+            onClick={(event) => { if (busy) event.preventDefault(); }}
+            href={desktopLink ? discordAccountRecoveryUrl(desktopLink.sessionId, desktopLink.code) : discordSignInHref}>
             Continue with Discord
           </a>
         </Button>
-      ) : null}
-      {desktopLink ? <p className="text-xs text-slate-400">Discord restores an existing RiftLite account that was previously verified through Discord.</p> : null}
+      <p className="text-xs text-slate-400">Discord can create your RiftLite account or sign you back in. If you already use Google or email, use that method unless you previously connected Discord to that account.</p>
       {emailExpanded ? (
         <div className="grid gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
           <input autoFocus={preferredProvider === "email"} className="social-input" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" type="email" />

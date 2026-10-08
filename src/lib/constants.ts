@@ -151,6 +151,7 @@ export const LEGENDS = [
   "Renata Glasc",
   "Renekton",
   "Rengar",
+  "Riven",
   "Rumble",
   "Nasus",
   "Sett",
@@ -167,6 +168,7 @@ export const LEGENDS = [
 
 export const LEGEND_ALIASES = {
   "agonysembrace": "Evelynn",
+  "theexile": "Riven",
   "ironrevenant": "Mordekaiser",
   "boywhoshatteredtime": "Ekko",
   "hexplosivesexpert": "Ziggs",

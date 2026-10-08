@@ -13,7 +13,7 @@ const card = (code: string, imageUrl?: string): ReplayCardState => ({
 
 describe("audited alternate print artwork", () => {
   it("renders all newly catalogued historical prints in both replay renderers", () => {
-    expect(Object.keys(art.cards)).toHaveLength(26);
+    expect(Object.keys(art.cards)).toHaveLength(37);
     for (const [code, print] of Object.entries(art.cards)) {
       expect(mulliganCardMetadata(code.replace(/S$/, "*")), code).not.toBeNull();
       expect(cardImageUrl(card(code, `/cards/${code}.webp`)), code).toBe(print.imageUrl);

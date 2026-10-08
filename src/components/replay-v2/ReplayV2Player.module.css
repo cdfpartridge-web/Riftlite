@@ -2805,6 +2805,35 @@ button.cardPile { cursor: pointer; }
   gap: 8px;
 }
 
+.cardStatusBadge {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: .35em;
+  border-color: var(--status-color, #75dcd2);
+  background: #10212e;
+  color: var(--status-color, #cffffa);
+  font-size: 8px;
+  letter-spacing: .025em;
+  box-shadow: 0 2px 7px #0009;
+}
+
+.cardStatusBadge > svg { width: 1.25em; height: 1.25em; flex-shrink: 0; }
+.cardStatusBadge > span { overflow: hidden; text-overflow: ellipsis; }
+.cardStatusBadge > b { font-size: 1.12em; font-variant-numeric: tabular-nums; }
+.hoverCardTagStack .cardStatusBadge { font-size: 13px; }
+.cardStatusBadge[data-status-kind="buff"] { --status-color: #ffdf91; }
+.cardStatusBadge[data-status-kind="disarm"] { --status-color: #f7ba91; }
+.cardStatusBadge[data-status-kind="deflect"] { --status-color: #9fd4ff; }
+.cardStatusBadge[data-status-kind="deathknell"] { --status-color: #9fd7d3; }
+.cardStatusBadge[data-status-kind="shield"] { --status-color: #d4c1ff; }
+.cardStatusBadge[data-status-kind="stunned"] { --status-color: #ffe56f; }
+.cardStatusBadge[data-status-kind="tank"] { --status-color: #b4c7df; }
+.cardStatusBadge[data-status-kind="empowered"] { --status-color: #f6c96f; }
+.cardStatusBadge[data-status-kind="ganking"] { --status-color: #9fe0a6; }
+.cardStatusBadge[data-status-kind="assault"] { --status-color: #ff8fa3; }
+.cardStatusBadge[data-status-kind="temporary"] { --status-color: #ff9b7a; }
+
 .hoverCardCounterBadge {
   min-width: 38px;
   height: 38px;

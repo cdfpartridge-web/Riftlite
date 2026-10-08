@@ -2053,7 +2053,8 @@ describe("ReplayV2Player presentation prelude", () => {
       ...replayCard("card_host", "Akali", "OGN-001", "mainDeck"),
       fields: {
         cardCode: "OGN-001",
-        customLabels: ["Empowered", ""],
+        customLabels: ["Empowered", "Stunned", "Temporary", ""],
+        temporaryMightBuff: 2,
         name: "Akali",
         redCounter: -4,
         source: "mainDeck",
@@ -2085,6 +2086,7 @@ describe("ReplayV2Player presentation prelude", () => {
     snapshot.snapshot.players.opponent.zones.hand[0].fields = {
       ...snapshot.snapshot.players.opponent.zones.hand[0].fields,
       customLabels: ["Secret"],
+      temporaryMightBuff: 3,
       redCounter: -4,
       whiteCounter: 0,
     };
@@ -2127,9 +2129,15 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(faceDownOpponentCard).not.toHaveAttribute("data-card-red-counter");
     expect(faceDownOpponentCard?.querySelector("[data-card-custom-label]")).not.toBeInTheDocument();
     expect(faceDownOpponentCard?.querySelector("[data-card-counter]")).not.toBeInTheDocument();
+    expect(faceDownOpponentCard).not.toHaveAttribute("data-card-status-count");
+    expect(faceDownOpponentCard?.querySelector("[data-card-status]")).not.toBeInTheDocument();
 
     const hostTile = group.querySelector<HTMLElement>('[data-card-id="card_host"]');
-    expect(hostTile).toHaveAttribute("data-card-label-count", "1");
+    expect(hostTile).toHaveAttribute("data-card-label-count", "3");
+    expect(hostTile).toHaveAttribute("data-card-status-count", "4");
+    expect(hostTile?.querySelector('[data-card-status="buff"]')).toHaveAccessibleName("Buff 2");
+    expect(hostTile?.querySelector('[data-card-status="stunned"]')).toHaveTextContent("Stunned");
+    expect(hostTile?.querySelector('[data-card-status="temporary"]')).toHaveTextContent("Temporary");
     expect(hostTile).toHaveAttribute("data-card-white-counter", "0");
     expect(hostTile).toHaveAttribute("data-card-red-counter", "-4");
     expect(hostTile?.querySelector('[data-card-custom-label="Empowered"]')).toHaveTextContent("Empowered");
@@ -2143,6 +2151,9 @@ describe("ReplayV2Player presentation prelude", () => {
     });
     expect(view.container.querySelector('[data-hover-card-counter="white"]')).toHaveTextContent("0");
     expect(view.container.querySelector('[data-hover-card-counter="red"]')).toHaveTextContent("-4");
+    expect(view.container.querySelector('[data-hover-card-status="buff"]')).toHaveTextContent("Buff2");
+    expect(view.container.querySelector('[data-hover-card-status="stunned"]')).toHaveTextContent("Stunned");
+    expect(view.container.querySelector('[data-hover-card-status="temporary"]')).toHaveTextContent("Temporary");
 
     const attachedTile = group.querySelector<HTMLElement>('[data-card-id="card_guardian"]');
     fireEvent.mouseEnter(attachedTile!);

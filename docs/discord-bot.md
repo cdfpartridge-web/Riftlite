@@ -71,7 +71,7 @@ Never substitute `DISCORD_BOT_TOKEN` or `DISCORD_CLIENT_ID`: these can belong to
 
 Interaction endpoint: `https://www.riftlite.com/api/discord/bot/interactions`
 
-Existing account-recovery OAuth callback: `https://www.riftlite.com/api/auth/discord/callback`. Do not reset tokens or change OAuth scopes/callbacks for an ordinary bot install.
+Existing account OAuth callback: `https://www.riftlite.com/api/auth/discord/callback`. The local October 7 sign-up implementation extends account sign-in without changing this callback or its `identify` scope; see [the local implementation receipt](./DISCORD-SIGNUP-2026-10-07.md). Do not reset tokens or change OAuth scopes/callbacks for an ordinary bot install.
 
 ### Command registration
 

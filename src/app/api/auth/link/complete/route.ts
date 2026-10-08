@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   if (!desktopLinkSignInIsVerified(decoded)) {
     return linkCompleteJson({ error: "Verify your email before linking this desktop." }, 403);
   }
-  if (!linkedReplayUid(decoded)) return linkCompleteJson({ error: "Finish Google or email sign in before linking this desktop." }, 401);
+  if (!linkedReplayUid(decoded)) return linkCompleteJson({ error: "Finish Google, email, or Discord sign in before linking this desktop." }, 401);
 
   const ref = db.collection("desktopLinkSessions").doc(sessionId);
   const initialSnap = await ref.get();

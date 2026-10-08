@@ -1,8 +1,9 @@
 {
-  "auditedAt": "2026-10-05",
+  "auditedAt": "2026-10-08",
   "sources": [
     "https://piltoverarchive.com/cards?sets=RAD",
-    "https://playriftbound.com/en-us/card-gallery/"
+    "https://playriftbound.com/en-us/card-gallery/",
+    "https://play.riftatlas.com/"
   ],
   "cards": {
     "RAD-001": {
@@ -39,6 +40,27 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/5453008d27b3bb4f00941cb5a0d9ca52e4eb0245-744x1039.png?accountingTag=RB"
+    },
+    "RAD-006": {
+      "name": "Scorched Earth",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/e646f9850571e20eca22e07af5d4dd68813fdd19-744x1039.png?accountingTag=RB"
+    },
+    "RAD-007": {
+      "name": "Rally for War",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/09c0fc35d8f4b72f58a95d1745b99c4133d02513-744x1039.png?accountingTag=RB"
+    },
+    "RAD-008": {
+      "name": "War Scout",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/3adae96f4731752074cf2145507a175dee800411-744x1039.png?accountingTag=RB"
     },
     "RAD-012": {
       "name": "Runeblade Anvil",
@@ -89,6 +111,41 @@
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791184494505-0urxj4bx7i6d.png"
     },
+    "RAD-019": {
+      "name": "Firebrand Raider",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/922ef5a266378fa8ebd7e75bf83435bacd1a75d8-744x1039.png?accountingTag=RB"
+    },
+    "RAD-020": {
+      "name": "Mordekaiser, Twice Slain",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Mordekaiser",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791383641289-6fvwzgcnvex.png"
+    },
+    "RAD-020A": {
+      "name": "Mordekaiser, Twice Slain",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Mordekaiser",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791383669670-ialltyx3c9.png"
+    },
+    "RAD-021": {
+      "name": "Ekko, Revolutionary",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Ekko",
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/d13964c46506f9f36430dfe91ee02d258a304908-744x1039.png?accountingTag=RB"
+    },
+    "RAD-021A": {
+      "name": "Ekko, Revolutionary",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Ekko",
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/b4e49d03e297db4593a6ebc0d7e6c165dff6dcfe-744x1039.png?accountingTag=RB"
+    },
     "RAD-023": {
       "name": "Ziggs, Short-Fused",
       "type": "Unit",
@@ -131,6 +188,27 @@
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790943510236-bx7m617wsk.png"
     },
+    "RAD-028": {
+      "name": "Ki Burst",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/33af916b50007c01b33e78aef3dc99b757edc3f2-744x1039.png?accountingTag=RB"
+    },
+    "RAD-029": {
+      "name": "Life from Stone",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/6a849c0425f0fecb8d00e1b9494e975c4dbbba75-744x1039.png?accountingTag=RB"
+    },
+    "RAD-030": {
+      "name": "圣所保管员",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-030.webp"
+    },
     "RAD-033": {
       "name": "Command: Attack",
       "type": "Spell",
@@ -172,6 +250,41 @@
       "supertype": "Champion",
       "champion": "Ahri",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/cf3c6a5963ad27976960977b0a51ea185f551696-744x1039.png?accountingTag=RB"
+    },
+    "RAD-039": {
+      "name": "Ephemeral Ward",
+      "type": "Gear",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/d2e562a1b69a42ebd9c8f95a9420750f45aca5dc-744x1039.png?accountingTag=RB"
+    },
+    "RAD-040": {
+      "name": "Heartening Soul",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/0a5f9ab3216462356f6ddf8f172284dca6be21e9-744x1039.png?accountingTag=RB"
+    },
+    "RAD-041": {
+      "name": "Hush",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791432129130-9cd3i945j6.jpg"
+    },
+    "RAD-042": {
+      "name": "Orianna, Exquisite",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Orianna",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791449408909-w6f7263hio.png"
+    },
+    "RAD-042A": {
+      "name": "Orianna, Exquisite",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Orianna",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791449423640-myx8t5tpge.png"
     },
     "RAD-043": {
       "name": "Riven, Broken Blade",
@@ -222,6 +335,34 @@
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790856733371-f16h1l54g88.webp"
     },
+    "RAD-049": {
+      "name": "Industrious Mechsmith",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/c8f6b4191874f23b522566f8ebeeb6e5ee18eb7f-744x1039.png?accountingTag=RB"
+    },
+    "RAD-050": {
+      "name": "Mysterious Chronomancer",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/72828b0fe019b2e03069510f781dfa8f5759ac12-744x1039.png?accountingTag=RB"
+    },
+    "RAD-051": {
+      "name": "Parallel Convergence",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/55e382346c6fa890936a1cf14abaf57b8ee0b8f2-744x1039.png?accountingTag=RB"
+    },
+    "RAD-052": {
+      "name": "资源开采器",
+      "type": "Gear",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-052.webp"
+    },
     "RAD-055": {
       "name": "Clanging Sentry",
       "type": "Unit",
@@ -257,6 +398,13 @@
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/bea8e402f99b0afb5af1b19c0ee8ea34052e736f-744x1039.png?accountingTag=RB"
     },
+    "RAD-060": {
+      "name": "The Empyrean",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/b7cd2e475834863bf4e66994118a835ba4377d16-744x1039.png?accountingTag=RB"
+    },
     "RAD-061": {
       "name": "Ekko, Ingenious",
       "type": "Unit",
@@ -271,12 +419,26 @@
       "champion": "Ekko",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/ef74305607facd046d2b2a61551e5ad962783a5a-744x1039.png?accountingTag=RB"
     },
+    "RAD-062": {
+      "name": "Gravity Field",
+      "type": "Gear",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/51f589e5ed0f7316b6cb64ebc93c4ef3e75b7f46-744x1039.png?accountingTag=RB"
+    },
     "RAD-063": {
       "name": "Kai'Sa, Rebel",
       "type": "Unit",
       "supertype": "Champion",
       "champion": "Kai'Sa",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/53a7fdbb66f0d05111f4a7f54853db30f62fa5c4-744x1039.png?accountingTag=RB"
+    },
+    "RAD-064": {
+      "name": "Scrutinizing Scope",
+      "type": "Gear",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791411303945-adng6twczh.png"
     },
     "RAD-067": {
       "name": "Clocktower Guardian",
@@ -333,6 +495,34 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/374248eb65ca1e90a434652073dbbd3a12a11eda-744x1039.png?accountingTag=RB"
+    },
+    "RAD-074": {
+      "name": "Raving Witness",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/778e70b353d7f28eae9b54b1a37af3853238ba04-744x1039.png?accountingTag=RB"
+    },
+    "RAD-075": {
+      "name": "Skystrike Squadron",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/694a362579d3f2e9805cac0da4814ea911423033-744x1039.png?accountingTag=RB"
+    },
+    "RAD-076": {
+      "name": "Sneaky Zeebles",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/c04963c90ab2b338883c980ac947b8c9d80a7427-744x1039.png?accountingTag=RB"
+    },
+    "RAD-077": {
+      "name": "弗雷尔卓德之怒",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-077.webp"
     },
     "RAD-079": {
       "name": "Avalanche",
@@ -397,6 +587,20 @@
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790916764470-eh42cpbtx54.jpg"
     },
+    "RAD-088": {
+      "name": "Staunch Survivor",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/91c4670531d7773cae9e7b4bfd5ac4e259602162-744x1039.png?accountingTag=RB"
+    },
+    "RAD-089": {
+      "name": "Titanic Shrine",
+      "type": "Gear",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/7d027f4e30df4f7141799709f9fb785835adefed-744x1039.png?accountingTag=RB"
+    },
     "RAD-090": {
       "name": "Evelynn, Consuming",
       "type": "Unit",
@@ -460,6 +664,41 @@
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/742967b3e85f51b242fc04b8db4c4e3cd7b88672-744x1039.png?accountingTag=RB"
     },
+    "RAD-099": {
+      "name": "Suave Negotiator",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/20e2752ddf0af274d26a3c25c737ccea2c353e39-744x1039.png?accountingTag=RB"
+    },
+    "RAD-100": {
+      "name": "The Waters' Wage",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/0552932562db1dd48f14c74779999a645d62cc0d-744x1039.png?accountingTag=RB"
+    },
+    "RAD-101": {
+      "name": "An Offer You Can't Refuse",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/f724f95257abeacee82c774eff64973b56035357-744x1039.png?accountingTag=RB"
+    },
+    "RAD-102": {
+      "name": "Demon Shade",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791432041671-vb5cj7ridl.jpg"
+    },
+    "RAD-103": {
+      "name": "Gutter Guardian",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791461200615-uv18g83l6jl.png"
+    },
     "RAD-105": {
       "name": "Reckless Innovator",
       "type": "Unit",
@@ -481,6 +720,13 @@
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790765615873-5d1n6pffi4.png"
     },
+    "RAD-108": {
+      "name": "伏击陷阱",
+      "type": "Gear",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-108.webp"
+    },
     "RAD-109": {
       "name": "Evelynn, In Control",
       "type": "Unit",
@@ -501,6 +747,41 @@
       "supertype": "Champion",
       "champion": "Lulu",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/defd09480671a1e394725f21b6c3448ebec77913-744x1039.png?accountingTag=RB"
+    },
+    "RAD-111": {
+      "name": "Mechanical Bandit",
+      "type": "Gear",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/cb2a419b61b6f1e6d138c3c3b07b393a4037237b-744x1039.png?accountingTag=RB"
+    },
+    "RAD-112": {
+      "name": "Ziggs, Explosive",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Ziggs",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791399179686-tqy6a3i5pek.webp"
+    },
+    "RAD-112A": {
+      "name": "Ziggs, Explosive",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Ziggs",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791399346609-rpf4neuoir.jpg"
+    },
+    "RAD-114": {
+      "name": "Riven, Deserter",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Riven",
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/59c080321a697164c9eeb6f0ad297ff0d0b85808-744x1039.png?accountingTag=RB"
+    },
+    "RAD-114A": {
+      "name": "Riven, Deserter",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Riven",
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/91c0933495342ab5c1a86c8809316f736feb0629-744x1039.png?accountingTag=RB"
     },
     "RAD-115": {
       "name": "Transpositionist",
@@ -536,6 +817,27 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790898736232-cr9lsvqsa2m.png"
+    },
+    "RAD-120": {
+      "name": "Meticulous Restorationist",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/ee50fbf5e902e7109a3d54b417edc440b5a37198-744x1039.png?accountingTag=RB"
+    },
+    "RAD-121": {
+      "name": "One-Two Punch",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/1f246286c658d44dc4e7d51c158b2f822da39825-744x1039.png?accountingTag=RB"
+    },
+    "RAD-122": {
+      "name": "Party Crasher",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791374197047-l7hbgt0d0mb.png"
     },
     "RAD-125": {
       "name": "Dune Devourer",
@@ -579,12 +881,26 @@
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790934179743-fiangvnwvig.png"
     },
+    "RAD-131": {
+      "name": "Demacian Illuminators",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/127c2700ee4e2557dfd463ed84c45f4600ad9723-744x1039.png?accountingTag=RB"
+    },
     "RAD-132": {
       "name": "Heimerdinger, Academy Instructor",
       "type": "Unit",
       "supertype": "Champion",
       "champion": "Heimerdinger",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/1795e905171c74b84b4b7f84a57fecbb4bbd6f75-744x1039.png?accountingTag=RB"
+    },
+    "RAD-133A": {
+      "name": "Jarvan IV, Royal Heir",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Jarvan IV",
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791431858808-244lalebepr.jpg"
     },
     "RAD-136": {
       "name": "Dockside Lock-Up",
@@ -670,6 +986,13 @@
       "champion": "Orianna",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/d1f940425d4d913d8f56c017254343bc898f4892-744x1039.png?accountingTag=RB"
     },
+    "RAD-146": {
+      "name": "The Ball",
+      "type": "Gear",
+      "supertype": "Signature",
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/4b11f36bd5ce2b08677959664cda3906a04d234c-744x1040.png?accountingTag=RB"
+    },
     "RAD-147": {
       "name": "K'Sante, Pride of Nazumah",
       "type": "Legend",
@@ -711,6 +1034,13 @@
       "supertype": null,
       "champion": "Evelynn",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/ca217b57d0e8d2e04e7a35105deaa6be17e854f0-744x1039.png?accountingTag=RB"
+    },
+    "RAD-154": {
+      "name": "Last Caress",
+      "type": "Spell",
+      "supertype": "Signature",
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/c34881b6fe2e63f6345845fe95cfe72eb9d4878c-744x1040.png?accountingTag=RB"
     },
     "RAD-155": {
       "name": "Jarvan IV, Exemplar of Demacia",
@@ -866,6 +1196,13 @@
       "champion": "K'Sante",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/9d0d05c7427684aae952f5b66d7e724374c14ccc-744x1039.png?accountingTag=RB"
     },
+    "RAD-173": {
+      "name": "Riven, The Exile",
+      "type": "Legend",
+      "supertype": null,
+      "champion": "Riven",
+      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-173.webp"
+    },
     "RAD-174": {
       "name": "Seraphine, Starry-Eyed Songstress",
       "type": "Legend",
@@ -943,6 +1280,13 @@
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790985089947-5pfquixslw.png"
     },
+    "RAD-R01": {
+      "name": "Fury Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/e0337944fa56c357ab3b9a822064a8f58ead8315-744x1039.png?accountingTag=RB"
+    },
     "RAD-R01A": {
       "name": "Fury Rune",
       "type": "Rune",
@@ -1005,6 +1349,13 @@
       "supertype": "Basic",
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/a8ad4d5345a7316ba76689988bcd211d63f66098-744x1039.png?accountingTag=RB"
+    },
+    "RAD-R06": {
+      "name": "Order Rune",
+      "type": "Rune",
+      "supertype": "Basic",
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/402fa10965dbee64aa1ddef654e4b9d9a5ccd28e-744x1039.png?accountingTag=RB"
     },
     "RAD-R06A": {
       "name": "Order Rune",

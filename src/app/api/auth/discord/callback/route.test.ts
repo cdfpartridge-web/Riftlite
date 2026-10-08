@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   discordAccountClientSecret: vi.fn(),
   discordAccountRedirectUri: vi.fn(),
   discordLinkedRiftLiteUid: vi.fn(),
+  resolveDiscordAccountUid: vi.fn(),
   exchangeDiscordAccountCode: vi.fn(),
   getFirestoreAdmin: vi.fn(),
   readDiscordAccountUserId: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("@/lib/firebase/admin", () => ({
 vi.mock("@/lib/social/server", () => ({
   claimLinkedIdentityAssociation: mocks.claimLinkedIdentityAssociation,
 }));
+vi.mock("@/lib/discord/account-registration", () => ({ resolveDiscordAccountUid: mocks.resolveDiscordAccountUid }));
 
 import { GET } from "@/app/api/auth/discord/callback/route";
 import { NextRequest } from "next/server";
@@ -61,6 +63,7 @@ describe("Discord account recovery callback", () => {
     mocks.exchangeDiscordAccountCode.mockResolvedValue("discord-access-token");
     mocks.readDiscordAccountUserId.mockResolvedValue("discord-user");
     mocks.discordLinkedRiftLiteUid.mockResolvedValue("account-123");
+    mocks.resolveDiscordAccountUid.mockResolvedValue("account-123");
     mocks.claimLinkedIdentityAssociation.mockResolvedValue(undefined);
     mocks.createFirebaseCustomToken.mockResolvedValue("firebase-custom-token");
     mocks.sealDiscordAccountValue.mockReturnValue("sealed-result");
@@ -70,10 +73,49 @@ describe("Discord account recovery callback", () => {
     const response = await GET(request());
 
     expect(response.status).toBe(307);
+    expect(mocks.resolveDiscordAccountUid).toHaveBeenCalledWith(db, "discord-user", "account-123");
     expect(mocks.claimLinkedIdentityAssociation).toHaveBeenCalledWith(db, "account-123", "account-123");
     expect(mocks.createFirebaseCustomToken).toHaveBeenCalledWith("account-123");
     expect(mocks.claimLinkedIdentityAssociation.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.createFirebaseCustomToken.mock.invocationCallOrder[0]);
+  });
+
+  it("registers a new Discord identity for an unpinned desktop and preserves its linking continuation", async () => {
+    mocks.validateDiscordDesktopLink.mockResolvedValue({ expectedUid: "" });
+    mocks.resolveDiscordAccountUid.mockResolvedValue("new-discord-account");
+    const response = await GET(request());
+    expect(mocks.resolveDiscordAccountUid).toHaveBeenCalledWith(db, "discord-user", "");
+    expect(mocks.createFirebaseCustomToken).toHaveBeenCalledWith("new-discord-account");
+    const redirect = new URL(response.headers.get("location")!);
+    expect(redirect.pathname).toBe("/link-device");
+    expect(redirect.searchParams.get("session")).toBe("session-1");
+    expect(redirect.searchParams.get("discord")).toBe("complete");
+  });
+
+  it("returns public sign-up to account profile completion without creating a desktop link", async () => {
+    mocks.unsealDiscordAccountValue.mockReturnValue({ state: "oauth-state", sessionId: "", code: "", returnTo: "/hubs/invite/invite-1" });
+    const response = await GET(request());
+    expect(mocks.validateDiscordDesktopLink).not.toHaveBeenCalled();
+    expect(mocks.resolveDiscordAccountUid).toHaveBeenCalledWith(db, "discord-user", "");
+    const redirect = new URL(response.headers.get("location")!);
+    expect(redirect.pathname).toBe("/account");
+    expect(redirect.searchParams.get("returnTo")).toBe("/hubs/invite/invite-1");
+    expect(redirect.searchParams.has("session")).toBe(false);
+  });
+
+  it("rejects mismatched OAuth state before exchanging or creating an identity", async () => {
+    mocks.unsealDiscordAccountValue.mockReturnValue({ state: "other-state", sessionId: "", code: "" });
+    await GET(request());
+    expect(mocks.exchangeDiscordAccountCode).not.toHaveBeenCalled();
+    expect(mocks.resolveDiscordAccountUid).not.toHaveBeenCalled();
+    expect(mocks.createFirebaseCustomToken).not.toHaveBeenCalled();
+  });
+
+  it("rejects a pinned-account mismatch without issuing a credential", async () => {
+    mocks.resolveDiscordAccountUid.mockRejectedValue(new Error("Account stored on this device does not match."));
+    await GET(request());
+    expect(mocks.claimLinkedIdentityAssociation).not.toHaveBeenCalled();
+    expect(mocks.createFirebaseCustomToken).not.toHaveBeenCalled();
   });
 
   it("does not issue a recovered credential when the association cannot be established", async () => {

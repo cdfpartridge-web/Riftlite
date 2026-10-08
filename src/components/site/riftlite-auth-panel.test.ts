@@ -297,7 +297,7 @@ describe("RiftLite desktop account sign in", () => {
     await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
   });
 
-  it("offers Discord only as recovery for a desktop link", () => {
+  it("offers Discord sign-up and sign-in for a desktop link", () => {
     const view = render(createElement(RiftLiteAuthPanel, {
       desktopLink,
       preferredProvider: "discord",
@@ -305,8 +305,117 @@ describe("RiftLite desktop account sign in", () => {
 
     const link = view.getByRole("link", { name: "Continue with Discord" });
     expect(link).toHaveAttribute("href", "/api/auth/discord/start?session=session-1&code=ABC123");
-    expect(view.getByText(/restores an existing RiftLite account/i)).toBeInTheDocument();
+    expect(view.getByText(/Discord can create your RiftLite account/i)).toBeInTheDocument();
     expect(firebaseHarness.signInWithCustomToken).not.toHaveBeenCalled();
+  });
+
+  it("offers public Discord sign-up with a local return destination", () => {
+    window.history.replaceState({}, "", "/hubs");
+    const view = render(createElement(RiftLiteAuthPanel));
+    expect(view.getByRole("link", { name: "Continue with Discord" })).toHaveAttribute("href", "/api/auth/discord/start?returnTo=%2Fhubs");
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("requires a new Discord account to choose a profile before completing desktop linking", async () => {
+    const account = testUser("new-discord-account", false, { providerId: "custom" });
+    let profile = incompleteProfile(account.uid);
+    firebaseHarness.signInWithCustomToken.mockImplementation(async () => {
+      firebaseHarness.auth.currentUser = account;
+      firebaseHarness.listener?.(account);
+      return { user: account };
+    });
+    const requests = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/auth/discord/token") return jsonResponse({ customToken: "discord-token", uid: account.uid });
+      if (String(input) === "/api/account/profile") {
+        if (init?.method === "PATCH") profile = completeProfile(account.uid);
+        return jsonResponse({ profile });
+      }
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", requests);
+    const onReady = vi.fn(async () => ({ message: "Desktop connected." }));
+    const view = render(createElement(RiftLiteAuthPanel, { desktopLink, discordCompletion: true, onReady, actionLabel: "Save profile" }));
+    await view.findByRole("heading", { name: "Choose your RiftLite name" });
+    expect(onReady).not.toHaveBeenCalled();
+    fireEvent.change(view.getByPlaceholderText("Name other players will see"), { target: { value: "BMU" } });
+    fireEvent.change(view.getByPlaceholderText("your-handle"), { target: { value: "bmu" } });
+    fireEvent.click(view.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    const patch = requests.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1];
+    expect(JSON.parse(String(patch?.body))).toEqual({ displayName: "BMU", handle: "bmu" });
+  });
+
+  it("never links an ambient browser account while exchanging the selected Discord identity", async () => {
+    const ambient = testUser("ambient-google-account");
+    const discord = testUser("chosen-discord-account", false, { providerId: "custom" });
+    firebaseHarness.auth.currentUser = ambient;
+    let finishToken!: (value: Response) => void;
+    const token = new Promise<Response>((resolve) => { finishToken = resolve; });
+    firebaseHarness.signInWithCustomToken.mockImplementation(async () => {
+      firebaseHarness.auth.currentUser = discord;
+      firebaseHarness.listener?.(discord);
+      return { user: discord };
+    });
+    const requests = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/auth/discord/token") return token;
+      if (String(input) === "/api/account/profile") return jsonResponse({ profile: completeProfile(discord.uid) });
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", requests);
+    const onReady = vi.fn(async () => ({ message: "Linked." }));
+    render(createElement(RiftLiteAuthPanel, { desktopLink, discordCompletion: true, onReady }));
+    await act(async () => { await Promise.resolve(); });
+    expect(onReady).not.toHaveBeenCalled();
+    expect(requests).not.toHaveBeenCalledWith("/api/account/profile", expect.anything());
+    await act(async () => finishToken(jsonResponse({ customToken: "discord-token", uid: discord.uid })));
+    await waitFor(() => expect(onReady).toHaveBeenCalledExactlyOnceWith(discord));
+  });
+
+  it("completes public Discord sign-up through the same profile flow", async () => {
+    const account = testUser("public-discord-account", false, { providerId: "custom" });
+    firebaseHarness.signInWithCustomToken.mockImplementation(async () => {
+      firebaseHarness.auth.currentUser = account;
+      firebaseHarness.listener?.(account);
+      return { user: account };
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/auth/discord/token"
+      ? jsonResponse({ customToken: "discord-token", uid: account.uid })
+      : jsonResponse({ profile: completeProfile(account.uid) })));
+    const view = render(createElement(RiftLiteAuthPanel, { discordCompletion: true, completionLink: { href: "/hubs", label: "Continue" } }));
+    await view.findByRole("heading", { name: "Your account is ready" });
+    expect(view.getByRole("link", { name: "Continue" })).toHaveAttribute("href", "/hubs");
+  });
+
+  it("does not let a stale Discord profile failure clear another account's pending action", async () => {
+    const discord = testUser("discord-first", false, { providerId: "custom" });
+    const other = testUser("other-account");
+    const oldProfile = deferred<Response>();
+    const currentAction = deferred<{ message: string }>();
+    firebaseHarness.signInWithCustomToken.mockImplementation(async () => {
+      firebaseHarness.auth.currentUser = discord;
+      firebaseHarness.listener?.(discord);
+      return { user: discord };
+    });
+    const requests = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/auth/discord/token") return jsonResponse({ customToken: "discord-token" });
+      if (new Headers(init?.headers).get("Authorization") === "Bearer token-discord-first") return oldProfile.promise;
+      return jsonResponse({ profile: completeProfile(other.uid) });
+    });
+    vi.stubGlobal("fetch", requests);
+    const onReady = vi.fn(() => currentAction.promise);
+    const view = render(createElement(RiftLiteAuthPanel, { desktopLink, discordCompletion: true, onReady }));
+    await waitFor(() => expect(requests).toHaveBeenCalledWith("/api/account/profile", expect.anything()));
+    await act(async () => {
+      firebaseHarness.auth.currentUser = other;
+      firebaseHarness.listener?.(other);
+    });
+    fireEvent.click(await view.findByRole("button", { name: "Link this desktop as @bmu" }));
+    await waitFor(() => expect(onReady).toHaveBeenCalledExactlyOnceWith(other));
+    await act(async () => oldProfile.reject(new Error("Old Discord request failed")));
+    expect(view.queryByText("Old Discord request failed")).not.toBeInTheDocument();
+    expect(view.getByRole("button", { name: "Continue..." })).toBeDisabled();
+    await act(async () => currentAction.resolve({ message: "Current account linked." }));
+    await view.findByText("Current account linked.");
   });
 
   it("exchanges a completed Discord proof and loads the existing account", async () => {

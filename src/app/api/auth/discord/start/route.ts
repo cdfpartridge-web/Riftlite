@@ -12,6 +12,7 @@ import {
   validateDiscordDesktopLink,
 } from "@/lib/discord/account-auth";
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
+import { discordAccountReturnTo } from "@/lib/account-link";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,20 +22,20 @@ export async function GET(req: NextRequest) {
   const clientId = discordAccountClientId();
   const clientSecret = discordAccountClientSecret();
   if (!db || !clientId || !clientSecret) {
-    return Response.json({ error: "Discord account recovery is not configured." }, { status: 503 });
+    return Response.json({ error: "Discord sign in is not configured." }, { status: 503 });
   }
   const sessionId = req.nextUrl.searchParams.get("session")?.trim() ?? "";
   const code = req.nextUrl.searchParams.get("code")?.trim().toUpperCase() ?? "";
-  if (!sessionId || !code) {
-    return Response.json({ error: "Desktop link session and code are required." }, { status: 400 });
+  if (Boolean(sessionId) !== Boolean(code)) {
+    return Response.json({ error: "Both desktop link session and code are required." }, { status: 400 });
   }
   try {
-    await validateDiscordDesktopLink(db, sessionId, code);
+    if (sessionId) await validateDiscordDesktopLink(db, sessionId, code);
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Desktop link is invalid." }, { status: 409 });
   }
 
-  const state = newDiscordAccountState(sessionId, code);
+  const state = newDiscordAccountState(sessionId, code, Date.now(), discordAccountReturnTo(req.nextUrl.searchParams.get("returnTo")));
   const redirectUri = discordAccountRedirectUri(req.nextUrl.origin);
   const response = NextResponse.redirect(discordAccountAuthorizeUrl(clientId, redirectUri, state.state));
   response.cookies.set(DISCORD_ACCOUNT_STATE_COOKIE, sealDiscordAccountValue(state, clientSecret), {
