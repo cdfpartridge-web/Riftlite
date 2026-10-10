@@ -18,7 +18,7 @@ describe("date query controls", () => {
     const view = render(createElement(QueryDateFilter, { initialValue: ALL_DATES }));
     fireEvent.change(view.getByRole("combobox", { name: "Date" }), { target: { value: "date" } });
     fireEvent.change(view.getByLabelText("Selected date"), { target: { value: "2026-09-18" } });
-    fireEvent.click(view.getByRole("button", { name: "Apply dates" }));
+    fireEvent.click(view.getByRole("button", { name: "Apply filters" }));
     const result = new URL(navigation.push.mock.calls[0][0], "http://localhost");
     expect(result.searchParams.get("a")).toBe("deckA");
     expect(result.searchParams.get("b")).toBe("deckB");
@@ -39,5 +39,16 @@ describe("date query controls", () => {
     const view = render(createElement(QueryDateFilter, { initialValue: { ...ALL_DATES, preset: "1d" } }));
     expect(view.getByRole("combobox", { name: "Date" })).toHaveValue("1d");
     expect(view.getByRole("option", { name: "Last 24 hours" })).toBeInTheDocument();
+  });
+
+  it("shows the launch notice and preserves explicit All seasons while changing dates", () => {
+    const view = render(createElement(QueryDateFilter, { initialValue: ALL_DATES, initialSeason: "" }));
+    expect(view.getByText("Radiance pre-season is here")).toBeInTheDocument();
+    expect(view.getByRole("combobox", { name: "Season" })).toHaveValue("");
+    fireEvent.click(view.getByRole("button", { name: "Apply filters" }));
+    const params = new URL(navigation.push.mock.calls[0][0], "http://localhost").searchParams;
+    expect(params.has("season")).toBe(true);
+    expect(params.get("season")).toBe("");
+    expect(params.get("a")).toBe("deckA");
   });
 });

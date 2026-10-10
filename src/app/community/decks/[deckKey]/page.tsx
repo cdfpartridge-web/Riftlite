@@ -124,7 +124,7 @@ export default async function DeckDetailPage({
 
   if (!detail.deck) {
     if (!filters.range) notFound();
-    return <div className="space-y-4"><QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} /><Card><CardTitle>No matches for this deck on these dates</CardTitle><p>Choose another date or clear the date filter.</p></Card></div>;
+    return <div className="space-y-4"><QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} initialSeason={filters.season} /><Card><CardTitle>No matches for this deck in these filters</CardTitle><p>Choose another season or change the dates.</p></Card></div>;
   }
 
   const { deck } = detail;
@@ -133,7 +133,7 @@ export default async function DeckDetailPage({
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-6 py-12">
-      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} initialSeason={filters.season} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Deck Detail"

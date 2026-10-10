@@ -101,8 +101,8 @@ export default async function LegendProfilePage({
         </div>
       </div>
 
-      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
-      {filters.range && !profile.games ? <Card><CardTitle>No matches for these dates</CardTitle><CardDescription>Try another date or clear the date filter to see this legend’s available history.</CardDescription></Card> : null}
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} initialSeason={filters.season} />
+      {(filters.range || filters.season) && !profile.games ? <Card><CardTitle>No matches for these filters</CardTitle><CardDescription>Choose another season or change the dates to see this legend’s available history.</CardDescription></Card> : null}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatBlock
           label="Games"

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import preview from "@/lib/cards/radiance-preview.json";
+import { cardCodeFromNameAlias } from "@/lib/cards/name-aliases";
 import { mulliganCardMetadata } from "@/lib/mulligan-lab/registry";
 import { BATTLEFIELDS, LEGENDS } from "@/lib/constants";
 import { getLegendCardImageUrl } from "@/lib/legends";
@@ -44,7 +45,7 @@ describe("Radiance preview replay rendering", () => {
   });
 
   it("renders all revealed collector prints from their audited artwork", () => {
-    expect(Object.keys(preview.cards)).toHaveLength(200);
+    expect(Object.keys(preview.cards)).toHaveLength(218);
     for (const [code, data] of Object.entries(preview.cards)) {
       expect(cardImageUrl(card(data.name, code, `/cards/${code}.webp`)), code).toBe(data.imageUrl);
       if (data.type === "Battlefield") {
@@ -78,6 +79,45 @@ describe("Radiance preview replay rendering", () => {
         supertype: data.supertype,
       });
     }
+  });
+
+  it.each([
+    ["RAD-030", "圣所保管员", "Sanctum Conservator"],
+    ["RAD-052", "资源开采器", "Resource Extractor"],
+    ["RAD-077", "弗雷尔卓德之怒", "Wrath of the Freljord"],
+    ["RAD-108", "伏击陷阱", "Bushwhack Trap"],
+  ])("keeps old and English name-only captures of %s readable", (code, oldName, name) => {
+    const data = (preview.cards as Record<string, { name: string; imageUrl: string }>)[code];
+    expect(data.name).toBe(name);
+    for (const capturedName of [oldName, name]) {
+      expect(cardImageUrl(card(capturedName))).toBe(data.imageUrl);
+      const replay = parseRiftReplayPayload({ messages: [{ parsed: {
+        type: "authoritative_snapshot",
+        snapshot: { players: [{ id: "self", board: { hand: [capturedName] } }] },
+      } }] });
+      expect(replay.players[0].zones[0].cards[0]).toMatchObject({
+        name: capturedName, code, imageUrl: data.imageUrl,
+      });
+    }
+    expect(cardImageUrl(card(oldName, "RAD-013"))).toBe(preview.cards["RAD-013"].imageUrl);
+    expect(cardImageUrl({ ...card(oldName), isPlaceholder: true })).toBeUndefined();
+  });
+
+  it("keeps Seraphine's standard print distinct from the alternate art supplied for it upstream", () => {
+    expect(preview.cards["RAD-065"].imageUrl).toBe("https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-065.webp");
+    expect(preview.cards["RAD-065A"].imageUrl).toBe("https://cdn.piltoverarchive.com/cards/RAD-065a.webp");
+    expect(cardImageUrl(card("Seraphine, Inspiring", "RAD-065"))).toBe(preview.cards["RAD-065"].imageUrl);
+    expect(cardImageUrl(card("Seraphine, Inspiring", "RAD-065A"))).toBe(preview.cards["RAD-065A"].imageUrl);
+    expect(mulliganCardMetadata("RAD-065A")?.basePrintId).toBe("RAD-065");
+  });
+
+  it.each(["", "???", "未知卡牌"])("does not resolve an unknown or empty name alias %s", (name) => {
+    expect(cardCodeFromNameAlias(name)).toBeUndefined();
+    expect(cardImageUrl(card(name))).toBeUndefined();
+  });
+
+  it("only accepts explicitly registered name aliases", () => {
+    expect(cardCodeFromNameAlias("constructor")).toBeUndefined();
   });
 
   it("preserves captured promotional art and recognises encoded signature spellings", () => {

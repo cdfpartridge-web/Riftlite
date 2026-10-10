@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T15:32:14.979Z",
-  "sourceRegistryPrints": 1426,
+  "generatedAt": "2026-10-10T13:15:41.613Z",
+  "sourceRegistryPrints": 1445,
   "cards": {
     "ARC-001": {
       "basePrintId": "ARC-001",
@@ -2867,6 +2867,14 @@
       "costEnergy": null,
       "costPower": null
     },
+    "OGN-303A": {
+      "basePrintId": "OGN-303",
+      "name": "Ahri, Nine-Tailed Fox",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
+    },
     "OGN-304": {
       "basePrintId": "OGN-304",
       "name": "Lee Sin, Blind Monk",
@@ -3235,6 +3243,22 @@
       "costEnergy": 3,
       "costPower": 0
     },
+    "RAD-009": {
+      "basePrintId": "RAD-009",
+      "name": "Antagonistic Apparatus",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 6,
+      "costPower": 1
+    },
+    "RAD-010": {
+      "basePrintId": "RAD-010",
+      "name": "Forbidden Technique",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
     "RAD-012": {
       "basePrintId": "RAD-012",
       "name": "Runeblade Anvil",
@@ -3397,10 +3421,18 @@
     },
     "RAD-030": {
       "basePrintId": "RAD-030",
-      "name": "圣所保管员",
+      "name": "Sanctum Conservator",
       "type": "Unit",
       "supertype": null,
       "costEnergy": 5,
+      "costPower": 0
+    },
+    "RAD-031": {
+      "basePrintId": "RAD-031",
+      "name": "Stoic Ferryman",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 4,
       "costPower": 0
     },
     "RAD-033": {
@@ -3573,10 +3605,26 @@
     },
     "RAD-052": {
       "basePrintId": "RAD-052",
-      "name": "资源开采器",
+      "name": "Resource Extractor",
       "type": "Gear",
       "supertype": null,
       "costEnergy": 1,
+      "costPower": 0
+    },
+    "RAD-053": {
+      "basePrintId": "RAD-053",
+      "name": "Strigian Oracle",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 0
+    },
+    "RAD-054": {
+      "basePrintId": "RAD-054",
+      "name": "Trinket Peddler",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 3,
       "costPower": 0
     },
     "RAD-055": {
@@ -3666,6 +3714,30 @@
       "supertype": null,
       "costEnergy": 2,
       "costPower": 0
+    },
+    "RAD-065": {
+      "basePrintId": "RAD-065",
+      "name": "Seraphine, Inspiring",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-065A": {
+      "basePrintId": "RAD-065",
+      "name": "Seraphine, Inspiring",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 4,
+      "costPower": 1
+    },
+    "RAD-066": {
+      "basePrintId": "RAD-066",
+      "name": "Spirit of the Forge",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 6,
+      "costPower": 1
     },
     "RAD-067": {
       "basePrintId": "RAD-067",
@@ -3757,11 +3829,19 @@
     },
     "RAD-077": {
       "basePrintId": "RAD-077",
-      "name": "弗雷尔卓德之怒",
+      "name": "Wrath of the Freljord",
       "type": "Unit",
       "supertype": null,
       "costEnergy": 9,
       "costPower": 0
+    },
+    "RAD-078": {
+      "basePrintId": "RAD-078",
+      "name": "Armored Tusker",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 6,
+      "costPower": 1
     },
     "RAD-079": {
       "basePrintId": "RAD-079",
@@ -3769,6 +3849,14 @@
       "type": "Spell",
       "supertype": null,
       "costEnergy": 5,
+      "costPower": 2
+    },
+    "RAD-080": {
+      "basePrintId": "RAD-080",
+      "name": "Bloodscent Swarm",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 8,
       "costPower": 2
     },
     "RAD-081": {
@@ -3883,6 +3971,14 @@
       "costEnergy": 4,
       "costPower": 1
     },
+    "RAD-092": {
+      "basePrintId": "RAD-092",
+      "name": "Seraphic Wyvern",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 7,
+      "costPower": 0
+    },
     "RAD-093": {
       "basePrintId": "RAD-093",
       "name": "Disposal Expert",
@@ -3989,7 +4085,7 @@
     },
     "RAD-108": {
       "basePrintId": "RAD-108",
-      "name": "伏击陷阱",
+      "name": "Bushwhack Trap",
       "type": "Gear",
       "supertype": null,
       "costEnergy": 1,
@@ -4041,6 +4137,14 @@
       "type": "Unit",
       "supertype": "Champion",
       "costEnergy": 4,
+      "costPower": 0
+    },
+    "RAD-113": {
+      "basePrintId": "RAD-113",
+      "name": "Angler Wyrm",
+      "type": "Unit",
+      "supertype": null,
+      "costEnergy": 8,
       "costPower": 0
     },
     "RAD-114": {
@@ -4123,6 +4227,22 @@
       "costEnergy": 9,
       "costPower": 1
     },
+    "RAD-123": {
+      "basePrintId": "RAD-123",
+      "name": "Protector's Shield",
+      "type": "Gear",
+      "supertype": null,
+      "costEnergy": 2,
+      "costPower": 1
+    },
+    "RAD-124": {
+      "basePrintId": "RAD-124",
+      "name": "Burn Away",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 3,
+      "costPower": 1
+    },
     "RAD-125": {
       "basePrintId": "RAD-125",
       "name": "Dune Devourer",
@@ -4187,6 +4307,14 @@
       "costEnergy": 6,
       "costPower": 1
     },
+    "RAD-133": {
+      "basePrintId": "RAD-133",
+      "name": "Jarvan IV, Royal Heir",
+      "type": "Unit",
+      "supertype": "Champion",
+      "costEnergy": 7,
+      "costPower": 1
+    },
     "RAD-133A": {
       "basePrintId": "RAD-133",
       "name": "Jarvan IV, Royal Heir",
@@ -4194,6 +4322,22 @@
       "supertype": "Champion",
       "costEnergy": 7,
       "costPower": 1
+    },
+    "RAD-134": {
+      "basePrintId": "RAD-134",
+      "name": "Raucous Anthem",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 7,
+      "costPower": 1
+    },
+    "RAD-135": {
+      "basePrintId": "RAD-135",
+      "name": "Remember the Fallen",
+      "type": "Spell",
+      "supertype": null,
+      "costEnergy": 8,
+      "costPower": 2
     },
     "RAD-136": {
       "basePrintId": "RAD-136",
@@ -4314,6 +4458,14 @@
       "supertype": "Signature",
       "costEnergy": 2,
       "costPower": 1
+    },
+    "RAD-149": {
+      "basePrintId": "RAD-149",
+      "name": "Riven, The Exile",
+      "type": "Legend",
+      "supertype": null,
+      "costEnergy": null,
+      "costPower": null
     },
     "RAD-150": {
       "basePrintId": "RAD-150",

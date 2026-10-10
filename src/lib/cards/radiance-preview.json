@@ -1,5 +1,5 @@
 {
-  "auditedAt": "2026-10-08",
+  "auditedAt": "2026-10-10",
   "sources": [
     "https://piltoverarchive.com/cards?sets=RAD",
     "https://playriftbound.com/en-us/card-gallery/",
@@ -61,6 +61,20 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/3adae96f4731752074cf2145507a175dee800411-744x1039.png?accountingTag=RB"
+    },
+    "RAD-009": {
+      "name": "Antagonistic Apparatus",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/5be775464c8b897501317c6d32fd60c8b962b5c2-744x1039.png?accountingTag=RB"
+    },
+    "RAD-010": {
+      "name": "Forbidden Technique",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-010.webp"
     },
     "RAD-012": {
       "name": "Runeblade Anvil",
@@ -203,11 +217,18 @@
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/6a849c0425f0fecb8d00e1b9494e975c4dbbba75-744x1039.png?accountingTag=RB"
     },
     "RAD-030": {
-      "name": "圣所保管员",
+      "name": "Sanctum Conservator",
       "type": "Unit",
       "supertype": null,
       "champion": null,
-      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-030.webp"
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-030.webp"
+    },
+    "RAD-031": {
+      "name": "Stoic Ferryman",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-031.webp"
     },
     "RAD-033": {
       "name": "Command: Attack",
@@ -357,11 +378,25 @@
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/55e382346c6fa890936a1cf14abaf57b8ee0b8f2-744x1039.png?accountingTag=RB"
     },
     "RAD-052": {
-      "name": "资源开采器",
+      "name": "Resource Extractor",
       "type": "Gear",
       "supertype": null,
       "champion": null,
-      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-052.webp"
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-052.webp"
+    },
+    "RAD-053": {
+      "name": "Strigian Oracle",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-053.webp"
+    },
+    "RAD-054": {
+      "name": "Trinket Peddler",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791545467178-38suok1h2zd.png"
     },
     "RAD-055": {
       "name": "Clanging Sentry",
@@ -439,6 +474,27 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791411303945-adng6twczh.png"
+    },
+    "RAD-065": {
+      "name": "Seraphine, Inspiring",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Seraphine",
+      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-065.webp"
+    },
+    "RAD-065A": {
+      "name": "Seraphine, Inspiring",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Seraphine",
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-065a.webp"
+    },
+    "RAD-066": {
+      "name": "Spirit of the Forge",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791597831855-togpgq64949.webp"
     },
     "RAD-067": {
       "name": "Clocktower Guardian",
@@ -518,11 +574,18 @@
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/c04963c90ab2b338883c980ac947b8c9d80a7427-744x1039.png?accountingTag=RB"
     },
     "RAD-077": {
-      "name": "弗雷尔卓德之怒",
+      "name": "Wrath of the Freljord",
       "type": "Unit",
       "supertype": null,
       "champion": null,
-      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-077.webp"
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-077.webp"
+    },
+    "RAD-078": {
+      "name": "Armored Tusker",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-078.webp"
     },
     "RAD-079": {
       "name": "Avalanche",
@@ -530,6 +593,13 @@
       "supertype": null,
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790789337611-38wzt0nuj3a.png"
+    },
+    "RAD-080": {
+      "name": "Bloodscent Swarm",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791597706495-9o06ruyxm38.jpg"
     },
     "RAD-081": {
       "name": "Elnuk Herd",
@@ -629,6 +699,13 @@
       "champion": "Jarvan IV",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/574638f1c7e64e642f8259c8d981a0e4af973b07-744x1039.png?accountingTag=RB"
     },
+    "RAD-092": {
+      "name": "Seraphic Wyvern",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-092.webp"
+    },
     "RAD-093": {
       "name": "Disposal Expert",
       "type": "Unit",
@@ -721,11 +798,11 @@
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1790765615873-5d1n6pffi4.png"
     },
     "RAD-108": {
-      "name": "伏击陷阱",
+      "name": "Bushwhack Trap",
       "type": "Gear",
       "supertype": null,
       "champion": null,
-      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-108.webp"
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-108.webp"
     },
     "RAD-109": {
       "name": "Evelynn, In Control",
@@ -768,6 +845,13 @@
       "supertype": "Champion",
       "champion": "Ziggs",
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791399346609-rpf4neuoir.jpg"
+    },
+    "RAD-113": {
+      "name": "Angler Wyrm",
+      "type": "Unit",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-113.webp"
     },
     "RAD-114": {
       "name": "Riven, Deserter",
@@ -839,6 +923,20 @@
       "champion": null,
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791374197047-l7hbgt0d0mb.png"
     },
+    "RAD-123": {
+      "name": "Protector's Shield",
+      "type": "Gear",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-123.webp"
+    },
+    "RAD-124": {
+      "name": "Burn Away",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791597623574-c2b4sg8s4sl.webp"
+    },
     "RAD-125": {
       "name": "Dune Devourer",
       "type": "Unit",
@@ -895,12 +993,33 @@
       "champion": "Heimerdinger",
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/1795e905171c74b84b4b7f84a57fecbb4bbd6f75-744x1039.png?accountingTag=RB"
     },
+    "RAD-133": {
+      "name": "Jarvan IV, Royal Heir",
+      "type": "Unit",
+      "supertype": "Champion",
+      "champion": "Jarvan IV",
+      "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/967de7aa18d5833896825bfd7d78b234e088ae73-744x1039.png?accountingTag=RB"
+    },
     "RAD-133A": {
       "name": "Jarvan IV, Royal Heir",
       "type": "Unit",
       "supertype": "Champion",
       "champion": "Jarvan IV",
       "imageUrl": "https://cdn.piltoverarchive.com/temporary/1791431858808-244lalebepr.jpg"
+    },
+    "RAD-134": {
+      "name": "Raucous Anthem",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-134.webp"
+    },
+    "RAD-135": {
+      "name": "Remember the Fallen",
+      "type": "Spell",
+      "supertype": null,
+      "champion": null,
+      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-135.webp"
     },
     "RAD-136": {
       "name": "Dockside Lock-Up",
@@ -1006,6 +1125,13 @@
       "supertype": "Signature",
       "champion": null,
       "imageUrl": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/ab5aa7d29bd49efe2c9da3b62a8065295c189991-744x1040.png?accountingTag=RB"
+    },
+    "RAD-149": {
+      "name": "Riven, The Exile",
+      "type": "Legend",
+      "supertype": null,
+      "champion": "Riven",
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-149.webp"
     },
     "RAD-150": {
       "name": "Blade of the Exile",
@@ -1201,7 +1327,7 @@
       "type": "Legend",
       "supertype": null,
       "champion": "Riven",
-      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-173.webp"
+      "imageUrl": "https://cdn.piltoverarchive.com/cards/RAD-173.webp"
     },
     "RAD-174": {
       "name": "Seraphine, Starry-Eyed Songstress",

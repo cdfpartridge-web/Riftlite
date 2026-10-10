@@ -21,15 +21,22 @@ describe("public profile dates and privacy", () => {
   it("does not invent zero dated statistics when public stats have private match history", async () => {
     const view = render(await UserProfilePage({ params: Promise.resolve({ handle: "player" }), searchParams: Promise.resolve({ range: "date", from: "2026-09-18", timeZone: "Europe/London" }) }));
     expect(view.getByText("Unavailable")).toBeInTheDocument();
-    expect(view.getByText("Date breakdown unavailable while match history is private")).toBeInTheDocument();
+    expect(view.getByText("Filtered statistics unavailable while match history is private")).toBeInTheDocument();
     expect(view.queryByText("0W · 0L · 0D")).not.toBeInTheDocument();
     expect(view.getByText("Match history hidden")).toBeInTheDocument();
   });
 
   it("preserves shared aggregate statistics when no date filter is active", async () => {
-    const view = render(await UserProfilePage({ params: Promise.resolve({ handle: "player" }), searchParams: Promise.resolve({}) }));
+    const view = render(await UserProfilePage({ params: Promise.resolve({ handle: "player" }), searchParams: Promise.resolve({ season: "" }) }));
     expect(view.getByText("30W · 20L · 0D")).toBeInTheDocument();
     expect(view.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(view.getByText("Match history hidden")).toBeInTheDocument();
+  });
+
+  it("does not present lifetime totals as Radiance statistics when match history is private", async () => {
+    const view = render(await UserProfilePage({ params: Promise.resolve({ handle: "player" }), searchParams: Promise.resolve({}) }));
+    expect(view.getByRole("combobox", { name: "Season" })).toHaveValue("radiance-preseason");
+    expect(view.getByText("Unavailable")).toBeInTheDocument();
+    expect(view.queryByText("30W · 20L · 0D")).not.toBeInTheDocument();
   });
 });

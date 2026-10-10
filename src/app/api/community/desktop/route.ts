@@ -3,6 +3,7 @@ import {
 } from "@/lib/constants";
 import {
   applyCommunitySeasonFilter,
+  parseFilters,
 } from "@/lib/community/filters";
 import {
   filterCommunityMatchesByDays,
@@ -68,7 +69,7 @@ function toDesktopMatch(match: CommunityMatch): DesktopMatch {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const range = url.searchParams.get("range") ?? "";
-  const season = url.searchParams.get("season") ?? "";
+  const season = parseFilters({ season: url.searchParams.get("season") ?? "" }).season;
   const baseMatches =
     range === "1d"
       ? filterCommunityMatchesByDays(await getCommunityMatchWindow(), 1)

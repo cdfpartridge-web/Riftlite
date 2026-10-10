@@ -1,5 +1,5 @@
 import radiancePreview from "@/lib/cards/radiance-preview.json";
-import { CARD_NAME_CODE_ALIASES } from "@/lib/cards/name-aliases";
+import { cardCodeFromNameAlias } from "@/lib/cards/name-aliases";
 import { auditedCapturedImageUrl, auditedPrintImageUrl } from "@/lib/cards/audited-print-art";
 import type {
   CanonicalReplayV2,
@@ -487,7 +487,7 @@ export function cardImageUrl(card: ReplayCardState | undefined): string | undefi
     cardCodeFromValue(direct) ||
     cardCodeFromValue(card.id) ||
     cardCodeFromValue(card.name) ||
-    CARD_NAME_CODE_ALIASES[normalizeKey(card.name)];
+    cardCodeFromNameAlias(card.name);
   const capturedAuditedArt = auditedCapturedImageUrl(sourceCode, direct);
   if (capturedAuditedArt) return capturedAuditedArt;
   const previewArt = sourceCode && (radiancePreview.cards as Record<string, { imageUrl: string }>)[sourceCode]?.imageUrl;

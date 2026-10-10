@@ -22,9 +22,9 @@ function publicReplay(replayId: string, title: string) {
     title,
     platform: "atlas",
     messageCount: 42,
-    capturedAt: "2026-07-09T12:00:00.000Z",
-    createdAt: "2026-07-10T12:00:00.000Z",
-    updatedAt: "2026-07-10T12:01:00.000Z",
+    capturedAt: "2026-10-11T12:00:00.000Z",
+    createdAt: "2026-10-12T12:00:00.000Z",
+    updatedAt: "2026-10-12T12:01:00.000Z",
   };
 }
 
@@ -45,9 +45,9 @@ describe("embedded replay library", () => {
             title: "LeBlanc vs Fiora",
             platform: "atlas",
             messageCount: 42,
-            capturedAt: "2026-07-09T12:00:00.000Z",
-            createdAt: "2026-07-10T12:00:00.000Z",
-            updatedAt: "2026-07-10T12:01:00.000Z",
+            capturedAt: "2026-10-11T12:00:00.000Z",
+            createdAt: "2026-10-12T12:00:00.000Z",
+            updatedAt: "2026-10-12T12:01:00.000Z",
           }]
         : [];
       return new Response(JSON.stringify({ items }), {
@@ -76,7 +76,7 @@ describe("embedded replay library", () => {
       "href",
       "/replays/rl2_private_owner?embed=1",
     );
-    expect(view.getByText(/9 Jul 2026/)).toBeInTheDocument();
+    expect(view.getByText(/11 Oct 2026/)).toBeInTheDocument();
   });
 
   it("lets the uploader confirm permanent deletion through the linked account session", async () => {
@@ -234,10 +234,10 @@ describe("embedded replay library", () => {
       "/api/v2/replays?scope=mine",
       expect.objectContaining({ credentials: "include" }),
     );
-    expect(fetchMock).toHaveBeenCalledWith(
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       "/api/v2/replays?scope=public",
       expect.objectContaining({ cache: "no-store" }),
-    );
+    ));
   });
 
   it("explains automatic upload when an authenticated embedded library is empty", async () => {
@@ -271,8 +271,8 @@ describe("embedded replay library", () => {
           title: "Processing replay",
           platform: "atlas",
           messageCount: 42,
-          createdAt: "2026-07-10T12:00:00.000Z",
-          updatedAt: "2026-07-10T12:01:00.000Z",
+          createdAt: "2026-10-12T12:00:00.000Z",
+          updatedAt: "2026-10-12T12:01:00.000Z",
         }] : [],
       }), {
         headers: { "content-type": "application/json" },
@@ -432,9 +432,9 @@ describe("embedded replay library", () => {
       title,
       platform: "atlas",
       messageCount: 42,
-      capturedAt: "2026-07-09T12:00:00.000Z",
-      createdAt: "2026-07-10T12:00:00.000Z",
-      updatedAt: "2026-07-10T12:01:00.000Z",
+      capturedAt: "2026-10-11T12:00:00.000Z",
+      createdAt: "2026-10-12T12:00:00.000Z",
+      updatedAt: "2026-10-12T12:01:00.000Z",
       listing: {
         version: 1,
         playerName: "Player one",
@@ -472,9 +472,9 @@ describe("embedded replay library", () => {
       title: "Unknown vs Renekton",
       platform: "atlas",
       messageCount: 42,
-      capturedAt: "2026-07-09T12:00:00.000Z",
-      createdAt: "2026-07-10T12:00:00.000Z",
-      updatedAt: "2026-07-10T12:01:00.000Z",
+      capturedAt: "2026-10-11T12:00:00.000Z",
+      createdAt: "2026-10-12T12:00:00.000Z",
+      updatedAt: "2026-10-12T12:01:00.000Z",
       listing: {
         version: 1,
         playerName: "Player one",
@@ -495,14 +495,29 @@ describe("embedded replay library", () => {
     const view = render(createElement(ReplayLibrary));
     await waitFor(() => expect(view.getByRole("heading", { name: "Dated replay" })).toBeInTheDocument());
     fireEvent.change(view.getByRole("combobox", { name: "Replay date" }), { target: { value: "date" } });
-    fireEvent.change(view.getByLabelText("Selected date"), { target: { value: "2026-07-09" } });
+    fireEvent.change(view.getByLabelText("Selected date"), { target: { value: "2026-10-11" } });
     expect(view.getByRole("heading", { name: "Dated replay" })).toBeInTheDocument();
-    fireEvent.change(view.getByLabelText("Selected date"), { target: { value: "2026-07-10" } });
+    fireEvent.change(view.getByLabelText("Selected date"), { target: { value: "2026-10-12" } });
     expect(view.queryByRole("heading", { name: "Dated replay" })).not.toBeInTheDocument();
     expect(view.getByRole("button", { name: /Load more/ })).toBeInTheDocument();
     expect(view.getByText(/Filters apply to loaded replays/)).toBeInTheDocument();
     fireEvent.click(view.getByRole("button", { name: "Clear filters" }));
     expect(view.getByRole("heading", { name: "Dated replay" })).toBeInTheDocument();
+  });
+
+  it("defaults to Radiance and keeps late uploads of older replays in Vendetta", async () => {
+    const older = { ...publicReplay("rl2_before", "Before Radiance"), capturedAt: "2026-10-10T16:35:37.999Z" };
+    const current = { ...publicReplay("rl2_start", "Radiance start"), capturedAt: "2026-10-10T16:35:38.000Z" };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ items: [older, current] }), { headers: { "content-type": "application/json" } })));
+    const view = render(createElement(ReplayLibrary));
+    await waitFor(() => expect(view.getByRole("heading", { name: "Radiance start" })).toBeInTheDocument());
+    expect(view.queryByRole("heading", { name: "Before Radiance" })).not.toBeInTheDocument();
+    fireEvent.change(view.getByRole("combobox", { name: "Season" }), { target: { value: "vendetta-launch" } });
+    expect(view.getByRole("heading", { name: "Before Radiance" })).toBeInTheDocument();
+    expect(view.queryByRole("heading", { name: "Radiance start" })).not.toBeInTheDocument();
+    fireEvent.change(view.getByRole("combobox", { name: "Season" }), { target: { value: "" } });
+    expect(view.getByRole("heading", { name: "Radiance start" })).toBeInTheDocument();
+    expect(view.getByRole("heading", { name: "Before Radiance" })).toBeInTheDocument();
   });
 
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { DateFilterLink as Link } from "@/components/site/date-filter-link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 

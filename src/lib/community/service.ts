@@ -1,3 +1,4 @@
+import { DEFAULT_FILTERS } from "@/lib/constants";
 import {
   buildDeckGroups,
   buildLegendMeta,
@@ -39,7 +40,9 @@ export async function getCommunityOverview() {
     getCommunityMatchWindow(),
     getCommunityAggregateCounts(),
   ]);
-  return buildOverview(matches, aggregateCounts);
+  const lifetime = buildOverview(matches, aggregateCounts);
+  const current = buildOverview(applyCommunitySeasonFilter(matches, DEFAULT_FILTERS), aggregateCounts);
+  return { ...lifetime, totalDecks: current.totalDecks, trackedLegends: current.trackedLegends, topLegend: current.topLegend, topDeck: current.topDeck, featuredDecks: current.featuredDecks };
 }
 
 export async function getLegendMeta(filters: CommunityFilterParams) {

@@ -27,6 +27,8 @@ import {
 } from "react";
 
 import styles from "@/components/meta-studio/MetaStudio.module.css";
+import { RadianceSeasonNotice } from "@/components/site/stat-season-control";
+import { STAT_SEASONS } from "@/lib/stat-seasons";
 import { DateFilterControl } from "@/components/site/date-filter-control";
 import { dateFilterError, localDateKey, type DateFilterValue } from "@/lib/date-filter";
 import type {
@@ -917,9 +919,11 @@ export function MetaStudioCanvas({
         <div className={styles.stateCard}>
           <span>RIFTLITE COMMUNITY META</span>
           <h1>No qualifying legend results</h1>
+          <RadianceSeasonNotice />
           <p>Try a wider reporting window or remove a platform or format filter.</p>
           <p>Applied report: {dateLabel(report.window.start, report.filters.timeZone)} — {dateLabel(report.window.end, report.filters.timeZone)}{report.filters.timeZone ? ` · ${report.filters.timeZone}` : ""}</p>
           <div className={`${styles.controls} ${styles.emptyDateControls}`}>
+            <label><span>Season</span><select disabled={preview} value={filters.season} onChange={(event) => updateFilter("season", event.target.value as MetaStudioFilters["season"])}>{STAT_SEASONS.map((season) => <option key={season.id} value={season.id}>{season.label}</option>)}</select></label>
             <MetaStudioDateControls key={`${filters.range}:${filters.from}:${filters.to}`} filters={filters} disabled={preview} loading={loading} onChange={onFiltersChange} />
           </div>
           {report.filters.range === "date" || report.filters.range === "custom" ? <p>{RETAINED_HISTORY_NOTICE}</p> : null}
@@ -998,8 +1002,9 @@ export function MetaStudioCanvas({
                 onChange={(event) => updateFilter("season", event.target.value as MetaStudioFilters["season"])}
                 value={filters.season}
               >
+                <option value="radiance-preseason">Radiance pre-season</option>
                 <option value="">All seasons</option>
-                <option value="vendetta-launch">Vendetta launch</option>
+                <option value="vendetta-launch">Vendetta season</option>
                 <option value="vendetta-preview">Vendetta preview</option>
                 <option value="pre-vendetta">Pre-Vendetta</option>
               </select>

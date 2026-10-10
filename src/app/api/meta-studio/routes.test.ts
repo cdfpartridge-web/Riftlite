@@ -187,8 +187,10 @@ describe("Meta Studio report route", () => {
     const priorMatch = sampleMatch();
     priorMatch.id = "prior-match";
     priorMatch.createdAt = NOW - 8 * 24 * 60 * 60 * 1000;
+    priorMatch.date = new Date(priorMatch.createdAt).toISOString();
     const currentMatch = sampleMatch();
     currentMatch.createdAt = NOW - 24 * 60 * 60 * 1000;
+    currentMatch.date = new Date(currentMatch.createdAt).toISOString();
     mocks.getCommunityRangeMatchWindow.mockResolvedValue([currentMatch, priorMatch]);
     mocks.getCommunityRangeStats
       .mockReset()

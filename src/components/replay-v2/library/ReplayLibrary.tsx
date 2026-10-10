@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { RadianceSeasonNotice, StatSeasonControl } from "@/components/site/stat-season-control";
+import { CURRENT_STAT_SEASON, isInStatSeason, statMatchDateValue, statMatchTimestamp } from "@/lib/stat-seasons";
 import { DateFilterControl } from "@/components/site/date-filter-control";
 import { ALL_DATES, isInDateFilter, type DateFilterValue } from "@/lib/date-filter";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -147,6 +149,7 @@ export function ReplayLibrary({
   const [pendingVisibility, setPendingVisibility] = useState<ReplaySummary | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [search, setSearch] = useState("");
+  const [season, setSeason] = useState<string>(CURRENT_STAT_SEASON);
   const [dateFilter, setDateFilter] = useState(ALL_DATES);
   const [playerLegend, setPlayerLegend] = useState("");
   const [opponentLegend, setOpponentLegend] = useState("");
@@ -159,6 +162,7 @@ export function ReplayLibrary({
   const resetFilters = useCallback(() => {
     setSearch("");
     setDateFilter(ALL_DATES);
+    setSeason("");
     setPlayerLegend("");
     setOpponentLegend("");
     setFormat("");
@@ -508,6 +512,7 @@ export function ReplayLibrary({
   const opponentLegends = useMemo(() => replayLegendOptions(sourceReplays, "opponentLegend"), [sourceReplays]);
   const displayedReplays = useMemo(() => filterAndSortReplays(sourceReplays, {
     dateFilter,
+    season,
     search,
     playerLegend,
     opponentLegend,
@@ -516,8 +521,8 @@ export function ReplayLibrary({
     status,
     visibility: visibilityFilter,
     sort,
-  }), [dateFilter, format, opponentLegend, playerLegend, result, search, sort, sourceReplays, status, visibilityFilter]);
-  const filtersActive = Boolean(dateFilter.preset !== "all" || search || playerLegend || opponentLegend || format || result || status || visibilityFilter || sort !== "newest");
+  }), [dateFilter, season, format, opponentLegend, playerLegend, result, search, sort, sourceReplays, status, visibilityFilter]);
+  const filtersActive = Boolean(season || dateFilter.preset !== "all" || search || playerLegend || opponentLegend || format || result || status || visibilityFilter || sort !== "newest");
   const loading = scope === "public" ? publicLoading : mineLoading;
   const listError = scope === "public" ? publicError : mineError;
   const uploadBusy = ["preparing", "initializing", "uploading", "processing"].includes(uploadState.stage);
@@ -642,7 +647,7 @@ export function ReplayLibrary({
               <p className={styles.visibilityGuidance}>To change a past replay, choose <strong>Change visibility</strong> on its card. This changes that replay only.</p>
             ) : null}
 
-            {!loading && !listError ? <div className="space-y-2"><DateFilterControl label="Replay date" value={dateFilter} onChange={setDateFilter} /><p className="text-xs text-slate-400">Uses the recorded date in your local time, or upload date when unavailable. Filters apply to loaded replays{scope === "public" && publicHasMore ? "; load more below to include older uploads" : ""}.</p></div> : null}
+            {!loading && !listError ? <div className="space-y-2"><RadianceSeasonNotice /><StatSeasonControl value={season} onChange={setSeason} /><DateFilterControl label="Replay date" value={dateFilter} onChange={setDateFilter} /><p className="text-xs text-slate-400">Uses the recorded date in your local time, or upload date when unavailable. Filters apply to loaded replays{scope === "public" && publicHasMore ? "; load more below to include older uploads" : ""}.</p></div> : null}
 
             {!loading && !listError && sourceReplays.length > 0 ? (
               <ReplayFilters
@@ -782,6 +787,7 @@ export function ReplayLibrary({
 
 type FilterValues = {
   dateFilter?: DateFilterValue;
+  season?: string;
   search: string;
   playerLegend: string;
   opponentLegend: string;
@@ -1143,7 +1149,8 @@ function resultLabel(result: ReplayResult): string {
 export function filterAndSortReplays(replays: ReplaySummary[], filters: FilterValues): ReplaySummary[] {
   const query = filters.search.trim().toLowerCase();
   return replays.filter((replay) => {
-    if (!isInDateFilter(replay.capturedAt || replay.createdAt, filters.dateFilter || ALL_DATES)) return false;
+    if (!isInStatSeason(statMatchTimestamp(replay), filters.season ?? "")) return false;
+    if (!isInDateFilter(statMatchDateValue(replay), filters.dateFilter || ALL_DATES)) return false;
     const listing = replay.listing;
     if (query && ![
       replay.title,

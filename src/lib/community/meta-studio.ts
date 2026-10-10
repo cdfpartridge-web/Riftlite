@@ -1,11 +1,12 @@
-import { LEGENDS, VENDETTA_LAUNCH_START_MS, VENDETTA_PREVIEW_START_MS } from "@/lib/constants";
+import { STAT_SEASONS, isInStatSeason, statMatchDateValue, statMatchTimestamp, statSeasonForTimestamp } from "@/lib/stat-seasons";
+import { LEGENDS } from "@/lib/constants";
 import { dateFilterError, isInDateFilter, validTimeZone, type DateFilterValue } from "@/lib/date-filter";
 import type { CommunityMatch } from "@/lib/types";
 
 export const META_STUDIO_RANGES = ["1d", "7d", "14d", "30d", "date", "custom"] as const;
 export const META_STUDIO_FORMATS = ["all", "bo1", "bo3"] as const;
 export const META_STUDIO_PLATFORMS = ["all", "atlas", "tcga"] as const;
-export const META_STUDIO_SEASONS = ["", "pre-vendetta", "vendetta-preview", "vendetta-launch"] as const;
+export const META_STUDIO_SEASONS = STAT_SEASONS.map((season) => season.id);
 export const META_STUDIO_MIN_SAMPLES = [5, 10, 20] as const;
 export const META_STUDIO_AGGREGATION_METHOD = "symmetric-v1" as const;
 
@@ -160,9 +161,7 @@ function includesValue<const T extends readonly string[]>(values: T, value: stri
 }
 
 export function defaultMetaStudioSeason(now = Date.now()): MetaStudioSeason {
-  if (now >= VENDETTA_LAUNCH_START_MS) return "vendetta-launch";
-  if (now >= VENDETTA_PREVIEW_START_MS) return "vendetta-preview";
-  return "pre-vendetta";
+  return statSeasonForTimestamp(now);
 }
 
 export function parseMetaStudioFilters(
@@ -238,9 +237,7 @@ export function metaStudioSourceRangeDays(range: MetaStudioRange): 7 | 14 | 30 {
 }
 
 function createdAtMs(match: CommunityMatch): number {
-  const raw = Number(match.createdAt ?? 0);
-  if (!Number.isFinite(raw) || raw <= 0) return 0;
-  return raw < 10_000_000_000 ? raw * 1000 : raw;
+  return statMatchTimestamp(match) ?? 0;
 }
 
 function canonicalResult(value: unknown): CanonicalResult | null {
@@ -288,18 +285,9 @@ function seriesSeat(match: CommunityMatch): "1st" | "2nd" | "" {
   return canonicalSeat(match.games?.[0]?.wentFirst) || canonicalSeat(match.wentFirst);
 }
 
-function inSeason(createdAt: number, season: MetaStudioSeason): boolean {
-  if (!season) return true;
-  if (season === "pre-vendetta") return createdAt < VENDETTA_PREVIEW_START_MS;
-  if (season === "vendetta-preview") {
-    return createdAt >= VENDETTA_PREVIEW_START_MS && createdAt < VENDETTA_LAUNCH_START_MS;
-  }
-  return createdAt >= VENDETTA_LAUNCH_START_MS;
-}
-
 function matchesScope(match: CommunityMatch, filters: MetaStudioFilters): boolean {
   if (match.superseded || match.mergedIntoMatchId) return false;
-  if (!inSeason(createdAtMs(match), filters.season)) return false;
+  if (!isInStatSeason(createdAtMs(match), filters.season)) return false;
   if (filters.format !== "all" && canonicalFormat(match.fmt) !== filters.format) return false;
   if (filters.platform !== "all" && canonicalPlatform(match.platform) !== filters.platform) return false;
   return true;
@@ -545,7 +533,7 @@ export function buildMetaStudioReport(
 
   const matches = uniqueMatches(inputMatches).filter((match) => matchesScope(match, filters));
   const currentMatches = matches.filter((match) => {
-    if (dateFilter) return isInDateFilter(match.date || match.createdAt, dateFilter, new Date(now), filters.timeZone || "UTC");
+    if (dateFilter) return isInDateFilter(statMatchDateValue(match), dateFilter, new Date(now), filters.timeZone || "UTC");
     const timestamp = createdAtMs(match);
     return timestamp >= currentStart && timestamp <= sourceAsOf;
   });

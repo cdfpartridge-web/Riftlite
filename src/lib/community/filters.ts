@@ -1,3 +1,4 @@
+import { isInStatSeason, statMatchDateValue, statMatchTimestamp } from "@/lib/stat-seasons";
 import { isInDateFilter, validTimeZone, type DateFilterValue } from "@/lib/date-filter";
 
 import {
@@ -5,8 +6,6 @@ import {
   DEFAULT_PAGE_SIZE,
   COMMUNITY_SEASON_IDS,
   MAX_PAGE_SIZE,
-  VENDETTA_LAUNCH_START_MS,
-  VENDETTA_PREVIEW_START_MS,
 } from "@/lib/constants";
 import type { CommunityFilterParams, CommunityMatch } from "@/lib/types";
 
@@ -34,8 +33,8 @@ export function parseFilters(
     from: String(source.from ?? ""),
     to: String(source.to ?? ""),
     timeZone: validTimeZone(String(source.timeZone ?? "UTC")),
-    season: COMMUNITY_SEASON_IDS.includes(String(source.season ?? "") as (typeof COMMUNITY_SEASON_IDS)[number])
-      ? String(source.season ?? "")
+    season: COMMUNITY_SEASON_IDS.includes(String(source.season ?? DEFAULT_FILTERS.season) as (typeof COMMUNITY_SEASON_IDS)[number])
+      ? String(source.season ?? DEFAULT_FILTERS.season)
       : DEFAULT_FILTERS.season,
     format: canonicalCommunityFormat(source.format),
     legend: String(source.legend ?? "").trim(),
@@ -58,22 +57,7 @@ export function applyCommunitySeasonFilter(
   if (!filters.season) {
     return matches;
   }
-  return matches.filter((match) => {
-    const createdAt = matchCreatedAtMs(match);
-    if (!createdAt) {
-      return false;
-    }
-    if (filters.season === "pre-vendetta") {
-      return createdAt < VENDETTA_PREVIEW_START_MS;
-    }
-    if (filters.season === "vendetta-preview") {
-      return createdAt >= VENDETTA_PREVIEW_START_MS && createdAt < VENDETTA_LAUNCH_START_MS;
-    }
-    if (filters.season === "vendetta-launch") {
-      return createdAt >= VENDETTA_LAUNCH_START_MS;
-    }
-    return true;
-  });
+  return matches.filter((match) => isInStatSeason(statMatchTimestamp(match), filters.season));
 }
 
 export function applyCommunityFilters(
@@ -88,7 +72,7 @@ export function applyCommunityFilters(
   );
 
   return activeMatches.filter((match) => {
-    if (!isInDateFilter(match.date || match.createdAt, communityDateFilter(filters), new Date(), filters.timeZone || "UTC")) return false;
+    if (!isInDateFilter(statMatchDateValue(match), communityDateFilter(filters), new Date(), filters.timeZone || "UTC")) return false;
     if (match.localMatchId && combinedSourceIds.has(match.localMatchId)) {
       return false;
     }
@@ -158,12 +142,6 @@ export function paginate<T>(items: T[], page: number, pageSize: number) {
   };
 }
 
-function matchCreatedAtMs(match: CommunityMatch): number {
-  const raw = Number(match.createdAt ?? 0);
-  if (!Number.isFinite(raw) || raw <= 0) return 0;
-  return raw < 10_000_000_000 ? raw * 1000 : raw;
-}
-
 export function communityDateFilter(filters: Pick<CommunityFilterParams, "range" | "from" | "to">): DateFilterValue {
   return {
     preset: filters.range === "date" || filters.range === "custom" || filters.range === "today" ? filters.range : "all",
@@ -172,9 +150,9 @@ export function communityDateFilter(filters: Pick<CommunityFilterParams, "range"
   };
 }
 
-/** Detail pages have no implicit season restriction. */
+/** Detail pages share the current-season default and preserve explicit All seasons. */
 export function parseDateQuery(search: Record<string, string | string[] | undefined> | undefined) {
-  return parseFilters({ ...search, season: search?.season ?? "" });
+  return parseFilters(search);
 }
 
 export function dateQueryValue(filters: CommunityFilterParams): DateFilterValue {

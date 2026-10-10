@@ -93,7 +93,7 @@ export default async function PlayerProfilePage({
   const profile = await getPlayerProfile(decodeURIComponent(username), filters);
   if (!profile) {
     if (!filters.range) notFound();
-    return <div className="space-y-4"><QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} /><Card><CardTitle>No matches for these dates</CardTitle><CardDescription>Choose another date or clear the date filter to see available history.</CardDescription></Card></div>;
+    return <div className="space-y-4"><QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} initialSeason={filters.season} /><Card><CardTitle>No matches for these filters</CardTitle><CardDescription>Choose another season or change the dates to see available history.</CardDescription></Card></div>;
   }
 
   const recentWindow = profile.recentMatches;
@@ -102,7 +102,7 @@ export default async function PlayerProfilePage({
 
   return (
     <div className="space-y-10">
-      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} initialSeason={filters.season} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeading
           eyebrow="Player Profile"

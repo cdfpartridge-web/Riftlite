@@ -32,7 +32,7 @@ function match(
     id,
     uid: `uid-${id}`,
     username: `Player ${id}`,
-    date: new Date(NOW - DAY).toISOString(),
+    date: new Date(overrides.createdAt ? (overrides.createdAt < 10_000_000_000 ? overrides.createdAt * 1000 : overrides.createdAt) : NOW - DAY).toISOString(),
     result,
     myChampion,
     oppChampion,

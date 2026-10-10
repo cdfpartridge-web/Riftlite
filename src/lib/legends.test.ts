@@ -34,4 +34,9 @@ describe("getLegendCardImageUrl", () => {
   it("keeps the verified Vendetta card resolver", () => {
     expect(getLegendCardImageUrl("Akali")).toContain("VEN-139");
   });
+
+  it("uses the standard English Riven legend artwork", () => {
+    expect(getLegendImageUrl("Riven")).toBe("https://cdn.piltoverarchive.com/cards/RAD-149.webp");
+    expect(getLegendCardImageUrl("Riven, The Exile")).toBe(getLegendImageUrl("Riven"));
+  });
 });

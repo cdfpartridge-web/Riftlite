@@ -1,3 +1,4 @@
+import { statMatchTimestamp } from "@/lib/stat-seasons";
 import { type NextRequest } from "next/server";
 
 import {
@@ -22,12 +23,6 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-function matchTimestamp(value: unknown): number {
-  const raw = Number(value ?? 0);
-  if (!Number.isFinite(raw) || raw <= 0) return 0;
-  return raw < 10_000_000_000 ? raw * 1000 : raw;
-}
 
 export async function GET(request: NextRequest) {
   const auth = await requireMetaStudioSession(request);
@@ -79,7 +74,7 @@ export async function GET(request: NextRequest) {
   const currentStart = sourceAsOf - rangeDays * DAY_MS;
   const comparisonStart = sourceAsOf - rangeDays * DAY_MS * 2;
   const detailedTimestamps = matches
-    .map((match) => matchTimestamp(match.createdAt))
+    .map((match) => (statMatchTimestamp(match) ?? 0))
     .filter((timestamp) => timestamp > 0 && timestamp <= sourceAsOf);
   const oldestDetailedAt = detailedTimestamps.length
     ? Math.min(...detailedTimestamps)
@@ -91,7 +86,7 @@ export async function GET(request: NextRequest) {
   const comparisonWindowComplete =
     filters.range !== "30d" && detailReaches(comparisonStart);
   const currentDetailedWindow = matches.filter((match) => {
-    const timestamp = matchTimestamp(match.createdAt);
+    const timestamp = (statMatchTimestamp(match) ?? 0);
     return timestamp >= currentStart && timestamp <= sourceAsOf;
   });
   const currentStatsAsOf = Number(currentRangeStats?.updatedAt ?? sourceAsOf);

@@ -1,3 +1,6 @@
+import { CURRENT_STAT_SEASON } from "@/lib/stat-seasons";
+export { VENDETTA_PREVIEW_START_MS, VENDETTA_LAUNCH_START_MS } from "@/lib/stat-seasons";
+
 import type { CommunityFilterParams } from "@/lib/types";
 
 export const APP_NAME = "RiftLite";
@@ -37,21 +40,25 @@ export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
 export const MATCH_CACHE_MS = 60_000;
 export const TWITCH_STATUS_CACHE_MS = 60_000;
-export const VENDETTA_PREVIEW_START_MS = Date.UTC(2026, 6, 6);
-export const VENDETTA_LAUNCH_START_MS = Date.UTC(2026, 6, 31);
 
 export const COMMUNITY_SEASONS = [
+  {
+    id: CURRENT_STAT_SEASON,
+    label: "Radiance pre-season",
+    shortLabel: "Radiance pre-season",
+    description: "From 10 October 2026 at 17:35:38 UK time.",
+  },
+  {
+    id: "vendetta-launch",
+    label: "Vendetta season",
+    shortLabel: "Vendetta season",
+    description: "Vendetta from 31 July 2026 until Radiance pre-season began.",
+  },
   {
     id: "vendetta-preview",
     label: "Vendetta Preview season",
     shortLabel: "Vendetta Preview",
     description: "Preview testing from 6 July 2026 until the set launches.",
-  },
-  {
-    id: "vendetta-launch",
-    label: "Vendetta launch season",
-    shortLabel: "Vendetta Launch",
-    description: "Official Vendetta season from 31 July 2026 onward.",
   },
   {
     id: "pre-vendetta",
@@ -93,7 +100,7 @@ export const DEFAULT_FILTERS: CommunityFilterParams = {
   from: "",
   to: "",
   timeZone: "UTC",
-  season: "vendetta-preview",
+  season: CURRENT_STAT_SEASON,
   format: "",
   legend: "",
   result: "",

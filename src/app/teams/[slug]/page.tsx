@@ -1,3 +1,4 @@
+import { isInStatSeason, statMatchDateValue, statMatchTimestamp } from "@/lib/stat-seasons";
 import { QueryDateFilter } from "@/components/site/query-date-filter";
 import { parseDateQuery, dateQueryValue } from "@/lib/community/filters";
 import { isInDateFilter } from "@/lib/date-filter";
@@ -39,7 +40,7 @@ export default async function TeamProfilePage({ params, searchParams }: { params
   const payload = await loadTeam(slug);
   if (!payload) notFound();
   const { team, members } = payload;
-  const matches = payload.matches.filter((match) => isInDateFilter(match.date || match.createdAt, dateQueryValue(filters), new Date(), filters.timeZone));
+  const matches = payload.matches.filter((match) => isInStatSeason(statMatchTimestamp(match), filters.season) && isInDateFilter(statMatchDateValue(match), dateQueryValue(filters), new Date(), filters.timeZone));
   const stats = teamMatchStats(matches);
   const topLegend = topValue(matches, (match) => match.myChampion);
   const topDeck = topValue(matches, (match) => match.deckName || match.deckSnapshot?.title || "");
@@ -91,7 +92,7 @@ export default async function TeamProfilePage({ params, searchParams }: { params
         </div>
       </section>
 
-      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} description="Dates filter this team’s available synced match history and statistics. Both ends of a date range are included." />
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} initialSeason={filters.season} description="Dates filter this team’s available synced match history and statistics. Both ends of a date range are included." />
       <div className="grid gap-6 xl:grid-cols-[0.7fr_1.3fr]">
         <div className="space-y-6">
           <Card>
@@ -145,7 +146,7 @@ export default async function TeamProfilePage({ params, searchParams }: { params
         showDecks
         explorerTitle="Team match explorer"
         explorerDescription="Filter this team's synced match window, then click a row to inspect games, battlefields, player names, and deck snapshots."
-        emptyDescription={filters.range ? "No team matches in this date window. Try another date or clear the date filter." : "This public team has not synced public team matches yet. Members can send matches to teams from the RiftLite desktop Social Hub."}
+        emptyDescription={filters.range || filters.season ? "No team matches in these filters. Choose another season or date to see earlier history." : "This public team has not synced public team matches yet. Members can send matches to teams from the RiftLite desktop Social Hub."}
         recentTitle="Recent team matches"
         sourceLabel="Team hub"
         matchContextLabel="team-synced match"

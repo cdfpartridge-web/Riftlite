@@ -1,5 +1,5 @@
 {
-  "auditedAt": "2026-10-08",
+  "auditedAt": "2026-10-10",
   "sources": [
     "https://piltoverarchive.com/cards",
     "https://playriftbound.com/en-us/card-gallery/",
@@ -65,6 +65,9 @@
     },
     "OGN-246B": {
       "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/OGN-246B.webp"
+    },
+    "OGN-303A": {
+      "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/OGN-303A.webp"
     },
     "SFD-195A": {
       "imageUrl": "https://assets.riftatlas-workers.com/riftbound/cards/original/SFD-195A.webp"
@@ -269,6 +272,13 @@
       "https://cdn.piltoverarchive.com/cards/RAD-008.webp",
       "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-008.webp"
     ],
+    "RAD-009": [
+      "https://cdn.piltoverarchive.com/cards/RAD-009.webp",
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-009.webp"
+    ],
+    "RAD-010": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-010.webp"
+    ],
     "RAD-012": [
       "https://cdn.piltoverarchive.com/cards/RAD-012.webp"
     ],
@@ -280,7 +290,9 @@
     ],
     "RAD-015": [
       "https://cdn.piltoverarchive.com/cards/RAD-015.webp",
-      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/20997ddaef2cd714c36e5473c156faf331b80b7b-744x1039.png?accountingTag=RB"
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/20997ddaef2cd714c36e5473c156faf331b80b7b-744x1039.png?accountingTag=RB",
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-015C.webp",
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-015P.webp"
     ],
     "RAD-016": [
       "https://cdn.piltoverarchive.com/cards/RAD-016.webp"
@@ -327,6 +339,12 @@
       "https://cdn.piltoverarchive.com/cards/RAD-029.webp",
       "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-029.webp"
     ],
+    "RAD-030": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-030.webp"
+    ],
+    "RAD-031": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-031.webp"
+    ],
     "RAD-033": [
       "https://cdn.piltoverarchive.com/cards/RAD-033.webp"
     ],
@@ -345,7 +363,9 @@
     "RAD-038": [
       "https://cdn.piltoverarchive.com/temporary/1790379856360-1cbp857fr3y.jpg",
       "https://cdn.piltoverarchive.com/temporary/1790379906737-nco9pod88y.jpg",
-      "https://cdn.piltoverarchive.com/cards/RAD-038.webp"
+      "https://cdn.piltoverarchive.com/cards/RAD-038.webp",
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-038C.webp",
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-038P.webp"
     ],
     "RAD-039": [
       "https://cdn.piltoverarchive.com/cards/RAD-039.webp",
@@ -390,6 +410,15 @@
       "https://cdn.piltoverarchive.com/cards/RAD-051.webp",
       "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-051.webp"
     ],
+    "RAD-052": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-052.webp"
+    ],
+    "RAD-053": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-053.webp"
+    ],
+    "RAD-054": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-054.webp"
+    ],
     "RAD-055": [
       "https://cdn.piltoverarchive.com/cards/RAD-055.webp"
     ],
@@ -425,6 +454,12 @@
     ],
     "RAD-064": [
       "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-064.webp"
+    ],
+    "RAD-065A": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-065A.webp"
+    ],
+    "RAD-066": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-066.webp"
     ],
     "RAD-067": [
       "https://cdn.piltoverarchive.com/cards/RAD-067.webp"
@@ -463,9 +498,18 @@
       "https://cdn.piltoverarchive.com/temporary/1791413062115-rqpz47onwe.webp",
       "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-076.webp"
     ],
+    "RAD-077": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-077.webp"
+    ],
+    "RAD-078": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-078.webp"
+    ],
     "RAD-079": [
       "https://cdn.piltoverarchive.com/cards/RAD-079.webp",
       "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/7b2103352935061e19cf90036a6aa4cd35ad5922-744x1039.png?accountingTag=RB"
+    ],
+    "RAD-080": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-080.webp"
     ],
     "RAD-081": [
       "https://cdn.piltoverarchive.com/cards/RAD-081.webp"
@@ -482,7 +526,8 @@
     ],
     "RAD-085": [
       "https://cdn.piltoverarchive.com/cards/RAD-085.webp",
-      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/5bc0671f9f78630e2932052bb9f7f42ef2742c86-744x1039.png?accountingTag=RB"
+      "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/5bc0671f9f78630e2932052bb9f7f42ef2742c86-744x1039.png?accountingTag=RB",
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-085P.webp"
     ],
     "RAD-086": [
       "https://cdn.piltoverarchive.com/cards/RAD-086.webp"
@@ -509,6 +554,9 @@
     ],
     "RAD-091A": [
       "https://cdn.piltoverarchive.com/cards/RAD-091a.webp"
+    ],
+    "RAD-092": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-092.webp"
     ],
     "RAD-093": [
       "https://cdn.piltoverarchive.com/cards/RAD-093.webp"
@@ -547,6 +595,9 @@
       "https://cdn.piltoverarchive.com/cards/RAD-107.webp",
       "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/d112a706fe957e5cea58ea1e4366ac02e3ba292b-744x1039.png?accountingTag=RB"
     ],
+    "RAD-108": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-108.webp"
+    ],
     "RAD-109": [
       "https://cdn.piltoverarchive.com/cards/RAD-109.webp"
     ],
@@ -554,7 +605,8 @@
       "https://cdn.piltoverarchive.com/cards/RAD-109a.webp"
     ],
     "RAD-110": [
-      "https://cdn.piltoverarchive.com/cards/RAD-110.webp"
+      "https://cdn.piltoverarchive.com/cards/RAD-110.webp",
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-110P.webp"
     ],
     "RAD-111": [
       "https://cdn.piltoverarchive.com/cards/RAD-111.webp",
@@ -565,6 +617,9 @@
     ],
     "RAD-112A": [
       "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-112A.webp"
+    ],
+    "RAD-113": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-113.webp"
     ],
     "RAD-114": [
       "https://cdn.piltoverarchive.com/cards/RAD-114.webp",
@@ -598,6 +653,12 @@
     "RAD-122": [
       "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-122.webp"
     ],
+    "RAD-123": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-123.webp"
+    ],
+    "RAD-124": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-124.webp"
+    ],
     "RAD-125": [
       "https://cdn.piltoverarchive.com/cards/RAD-125.webp"
     ],
@@ -619,6 +680,13 @@
     ],
     "RAD-132": [
       "https://cdn.piltoverarchive.com/cards/RAD-132.webp"
+    ],
+    "RAD-133": [
+      "https://cdn.piltoverarchive.com/cards/RAD-133.webp",
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-133.webp"
+    ],
+    "RAD-134": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-134.webp"
     ],
     "RAD-136": [
       "https://cdn.piltoverarchive.com/cards/RAD-136.webp"
@@ -663,6 +731,9 @@
     ],
     "RAD-148": [
       "https://cdn.piltoverarchive.com/cards/RAD-148.webp"
+    ],
+    "RAD-149": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-149.webp"
     ],
     "RAD-150": [
       "https://cdn.piltoverarchive.com/cards/RAD-150.webp"
@@ -736,6 +807,9 @@
     ],
     "RAD-172": [
       "https://cdn.piltoverarchive.com/cards/RAD-172.webp"
+    ],
+    "RAD-173": [
+      "https://assets.riftatlas-workers.com/riftbound/cards/original/RAD-173.webp"
     ],
     "RAD-174": [
       "https://cdn.piltoverarchive.com/cards/RAD-174.webp"

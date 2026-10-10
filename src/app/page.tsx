@@ -1,3 +1,4 @@
+import { RadianceSeasonNotice } from "@/components/site/stat-season-control";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -199,11 +200,12 @@ export default async function HomePage() {
           </div>
         </section>
 
+        <RadianceSeasonNotice />
         <FadeUp className="grid gap-4 md:grid-cols-4">
           <StatCard label="Lifetime matches tracked" value={overview.totalMatches.toLocaleString()} />
           <StatCard label={playerStatLabel} value={overview.totalPlayers.toLocaleString()} />
-          <StatCard label="Legends in the data" value={overview.trackedLegends.toLocaleString()} />
-          <StatCard label="Current top Legend" value={overview.topLegend?.legend ?? "—"} tone="win" />
+          <StatCard label="Radiance legends tracked" value={overview.trackedLegends.toLocaleString()} />
+          <StatCard label="Radiance top Legend" value={overview.topLegend?.legend ?? "—"} tone="win" />
         </FadeUp>
 
         <FadeUp className="space-y-10">

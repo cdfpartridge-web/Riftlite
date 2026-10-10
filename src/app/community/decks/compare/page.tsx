@@ -94,7 +94,7 @@ export default async function DeckComparePage({
             <Link href="/community/decks">← All decks</Link>
           </Button>
         </div>
-        <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
+        <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} initialSeason={filters.season} />
         <DeckComparePicker decks={decks} initialA={a} initialB={b} />
       </div>
     );
@@ -111,7 +111,7 @@ export default async function DeckComparePage({
           title="No matching deck results"
           description="Try another date window or select a pair with matches in the available history."
         />
-        <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
+        <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} initialSeason={filters.season} />
         <DeckComparePicker decks={decks} initialA={a} initialB={b} />
       </div>
     );
@@ -135,7 +135,7 @@ export default async function DeckComparePage({
         </div>
       </div>
 
-      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} />
+      <QueryDateFilter key={JSON.stringify(filters)} initialValue={dateQueryValue(filters)} initialSeason={filters.season} />
       <div className="grid gap-4 md:grid-cols-2">
         <DeckSummaryCard accent="#59A7FF" deck={deckA} />
         <DeckSummaryCard accent="#A67CFF" deck={deckB} />

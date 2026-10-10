@@ -1,5 +1,5 @@
 import radiancePreview from "@/lib/cards/radiance-preview.json";
-import { CARD_NAME_CODE_ALIASES } from "@/lib/cards/name-aliases";
+import { cardCodeFromNameAlias } from "@/lib/cards/name-aliases";
 import { auditedCapturedImageUrl, auditedPrintImageUrl } from "@/lib/cards/audited-print-art";
 import type {
   RawReplayMessage,
@@ -817,7 +817,7 @@ function selectedBattlefieldCard(
 function enrichReplayCard(card: ReplayCard | null): ReplayCard | null {
   if (!card) return null;
   const normalizedName = normalizeZoneKey(card.name);
-  const code = card.code || KNOWN_CARD_CODES_BY_NAME[normalizedName] || CARD_NAME_CODE_ALIASES[normalizedName];
+  const code = card.code || KNOWN_CARD_CODES_BY_NAME[normalizedName] || cardCodeFromNameAlias(card.name);
   return {
     ...card,
     code,

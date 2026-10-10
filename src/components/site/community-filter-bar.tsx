@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { RadianceSeasonNotice } from "@/components/site/stat-season-control";
 import { DateFilterControl } from "@/components/site/date-filter-control";
 import { communityDateFilter } from "@/lib/community/filters";
 import { dateFilterError, localDateKey } from "@/lib/date-filter";
@@ -55,8 +56,9 @@ export function CommunityFilterBar({
   }
 
   return (
-    <Card className="rounded-[24px] p-5">
-      <div className={`grid gap-4 md:grid-cols-2 ${showFormat ? "xl:grid-cols-8" : "xl:grid-cols-7"}`}>
+    <Card className="rounded-[24px] p-5 space-y-4">
+      <RadianceSeasonNotice />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <label className="space-y-2 text-sm text-slate-300">
           <span className="block text-xs uppercase tracking-[0.2em] text-slate-500">
             Season

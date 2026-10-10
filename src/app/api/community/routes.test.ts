@@ -17,10 +17,10 @@ describe("community api routes", () => {
 
   it("returns meta, matrix, matches, and decks payloads", async () => {
     const [meta, matrix, matches, decks] = await Promise.all([
-      getMeta(new Request("http://localhost/api/community/meta")),
-      getMatrix(new Request("http://localhost/api/community/matrix")),
-      getMatches(new Request("http://localhost/api/community/matches?page=1&pageSize=5")),
-      getDecks(new Request("http://localhost/api/community/decks")),
+      getMeta(new Request("http://localhost/api/community/meta?season=")),
+      getMatrix(new Request("http://localhost/api/community/matrix?season=")),
+      getMatches(new Request("http://localhost/api/community/matches?season=&page=1&pageSize=5")),
+      getDecks(new Request("http://localhost/api/community/decks?season=")),
     ]);
 
     expect((await meta.json()).length).toBeGreaterThan(0);
@@ -54,7 +54,7 @@ describe("community api routes", () => {
   });
 
   it("returns deck detail and twitch status", async () => {
-    const deckResponse = await getDeckDetail(new Request("http://localhost"), {
+    const deckResponse = await getDeckDetail(new Request("http://localhost?season="), {
       params: Promise.resolve({ deckKey: encodeURIComponent("source:ahri-tempo-001") }),
     });
     const streamResponse = await getStreamStatus();
