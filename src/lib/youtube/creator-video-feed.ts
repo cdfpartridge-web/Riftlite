@@ -36,6 +36,7 @@ export type CreatorVideoCarouselResult = {
 export type CreatorVideoPreviewItem = CreatorVideo & {
   status: "included" | "filtered" | "excluded";
   reason: string;
+  isShort?: boolean;
 };
 
 export type CreatorVideoCreatorPreview = {
@@ -188,16 +189,19 @@ export function parseYoutubeAtomFeedPreview(
     const title = cleanText(textValue(entry.title), 300) || "Riftbound video";
     const mediaGroup = recordValue(entry.group);
     const description = cleanText(textValue(mediaGroup?.description ?? entry.description), 5_000);
+    const isShort = youtubeEntryIsShort(entry, videoId);
     const decision = creatorVideoFilterDecision(
       creator,
       videoId,
       `${title}\n${description}`,
       filterPolicy,
+      isShort,
     );
     seen.add(videoId);
     videos.push({
       ...creatorVideoFromFields(videoId, title, publishedAt, creator),
       ...decision,
+      ...(isShort ? { isShort: true } : {}),
     });
     if (videos.length >= MAX_FEED_ITEMS_PER_CREATOR) break;
   }
@@ -336,7 +340,7 @@ async function creatorFeedSource(creator: CreatorVideoCreatorConfig): Promise<{
 
   const directChannelId = youtubeChannelIdFromUrl(creator.youtubeUrl);
   if (directChannelId) {
-    return { params: { channel_id: directChannelId }, channelId: directChannelId };
+    return { params: { playlist_id: longFormUploadsPlaylistId(directChannelId) }, channelId: directChannelId };
   }
 
   let resolvedChannelId = "";
@@ -349,7 +353,31 @@ async function creatorFeedSource(creator: CreatorVideoCreatorConfig): Promise<{
   }
   const channelId = resolvedChannelId || creator.channelId;
   if (!channelId) throw new Error("Channel ID could not be resolved");
-  return { params: { channel_id: channelId }, channelId };
+  return { params: { playlist_id: longFormUploadsPlaylistId(channelId) }, channelId };
+}
+
+function longFormUploadsPlaylistId(channelId: string): string {
+  // YouTube's Videos playlist excludes Shorts before its recent-entry limit,
+  // so frequent Shorts cannot push an older regular upload out of the feed.
+  return `UULF${channelId.slice(2)}`;
+}
+
+function youtubeEntryIsShort(entry: Record<string, unknown>, videoId: string): boolean {
+  return arrayValue(entry.link).some((value) => {
+    const link = recordValue(value);
+    if (!link || (link["@_rel"] && link["@_rel"] !== "alternate")) return false;
+    const href = textValue(link["@_href"]);
+    if (!href) return false;
+    try {
+      const url = new URL(href, "https://www.youtube.com");
+      const host = url.hostname.replace(/^www\./, "");
+      const parts = url.pathname.split("/").filter(Boolean);
+      return ["youtube.com", "m.youtube.com"].includes(host)
+        && parts.length === 2 && parts[0] === "shorts" && parts[1] === videoId;
+    } catch {
+      return false;
+    }
+  });
 }
 
 async function resolveYoutubeHandle(youtubeUrl: string): Promise<string> {
@@ -435,6 +463,8 @@ function creatorSourceKey(
   creators: CreatorVideoCreatorConfig[],
 ): string {
   const sources = {
+    // Reject snapshots selected before the Shorts policy was introduced.
+    formatPolicy: "long-form-v1",
     maxItems: config.maxItems,
     excludedVideoIds: config.excludedVideoIds,
     includedVideoIds: config.includedVideoIds,
@@ -481,12 +511,16 @@ function creatorVideoFilterDecision(
   videoId: string,
   metadata: string,
   policy: CreatorVideoFilterPolicy,
+  isShort: boolean,
 ): Pick<CreatorVideoPreviewItem, "status" | "reason"> {
   if (policy.excludedVideoIds.has(videoId)) {
     return { status: "excluded", reason: "Hidden manually" };
   }
+  if (isShort) {
+    return { status: "filtered", reason: "YouTube Short (long-form videos only)" };
+  }
   if (creator.sourceMode === "all") {
-    return { status: "included", reason: "All channel uploads" };
+    return { status: "included", reason: "Long-form channel uploads" };
   }
   if (creator.sourceMode === "playlist") {
     return { status: "included", reason: "Selected playlist" };

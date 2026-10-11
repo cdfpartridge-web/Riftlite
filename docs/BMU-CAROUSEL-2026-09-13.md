@@ -1,5 +1,17 @@
 # BMUCasts first in the creator video carousel
 
+## Local long-form-only follow-up — 11 October 2026
+
+Automatic creator picks now read YouTube's regular Videos playlist (`UULF` plus the channel ID suffix), so Shorts cannot displace regular uploads or consume the recent-feed window. The Atom parser also rejects matching `/shorts/` alternate links in every source mode, including manually selected playlists, pins and inclusion exceptions. The Studio copy explains the long-form-only policy. No duration, title hashtag or thumbnail-dimension heuristic is used.
+
+Snapshots have a new format-policy source key, preventing a pre-change snapshot from bringing Shorts back during a feed outage. Existing creator weights, BMUCasts-first ordering, topic filters and exclusions remain supported. This changes the website feed consumed by desktop Home; no desktop code changed.
+
+Live, read-only YouTube checks found the two newest BMUCasts entries were Shorts (`uAYJQqWF6Cc` and `iPV7_Mw-zbs`). The revised service instead selects [Riven Rules You Need to Know](https://www.youtube.com/watch?v=74e7U7PjkzA). Videos-only feeds responded successfully for all 14 configured channels. Evidence: `output/creator-long-form-20261011/verification.json`. This follow-up is local source only, not deployed.
+
+Validation: 71 focused feed/config/API/Studio tests, full-project and source TypeScript, and scoped ESLint passed. The tests cover regular-video selection after newer Shorts, all source modes and manual overrides, legitimate videos mentioning Shorts, feed outages, current snapshots and rejection of legacy mixed-upload snapshots. Studio marks Shorts as excluded without offering an ineffective inclusion override.
+
+## Original implementation — 13 September 2026
+
 Local source change, 2026-09-13. Not deployed; no installer rebuilt.
 
 The desktop Home carousel consumes the website's `/api/app/home` feed. BMUCasts is now a one-slot source, with its latest eligible upload reserved before manual video pins and the weighted creator rotation. New uploads replace that opening video automatically. Exclusions, disabled channels, the carousel switch, deduplication and other creators' allocations remain supported.

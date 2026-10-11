@@ -189,6 +189,48 @@ describe("Meta Studio creator video carousel panel", () => {
     expect(saved.config.includedVideoIds).toEqual(["filtered001"]);
   });
 
+  it.each(["filtered", "excluded"] as const)(
+    "does not offer a manual include override for a %s YouTube Short",
+    async (status) => {
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
+        config: {
+          ...INITIAL_CONFIG,
+          excludedVideoIds: status === "excluded" ? ["shortnew001"] : [],
+        },
+        preview: [{
+          creatorId: "dunc",
+          creatorName: "Dunc",
+          sourceMode: "riftbound",
+          playlistId: "",
+          succeeded: true,
+          error: "",
+          items: [{
+            videoId: "shortnew001",
+            title: "Riftbound timing trap",
+            url: "https://www.youtube.com/watch?v=shortnew001",
+            embedUrl: "https://www.youtube-nocookie.com/embed/shortnew001",
+            thumbnailUrl: "https://i.ytimg.com/vi/shortnew001/hqdefault.jpg",
+            creatorId: "dunc",
+            creatorName: "Dunc",
+            channelUrl: "https://www.youtube.com/@dunctcg",
+            publishedAt: "2026-08-04T09:00:00.000Z",
+            status,
+            reason: status === "excluded" ? "Hidden manually" : "YouTube Short (long-form videos only)",
+            isShort: true,
+          }],
+        }],
+      }));
+      const view = render(createElement(CreatorVideoCarouselPanel, { onClose: vi.fn() }));
+
+      await waitFor(() => expect(view.getByText("Shorts excluded")).toBeInTheDocument());
+
+      expect(view.queryByRole("button", { name: "Always include Riftbound timing trap" }))
+        .not.toBeInTheDocument();
+      expect(view.getByLabelText("Always include YouTube video IDs")).toHaveValue("");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("refreshes from the server and closes without saving", async () => {
     const refreshed = { ...INITIAL_CONFIG, rotationSeconds: 25 };
     const fetchMock = vi.spyOn(globalThis, "fetch")

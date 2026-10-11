@@ -669,7 +669,8 @@ export function CreatorVideoCarouselPanel({
             <h2 id="creator-video-panel-title">Creator video carousel</h2>
             <p>
               Choose how RiftLite reads each creator&apos;s YouTube feed, then fill Home with
-              the most relevant videos using the weights and exceptions below.
+              the most relevant long-form videos using the weights and exceptions below.
+              YouTube Shorts are excluded from every source.
             </p>
           </div>
           <button aria-label="Close creator video carousel settings" className={styles.creatorIconButton} onClick={onClose} type="button">
@@ -879,14 +880,14 @@ export function CreatorVideoCarouselPanel({
                         value={creator.sourceMode}
                       >
                         <option value="riftbound">Riftbound only</option>
-                        <option value="all">All uploads</option>
+                        <option value="all">All long-form uploads</option>
                         <option value="playlist">YouTube playlist</option>
                       </select>
                       <small>{creator.sourceMode === "riftbound"
-                        ? "Uses title and description terms, plus manual exceptions."
+                        ? "Long-form videos matching title and description terms, plus manual exceptions."
                         : creator.sourceMode === "all"
-                          ? "Allows every recent upload from this channel."
-                          : "Allows every video returned by the selected playlist."}</small>
+                          ? "Uses this channel's latest regular videos, excluding Shorts."
+                          : "Uses videos from the selected playlist, excluding Shorts."}</small>
                     </label>
                     {creator.sourceMode === "playlist" ? (
                       <label className={`${styles.creatorField} ${styles.creatorWideField}`}>
@@ -922,7 +923,7 @@ export function CreatorVideoCarouselPanel({
                     <header>
                       <div>
                         <strong>{creator.creatorName || creator.creatorId}</strong>
-                        <span>{creator.sourceMode === "playlist" ? "Playlist" : creator.sourceMode === "all" ? "All uploads" : "Riftbound filter"}</span>
+                        <span>{creator.sourceMode === "playlist" ? "Playlist" : creator.sourceMode === "all" ? "All long-form uploads" : "Riftbound filter"}</span>
                       </div>
                       <em data-success={creator.succeeded}>{creator.succeeded ? `${creator.items.length} found` : "Feed unavailable"}</em>
                     </header>
@@ -937,14 +938,14 @@ export function CreatorVideoCarouselPanel({
                             <span data-status={item.status}>{item.status}</span>
                             <small>{item.reason}</small>
                           </div>
-                          <button
+                          {item.isShort ? <small>Shorts excluded</small> : <button
                             aria-label={`${item.status === "included" ? "Hide" : "Always include"} ${item.title}`}
                             disabled={busy}
                             onClick={() => updatePreviewVideo(item.videoId, item.status === "included" ? "exclude" : "include")}
                             type="button"
                           >
                             {item.status === "included" ? "Hide" : "Always include"}
-                          </button>
+                          </button>}
                         </article>
                       ))}
                       {creator.succeeded && !creator.items.length ? (

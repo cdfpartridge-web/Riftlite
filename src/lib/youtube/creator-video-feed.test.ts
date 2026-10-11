@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Firestore } from "firebase-admin/firestore";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -97,6 +99,132 @@ describe("YouTube creator video feeds", () => {
       pinnedVideoIds: new Set(),
       excludedVideoIds: new Set(),
     }).map((item) => item.videoId)).toEqual(["manual00001"]);
+  });
+
+  it.each(["all", "riftbound", "playlist"] as const)(
+    "filters Shorts from %s sources even when manually included and pinned",
+    (sourceMode) => {
+      const preview = parseYoutubeAtomFeedPreview(atomFeed([
+        ["shortnew001", "Riftbound timing trap", "2026-08-04T08:00:00Z", "", [
+          { href: "https://www.youtube.com/shorts/shortnew001", rel: "alternate" },
+        ]],
+        ["longform001", "Riftbound guide", "2026-08-03T08:00:00Z", "", [
+          { href: "https://www.youtube.com/watch?v=longform001", rel: "alternate" },
+        ]],
+      ]), { ...RIFTLAB, sourceMode }, {
+        includedVideoIds: new Set(["shortnew001"]),
+        pinnedVideoIds: new Set(["shortnew001"]),
+        excludedVideoIds: new Set(),
+      });
+
+      expect(preview.map((item) => [item.videoId, item.status])).toEqual([
+        ["shortnew001", "filtered"],
+        ["longform001", "included"],
+      ]);
+      expect(preview[0]?.reason).toMatch(/short/i);
+    },
+  );
+
+  it("preserves manual exclusion as the preview reason for an excluded Short", () => {
+    const preview = parseYoutubeAtomFeedPreview(atomFeed([
+      ["shortnew001", "Riftbound timing trap", "2026-08-04T08:00:00Z", "", [
+        { href: "https://www.youtube.com/shorts/shortnew001", rel: "alternate" },
+      ]],
+    ]), RIFTLAB, {
+      includedVideoIds: new Set(["shortnew001"]),
+      pinnedVideoIds: new Set(["shortnew001"]),
+      excludedVideoIds: new Set(["shortnew001"]),
+    });
+
+    expect(preview[0]).toMatchObject({ status: "excluded", reason: "Hidden manually" });
+  });
+
+  it("finds a matching Shorts alternate URL among multiple Atom links", () => {
+    const preview = parseYoutubeAtomFeedPreview(atomFeed([
+      ["shortnew001", "Riftbound timing trap", "2026-08-04T08:00:00Z", "", [
+        { href: "https://www.youtube.com/feeds/videos.xml?channel_id=example", rel: "self" },
+        { href: "https://m.youtube.com/shorts/shortnew001?feature=share", rel: "alternate" },
+      ]],
+    ]), RIFTLAB);
+
+    expect(preview[0]?.status).toBe("filtered");
+  });
+
+  it("keeps normal videos that discuss Shorts or link to another Short", () => {
+    const videos = parseYoutubeAtomFeed(atomFeed([
+      ["longform001", "How I make Riftbound Shorts", "2026-08-04T08:00:00Z",
+        "#shorts Related example: https://www.youtube.com/shorts/shortnew001", [
+          { href: "https://www.youtube.com/watch?v=longform001", rel: "alternate" },
+          { href: "https://www.youtube.com/shorts/shortnew001", rel: "related" },
+        ]],
+    ]), RIFTLAB);
+
+    expect(videos.map((item) => item.videoId)).toEqual(["longform001"]);
+  });
+
+  it.each([
+    { href: "https://www.youtube.com/shorts/otherid0001", rel: "alternate" },
+    { href: "https://example.test/shorts/longform001", rel: "alternate" },
+    { href: "https://www.youtube.com/shorts/longform001", rel: "related" },
+  ])("does not classify an unrelated Atom link as this video's format: $href ($rel)", (link) => {
+    expect(parseYoutubeAtomFeed(atomFeed([
+      ["longform001", "Riftbound guide", "2026-08-04T08:00:00Z", "", [link]],
+    ]), RIFTLAB).map((item) => item.videoId)).toEqual(["longform001"]);
+  });
+
+  it("keeps the older long-form BMUCasts video first when newer uploads are Shorts", async () => {
+    const bmu = DEFAULT_CREATOR_VIDEO_CAROUSEL_CONFIG.creators.find((item) => item.id === "bmucasts")!;
+    const config = normalizeCreatorVideoCarouselConfig({
+      creators: [{ ...bmu, youtubeUrl: `https://www.youtube.com/channel/${bmu.channelId}` }],
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(atomFeed([
+      ["shortnew001", "Timing trap", "2026-08-04T08:00:00Z", "", [
+        { href: "https://www.youtube.com/shorts/shortnew001", rel: "alternate" },
+      ]],
+      ["longform001", "Complete rules guide", "2026-08-03T08:00:00Z", "", [
+        { href: "https://www.youtube.com/watch?v=longform001", rel: "alternate" },
+      ]],
+    ]), { status: 200 }));
+
+    const result = await getCreatorVideoCarousel(config, null);
+
+    expect(result.videos.map((item) => item.videoId)).toEqual(["longform001"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0]))
+      .toBe(`https://www.youtube.com/feeds/videos.xml?playlist_id=UULF${bmu.channelId.slice(2)}`);
+  });
+
+  it("accepts a Shorts-only playlist as successfully filtered with no carousel candidates", async () => {
+    const config = normalizeCreatorVideoCarouselConfig({
+      creators: [{ ...RIFTLAB_CHANNEL, sourceMode: "playlist", playlistId: "PLshortsonly" }],
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(atomFeed([
+      ["shortnew001", "Riftbound timing trap", "2026-08-04T08:00:00Z", "", [
+        { href: "https://www.youtube.com/shorts/shortnew001", rel: "alternate" },
+      ]],
+    ]), { status: 200 }));
+    const firestore = fakeFirestore();
+
+    const preview = await getCreatorVideoCarouselPreview(config);
+    const result = await getCreatorVideoCarousel(config, firestore.db);
+
+    expect(preview[0]).toMatchObject({ succeeded: true, error: "" });
+    expect(preview[0]?.items[0]?.status).toBe("filtered");
+    expect(result.videos).toEqual([]);
+    expect(firestore.read("app_cache/creator-video-carousel")).toBeUndefined();
+  });
+
+  it("does not fall back to mixed channel uploads when the long-form feed is unavailable", async () => {
+    const config = normalizeCreatorVideoCarouselConfig({ creators: [RIFTLAB_CHANNEL] });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("unavailable", { status: 404 }));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await getCreatorVideoCarousel(config, null);
+
+    expect(result.videos).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0]))
+      .toBe(`https://www.youtube.com/feeds/videos.xml?playlist_id=UULF${RIFTLAB.channelId.slice(2)}`);
   });
 
   it("spreads weighted creator slots deterministically", () => {
@@ -277,7 +405,7 @@ describe("YouTube creator video feeds", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockImplementation(async (input) => {
         const url = String(input);
-        if (url.includes(`channel_id=${RIFTLAB.channelId}`)) {
+        if (url.includes(`playlist_id=UULF${RIFTLAB.channelId.slice(2)}`)) {
           return new Response(atomFeed([
             ["abcdefghijk", "Riftlab upload", "2026-08-04T08:00:00Z"],
           ]), { status: 200 });
@@ -329,7 +457,7 @@ describe("YouTube creator video feeds", () => {
       expect.objectContaining({ next: { revalidate: 3600, tags: ["youtube-creator-videos"] } }),
     ]);
     expect(String(fetchMock.mock.calls[1]?.[0]))
-      .toContain("channel_id=UCDQDmAPxp49TXOK9ZjLbCuA");
+      .toContain("playlist_id=UULFDQDmAPxp49TXOK9ZjLbCuA");
   });
 
   it("skips featured creators that do not have a YouTube social link", async () => {
@@ -351,7 +479,7 @@ describe("YouTube creator video feeds", () => {
     expect(result.videos.map((item) => item.creatorId)).toEqual(["riftlab"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0]))
-      .toContain(`channel_id=${RIFTLAB.channelId}`);
+      .toContain(`playlist_id=UULF${RIFTLAB.channelId.slice(2)}`);
   });
 
   it("fetches a configured playlist directly and exposes filter decisions for preview", async () => {
@@ -426,7 +554,7 @@ describe("YouTube creator video feeds", () => {
     const firstFirestore = fakeFirestore();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      return url.includes(RIFTLAB.channelId)
+      return url.includes(`UULF${RIFTLAB.channelId.slice(2)}`)
         ? new Response(atomFeed([["oldrift0001", "Old Riftlab", "2026-08-03T08:00:00Z"]]), { status: 200 })
         : new Response(atomFeed([["oldother001", "Old other", "2026-08-03T07:00:00Z"]]), { status: 200 });
     });
@@ -437,7 +565,7 @@ describe("YouTube creator video feeds", () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
-      return url.includes(RIFTLAB.channelId)
+      return url.includes(`UULF${RIFTLAB.channelId.slice(2)}`)
         ? new Response(atomFeed([["newrift0001", "New Riftlab", "2026-08-05T08:00:00Z"]]), { status: 200 })
         : new Response("offline", { status: 503 });
     });
@@ -473,6 +601,42 @@ describe("YouTube creator video feeds", () => {
     const secondFirestore = fakeFirestore({ "app_cache/creator-video-carousel": saved });
 
     const result = await getCreatorVideoCarousel(filteredConfig, secondFirestore.db);
+
+    expect(result.videos).toEqual([]);
+    expect(result.updatedAt).toBe("");
+  });
+
+  it("does not resurrect a legacy mixed-upload snapshot when long-form feeds fail", async () => {
+    const config = normalizeCreatorVideoCarouselConfig({
+      maxItems: 1,
+      creators: [{ ...RIFTLAB_CHANNEL, videoSlots: 1 }],
+    });
+    // The source key shipped before long-form filtering had no format-policy version.
+    const legacySourceKey = createHash("sha256").update(JSON.stringify({
+      maxItems: config.maxItems,
+      excludedVideoIds: config.excludedVideoIds,
+      includedVideoIds: config.includedVideoIds,
+      pinnedVideoIds: config.pinnedVideoIds,
+      creators: config.creators.map((item) => ({
+        id: item.id,
+        youtubeUrl: item.youtubeUrl,
+        channelId: item.channelId,
+        sourceMode: item.sourceMode,
+        playlistId: item.playlistId,
+        videoSlots: item.videoSlots,
+      })),
+    })).digest("hex");
+    const firestore = fakeFirestore({
+      "app_cache/creator-video-carousel": {
+        sourceKey: legacySourceKey,
+        videos: [video("riftlab", "shortnew001", "2026-08-03T08:00:00Z")],
+        updatedAt: "2026-08-03T09:00:00.000Z",
+      },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("offline", { status: 503 }));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await getCreatorVideoCarousel(config, firestore.db);
 
     expect(result.videos).toEqual([]);
     expect(result.updatedAt).toBe("");
@@ -520,14 +684,21 @@ function video(creatorId: string, rawVideoId: string, publishedAt: string): Crea
   };
 }
 
-function atomFeed(entries: Array<[string, string, string, string?]>): string {
+function atomFeed(entries: Array<[
+  string,
+  string,
+  string,
+  string?,
+  Array<{ href: string; rel?: string }>?,
+]>): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
     <feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/">
-      ${entries.map(([videoId, title, published, description = ""]) => `
+      ${entries.map(([videoId, title, published, description = "", links = []]) => `
         <entry>
           <yt:videoId>${videoId}</yt:videoId>
           <title>${title}</title>
           <published>${published}</published>
+          ${links.map((link) => `<link${link.rel ? ` rel="${link.rel}"` : ""} href="${link.href}" />`).join("")}
           <media:group>
             <media:description>${description}</media:description>
             <media:thumbnail url="https://example.test/${videoId}.jpg" />
