@@ -10,6 +10,10 @@ Live, read-only YouTube checks found the two newest BMUCasts entries were Shorts
 
 Validation: 71 focused feed/config/API/Studio tests, full-project and source TypeScript, and scoped ESLint passed. The tests cover regular-video selection after newer Shorts, all source modes and manual overrides, legitimate videos mentioning Shorts, feed outages, current snapshots and rejection of legacy mixed-upload snapshots. Studio marks Shorts as excluded without offering an ineffective inclusion override.
 
+### Long-form carousel publication — 11 October 2026 at 15:08 UK
+
+Published to https://www.riftlite.com from `7442b5540d14d75aaf4e4106ea98d67887a2a7cd`, deployment `dpl_2yg1c8WEGxuSvKCTJog4tsQTv6Fe` (https://riftlite-k56t2bi65-cdfpartridge-3985s-projects.vercel.app). This supersedes the local-only status above. The exact Git archive passed the production build and TypeScript check, then candidate verification before promotion. Four page URLs and their 28 JavaScript bundles / 6 stylesheets passed candidate and live checks; the prior replay layout and Radiance markers remain present. Both canonical and cache-busted `/api/app/home` responses select **Riven Rules You Need to Know | Riftbound Radiance** as the first BMUCasts slot and exclude the two newer known Shorts. Installed desktops receive this shared feed on their normal refresh; no desktop rebuild is required. Previous deployment `dpl_CV9TaXwejZZotvXEjW1A3mPJ7kwh` remains available for rollback. The pre-existing `next-env.d.ts` and build-info bytes are preserved. Evidence: `output/release-carousel-long-form-20261011/`.
+
 ## Original implementation — 13 September 2026
 
 Local source change, 2026-09-13. Not deployed; no installer rebuilt.
