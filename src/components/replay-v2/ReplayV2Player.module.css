@@ -1037,6 +1037,39 @@ button.cardPile { cursor: pointer; }
   background: linear-gradient(90deg, rgba(3, 7, 14, 0.8), rgba(3, 7, 14, 0.28) 46%, rgba(3, 7, 14, 0.82));
 }
 
+.battlefieldMightTotals {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.battlefieldMight {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border: 1px solid rgba(84, 214, 232, 0.38);
+  border-radius: 6px;
+  background: rgba(8, 29, 42, 0.96);
+  color: #b7f5ff;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.battlefieldMight strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.battlefieldMight[data-battlefield-might="top"] {
+  border-color: rgba(196, 164, 251, 0.4);
+  background: rgba(32, 23, 49, 0.96);
+  color: #e0ccff;
+}
+
 .battlefieldTile,
 .emptyBattlefield {
   position: relative;

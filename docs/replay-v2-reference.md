@@ -43,6 +43,14 @@ The replay is one continuous stage rather than a collection of dashboard panels.
 - The right rail contains the current inspected card above a time-synchronised chat/log feed.
 - Transport controls float along the bottom of the stage without moving the board.
 
+## Atlas battlefield might — local implementation, 11 October 2026
+
+Each Atlas battlefield header shows a separate total for the top and bottom player, including the shared Baron Pit. Totals follow the current projected replay state when playing, seeking or analysing and include the full lane before its visual card limit. Empty sides have no counter; real zero-might units display zero. Missing printed might is marked with `?` rather than treated as zero.
+
+The calculation matches the current public Atlas client: a finite numeric white counter overrides printed might and equipment; otherwise captured/catalog might is combined with visible, directly attached gear's unconditional printed might bonus. Exhausted units count. Hidden cards, placeholders, attached units and non-units do not. Atlas's current total does not independently add temporary-buff/status markers or damage counters. Captured values take precedence over the dated catalog fallback in `src/lib/cards/atlas-might.json`; no remote lookup occurs during playback. TCGA counters are outside this change.
+
+Validation: 125 focused replay/player/regression tests, TypeScript and scoped ESLint; synthetic browser checks at 1920×1080 and 1280×720 with two and three battlefields. Public reference evidence is in the desktop worktree's `output/atlas-might-20261011/`; local browser fixtures/screenshots are in `output/playwright/atlas-might-20261011/`. Source only; this entry does not record a website deployment.
+
 ## Opening and game-transition sequence
 
 Every game has its own opening sequence. A BO3 is presented as one replay containing separately addressable games.

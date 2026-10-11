@@ -2345,6 +2345,69 @@ describe("ReplayV2Player presentation prelude", () => {
     }
   });
 
+  it("shows separate Atlas might totals on every battlefield and recalculates on seek", async () => {
+    const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.history.replaceState({}, "", "/replays/rp_might?t=1");
+    try {
+      const replay = sideboardingAtZeroReplay();
+      const snapshot = replay.events.find((event) => event.kind === "snapshot")!;
+      if (snapshot.kind !== "snapshot") throw new Error("Expected snapshot");
+      const unit = (id: string, might: number) => ({
+        id, name: "Synthetic unit", fields: { type: "Unit", might },
+      });
+      snapshot.snapshot.room.phase = "in_game";
+      snapshot.snapshot.room.rawPhase = "in_game";
+      snapshot.snapshot.room.fields.sharedBattlefieldToken = {
+        kind: "baron_pit", zone: "battlefieldToken", title: "Baron Pit", active: true,
+      };
+      snapshot.snapshot.players.self.zones.battlefieldB = Array.from({ length: 8 }, (_, i) => unit(`unit-${i}`, i + 1));
+      snapshot.snapshot.players.opponent.zones.battlefieldB = [unit("opponent-unit", 5)];
+      snapshot.snapshot.players.opponent.zones.battlefieldA = [
+        { ...unit("hidden-unit", 999), fields: { type: "Unit", might: 999, hidden: true } },
+      ];
+      snapshot.snapshot.players.self.zones.battlefieldToken = [
+        unit("pit-unit", 6), { id: "unknown-unit", name: "Unknown unit", fields: { type: "Unit" } },
+      ];
+      const changed = structuredClone(snapshot);
+      changed.index = replay.events.length;
+      changed.id = "might-changed";
+      changed.atMs = 2_000;
+      changed.at = 3_000;
+      changed.snapshot.players.self.zones.battlefieldB[0].fields.whiteCounter = 10;
+      const cleared = structuredClone(changed);
+      cleared.index += 1;
+      cleared.id = "units-removed";
+      cleared.atMs = 3_000;
+      cleared.at = 4_000;
+      cleared.snapshot.players.self.zones.battlefieldB = [];
+      replay.events.push(changed, cleared);
+      replay.series.games[0].endedAtMs = 4_000;
+      replay.series.games[0].eventEndIndex = cleared.index;
+      replay.series.endedAt = 5_000;
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
+        headers: { "content-type": "application/json" }, status: 200,
+      })));
+      const view = render(createElement(ReplayV2Player, { replayId: "rp_might" }));
+      const timeline = await view.findByRole("slider", { name: "Replay progress" });
+      const selfTotal = () => view.container.querySelector('[data-battlefield-zone="battlefieldB"] [data-might-player="self"]');
+      expect(selfTotal()).toHaveAttribute("data-might-total", "36");
+      expect(selfTotal()).toHaveAccessibleName("LeBlanc: 36 total might across 8 units");
+      expect(view.container.querySelector('[data-battlefield-zone="battlefieldB"] [data-might-player="opponent"]'))
+        .toHaveAttribute("data-might-total", "5");
+      expect(view.container.querySelector('[data-battlefield-zone="battlefieldA"] [data-battlefield-might]')).toBeNull();
+      expect(view.container.querySelector('[data-battlefield-zone="battlefieldToken"] [data-battlefield-might]'))
+        .toHaveTextContent("6 + ?");
+      fireEvent.change(timeline, { target: { value: "2000" } });
+      await waitFor(() => expect(selfTotal()).toHaveAttribute("data-might-total", "45"));
+      fireEvent.change(timeline, { target: { value: "3000" } });
+      await waitFor(() => expect(selfTotal()).toBeNull());
+      fireEvent.change(timeline, { target: { value: "1000" } });
+      await waitFor(() => expect(selfTotal()).toHaveAttribute("data-might-total", "36"));
+    } finally {
+      window.history.replaceState({}, "", previousUrl);
+    }
+  });
+
   it("projects owner-relative TCGA B1/B2 zones onto both selected battlefields", async () => {
     const replay = sideboardingAtZeroReplay();
     const snapshot = replay.events.find((event) => event.kind === "snapshot");
@@ -2380,6 +2443,7 @@ describe("ReplayV2Player presentation prelude", () => {
     expect(lanes[1]).toHaveAttribute("data-battlefield-name", "Star Spring");
     expect(lanes[1].querySelector('[aria-label="Honest Broker"]')).toBeInTheDocument();
     expect(lanes[1].querySelector('[aria-label="Mournful Witness"]')).toBeInTheDocument();
+    expect(view.container.querySelector('[data-battlefield-might]')).toBeNull();
   });
 
   it("expands for Baron Pit, keeps both players' units there, and collapses on rewind", async () => {

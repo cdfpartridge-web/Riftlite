@@ -40,6 +40,7 @@ import { ReplayHistoryDeckPanel } from "./ReplayHistoryDeckPanel";
 import { ReplayArtworkImage } from "./ReplayArtworkImage";
 import { CardStatusBadge } from "./CardStatusBadge";
 import { cardStatuses, cardStatusText } from "./card-status";
+import { totalBattlefieldMight } from "./battlefield-might";
 import { ReplaySoundControls } from "./ReplaySoundControls";
 import { useReplaySounds } from "./use-replay-sounds";
 
@@ -2897,6 +2898,7 @@ function ReplayBoard({
         player={players.top}
       />
       <CentralArena
+        atlasMight={replay.source.schema === "riftreplay-raw-capture"}
         battlefields={battlefields}
         sharedBattlefield={sharedBattlefield}
         chain={state.chain}
@@ -3714,6 +3716,7 @@ function AttachedCardGroup({
 }
 
 function CentralArena({
+  atlasMight,
   battlefields,
   sharedBattlefield,
   chain,
@@ -3721,6 +3724,7 @@ function CentralArena({
   onCardSelect,
   players,
 }: {
+  atlasMight: boolean;
   battlefields: Array<ReplayCardState | undefined>;
   sharedBattlefield?: ReplayCardState;
   chain: ReplayChainEntry[];
@@ -3783,6 +3787,20 @@ function CentralArena({
           key={lane.key}
         >
             <span className={styles.centralLabel}>{lane.label}</span>
+            {atlasMight && !tcgaOwnerRelativeLanes ? (
+              <div className={styles.battlefieldMightTotals}>
+                <BattlefieldMightBadge
+                  cards={zoneCards(players.top, [lane.topCardZone])}
+                  orientation="top"
+                  player={players.top}
+                />
+                <BattlefieldMightBadge
+                  cards={zoneCards(players.bottom, [lane.bottomCardZone])}
+                  orientation="bottom"
+                  player={players.bottom}
+                />
+              </div>
+            ) : null}
             <div className={styles.battlefieldCardDock} data-battlefield-card-dock>
               {lane.battlefield ? (
                 <BattlefieldTile
@@ -3846,6 +3864,37 @@ function CentralArena({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function BattlefieldMightBadge({
+  cards,
+  orientation,
+  player,
+}: {
+  cards: ReplayCardState[];
+  orientation: "top" | "bottom";
+  player: ReplayPlayerState;
+}) {
+  const { total, unitCount, unknownCount } = totalBattlefieldMight(cards);
+  if (!unitCount) return null;
+  const amount = unknownCount ? (total ? `${total} + ?` : "?") : String(total);
+  const description = unknownCount
+    ? `${player.name}: ${total} known might; might unavailable for ${unknownCount} ${unknownCount === 1 ? "unit" : "units"}`
+    : `${player.name}: ${total} total might across ${unitCount} ${unitCount === 1 ? "unit" : "units"}`;
+  return (
+    <span
+      aria-label={description}
+      className={styles.battlefieldMight}
+      data-battlefield-might={orientation}
+      data-might-player={player.id}
+      data-might-total={total}
+      data-might-unknown={unknownCount || undefined}
+      title={description}
+    >
+      <strong><span aria-hidden="true">{orientation === "top" ? "↑" : "↓"}</span> {amount}</strong>
+      <span>Might</span>
+    </span>
   );
 }
 
