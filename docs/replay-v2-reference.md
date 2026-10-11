@@ -65,6 +65,10 @@ Validation: 70 existing player/layout tests and 6 new panel interaction tests, T
 
 Equipped cards now tuck directly behind the unit with a 12px horizontal strip per attachment and aligned top edges, replacing the former 27px sideways / 37px downward starting offset. The unit stays in front; rear-card layering leaves each equipment strip accessible. Exhausted hosts allow for their rotated width. Base and battlefield stacks share the compact card-height footprint, while hover, keyboard focus and inspection remain available. Validation: 70 existing player/layout tests and browser fixtures at 1920×1080 and 1280×720, covering both players, multiple attachments, exhausted hosts and exhausted equipment. Evidence: `output/playwright/replay-equipment-20261011/`. Local source only, together with the might-label/panel refinements above; not deployed.
 
+### Layout refinement publication — 11 October 2026 at 12:32 UK
+
+Published the might labels/positions, persistent side-panel control and compact equipment stacks to https://www.riftlite.com from `f260b80fd1744227adbe2a3e6f60aa288d884537`, deployment `dpl_CV9TaXwejZZotvXEjW1A3mPJ7kwh` (https://riftlite-31dfolwa9-cdfpartridge-3985s-projects.vercel.app). This supersedes the local-only refinement statuses above. The production build and TypeScript check passed; six candidate/live routes, 31 JavaScript bundles, 6 stylesheets and the public replay API were verified. An isolated browser confirmed counter placement, the live panel toggle and refresh persistence. No desktop rebuild or replay reprocessing was needed. Previous deployment `dpl_4XDxn3RqqAa9VoWbi6igZNzjwfW6` is retained for rollback. Release and preservation receipts: `output/release-replay-layout-20261011/`.
+
 ## Opening and game-transition sequence
 
 Every game has its own opening sequence. A BO3 is presented as one replay containing separately addressable games.
