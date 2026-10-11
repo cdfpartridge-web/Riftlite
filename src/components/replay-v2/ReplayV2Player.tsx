@@ -171,6 +171,7 @@ import {
 
 const DESIGN_WIDTH = 1_920;
 const DESIGN_HEIGHT = 1_080;
+const DETAILS_HIDDEN_PREFERENCE_KEY = "riftlite.replay.details-hidden.v1";
 const ACTION_ANIMATION_MS = 430;
 const PLAYBACK_SPEEDS = [1, 2, 4, 6, 10] as const;
 type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number];
@@ -359,6 +360,7 @@ export function ReplayV2Player({
   const [showMore, setShowMore] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showScoreTags, setShowScoreTags] = useState(false);
+  const [detailsPreferenceHidden, setDetailsPreferenceHidden] = useState(false);
   const [playerNamePrivacy, setPlayerNamePrivacy] = useState({ replayId, hidden: false });
   const [cardsUpPreference, setCardsUpPreference] = useState({ replayId, enabled: false });
   const [fullscreen, setFullscreen] = useState(false);
@@ -403,6 +405,9 @@ export function ReplayV2Player({
     useState<ReplayAnalysisContextMenuState>(null);
   const [analysisDraggingCardId, setAnalysisDraggingCardId] = useState<string | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+  const detailsPanelId = useId();
+  const detailsCanHide = !casterMode && !trainingReplay;
+  const detailsHidden = detailsCanHide && detailsPreferenceHidden && !analysisSession;
   const canvasRef = useRef<HTMLDivElement>(null);
   const pendingSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationLockedUntil = useRef(0);
@@ -432,6 +437,28 @@ export function ReplayV2Player({
     [allowPlayerNameHiding, hidePlayerNames, sourceReplay],
   );
   const { hostRef, scale } = usePlayerScale();
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        setDetailsPreferenceHidden(window.localStorage.getItem(DETAILS_HIDDEN_PREFERENCE_KEY) === "true");
+      } catch {
+        // The panel stays visible when browser preferences are unavailable.
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const updateDetailsHidden = useCallback((hidden: boolean) => {
+    setDetailsPreferenceHidden(hidden);
+    try {
+      window.localStorage.setItem(DETAILS_HIDDEN_PREFERENCE_KEY, String(hidden));
+    } catch {
+      // Keep the control usable without persistent browser storage.
+    }
+  }, []);
 
   useEffect(() => {
     const syncFullscreenState = () => {
@@ -1547,6 +1574,7 @@ export function ReplayV2Player({
 
   const openNewReplayNote = useCallback(() => {
     if (!replay || !state || casterMode) return;
+    updateDetailsHidden(false);
     if (sharedReplayNotesActive) {
       flashNotice("Save a copy or dismiss the shared notes before adding your own");
       setActivityTab("notes");
@@ -1570,9 +1598,10 @@ export function ReplayV2Player({
       body: "",
     });
     setActivityTab("notes");
-  }, [casterMode, currentEvent, currentMs, flashNotice, playbackEndMs, playbackStartMs, replay, replayNoteEditor, settleAnimations, sharedReplayNotesActive, state]);
+  }, [casterMode, currentEvent, currentMs, flashNotice, playbackEndMs, playbackStartMs, replay, replayNoteEditor, settleAnimations, sharedReplayNotesActive, state, updateDetailsHidden]);
 
   const selectReplayNote = useCallback((note: ReplayNote) => {
+    updateDetailsHidden(false);
     if (replayNoteEditor) {
       flashNotice("Save or cancel the open note first");
       requestAnimationFrame(() => {
@@ -1595,10 +1624,11 @@ export function ReplayV2Player({
     setHoveredCard(null);
     setActivityTab("notes");
     seekTo(note.atMs, { immediate: true });
-  }, [durationMs, flashNotice, playbackEndMs, playbackStartMs, replayNoteEditor, seekTo, settleAnimations]);
+  }, [durationMs, flashNotice, playbackEndMs, playbackStartMs, replayNoteEditor, seekTo, settleAnimations, updateDetailsHidden]);
 
   const editReplayNote = useCallback((note: ReplayNote) => {
     if (sharedReplayNotesActive) return;
+    updateDetailsHidden(false);
     setPlaying(false);
     setSelectedReplayNoteId(note.id);
     setReplayNoteEditor({
@@ -1608,7 +1638,7 @@ export function ReplayV2Player({
       body: note.body,
     });
     setActivityTab("notes");
-  }, [sharedReplayNotesActive]);
+  }, [sharedReplayNotesActive, updateDetailsHidden]);
 
   const saveReplayNote = useCallback(() => {
     if (!replay || !replayNoteEditor) return;
@@ -2220,7 +2250,7 @@ export function ReplayV2Player({
     <div
       className={`${styles.shell} ${trainingReplay ? styles.trainingShell : ""} ${embed ? styles.embedShell : ""} ${
         casterMode ? styles.casterShell : ""
-      } ${casterClean ? styles.casterClean : ""} ${
+      } ${detailsHidden ? styles.detailsHidden : ""} ${casterClean ? styles.casterClean : ""} ${
         casterClean && casterCursorIdle ? styles.casterCursorHidden : ""
       }`}
       ref={shellRef}
@@ -2230,6 +2260,7 @@ export function ReplayV2Player({
       data-replay-clip-end-marked={clipEndMarkMs !== null ? "true" : undefined}
       data-replay-clip-start-marked={clipStartMarkMs !== null ? "true" : undefined}
       data-fullscreen={fullscreen ? "true" : undefined}
+      data-details-hidden={detailsHidden ? "true" : undefined}
       data-replay-player="v2"
     >
       <div
@@ -2300,6 +2331,8 @@ export function ReplayV2Player({
                 suppressMotion={suppressMotion}
               />
               <InspectorRail
+                panelHidden={detailsHidden}
+                panelId={detailsPanelId}
                 activityTab={activityTab}
                 historyDeckControl={!trainingReplay && !casterMode && !combinedReplay && replay.source.schema === "riftreplay-raw-capture" ? (
                   <ReplayHistoryDeckPanel
@@ -2561,6 +2594,21 @@ export function ReplayV2Player({
                 />
               ) : (
                 <TransportControls
+                  detailsControl={detailsCanHide ? (
+                    <button
+                      aria-controls={detailsPanelId}
+                      aria-expanded={!detailsHidden}
+                      aria-label={detailsHidden ? "Show side panel" : "Hide side panel"}
+                      className={styles.fullscreenButton}
+                      data-control="details-panel"
+                      disabled={Boolean(analysisSession)}
+                      onClick={() => updateDetailsHidden(!detailsHidden)}
+                      title={analysisSession ? "The side panel stays open while you take control" : "Show or hide card details, match decks, chat and notes"}
+                      type="button"
+                    >
+                      <Icon name="panel" /> {detailsHidden ? "Show panel" : "Hide panel"}
+                    </button>
+                  ) : null}
                   soundControls={<ReplaySoundControls enabled={soundEnabled} volume={soundVolume}
                     onEnabledChange={setSoundEnabled} onVolumeChange={setSoundVolume} />}
                   practiceOnly={Boolean(trainingReplay && trainingEditable)}
@@ -3777,7 +3825,7 @@ function CentralArena({
     },
   ];
   return (
-    <div className={styles.centralArena} data-battlefield-count={lanes.length}>
+    <div className={styles.centralArena} data-battlefield-count={lanes.length} data-might-enabled={atlasMight && !tcgaOwnerRelativeLanes ? "true" : undefined}>
       {lanes.map((lane) => (
         <section
           className={styles.battlefieldZone}
@@ -3788,7 +3836,7 @@ function CentralArena({
         >
             <span className={styles.centralLabel}>{lane.label}</span>
             {atlasMight && !tcgaOwnerRelativeLanes ? (
-              <div className={styles.battlefieldMightTotals}>
+              <>
                 <BattlefieldMightBadge
                   cards={zoneCards(players.top, [lane.topCardZone])}
                   orientation="top"
@@ -3799,7 +3847,7 @@ function CentralArena({
                   orientation="bottom"
                   player={players.bottom}
                 />
-              </div>
+              </>
             ) : null}
             <div className={styles.battlefieldCardDock} data-battlefield-card-dock>
               {lane.battlefield ? (
@@ -3892,8 +3940,8 @@ function BattlefieldMightBadge({
       data-might-unknown={unknownCount || undefined}
       title={description}
     >
-      <strong><span aria-hidden="true">{orientation === "top" ? "↑" : "↓"}</span> {amount}</strong>
-      <span>Might</span>
+      <span>{orientation === "top" ? "Enemy might" : "Our might"}</span>
+      <strong>{amount}</strong>
     </span>
   );
 }
@@ -5161,6 +5209,8 @@ function HoverCardPreview({
 }
 
 function InspectorRail({
+  panelHidden = false,
+  panelId,
   activityTab,
   historyDeckControl,
   allowClipping,
@@ -5201,6 +5251,8 @@ function InspectorRail({
   sharedNotesLinkInvalid,
   state,
 }: {
+  panelHidden?: boolean;
+  panelId?: string;
   activityTab: ReplayActivityTab;
   historyDeckControl?: ReactNode;
   allowClipping: boolean;
@@ -5265,6 +5317,9 @@ function InspectorRail({
 
   return (
     <aside
+      hidden={panelHidden}
+      id={panelId}
+      data-replay-details
       className={`${styles.inspectorRail} ${historyDeckControl ? styles.historyDeckRail : ""} ${casterClean ? styles.casterInspectorRail : ""}`}
       aria-label={casterClean ? "Caster card spotlight" : "Replay details"}
       data-caster-inspector={casterClean ? "true" : undefined}
@@ -6363,6 +6418,7 @@ function CasterLowerThird({
 }
 
 function TransportControls({
+  detailsControl,
   practiceOnly = false,
   soundControls,
   allowAnalysis,
@@ -6416,6 +6472,7 @@ function TransportControls({
 }: {
   practiceOnly?: boolean;
   soundControls: ReactNode;
+  detailsControl: ReactNode;
   allowAnalysis: boolean;
   allowCardsUp: boolean;
   analysisActive: boolean;
@@ -6802,6 +6859,7 @@ function TransportControls({
         >
           <Icon name="fullscreen" /> {fullscreen ? "Exit full screen" : "Full screen"}
         </button>
+        {detailsControl}
         <button
           aria-expanded={showMore}
           className={`${styles.moreButton} ${showMore ? styles.moreButtonActive : ""}`}
@@ -8253,6 +8311,7 @@ type IconName =
   | "lock"
   | "next"
   | "note"
+  | "panel"
   | "pause"
   | "play"
   | "previous"
@@ -8287,6 +8346,7 @@ function Icon({ name }: { name: IconName }) {
     lock: <><rect height="10" rx="2" width="14" x="5" y="10" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
     next: <><path d="m9 6 6 6-6 6" /><path d="M18 6v12" /></>,
     note: <><path d="M5 3h14v13l-5 5H5z" /><path d="M14 21v-5h5M8 8h8M8 12h6" /></>,
+    panel: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></>,
     pause: <><path d="M9 5v14" /><path d="M15 5v14" /></>,
     play: <path d="m8 5 11 7-11 7z" />,
     previous: <><path d="m15 6-6 6 6 6" /><path d="M6 6v12" /></>,

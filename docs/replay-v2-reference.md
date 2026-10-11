@@ -55,6 +55,16 @@ Validation: 125 focused replay/player/regression tests, TypeScript and scoped ES
 
 Published to https://www.riftlite.com from `cadcf3ffbe9fb109fd2e2c23d49ace046ad099d7`, deployment `dpl_4XDxn3RqqAa9VoWbi6igZNzjwfW6` (https://riftlite-mtjqet40i-cdfpartridge-3985s-projects.vercel.app). The production build and TypeScript check passed; six candidate and live routes, 31 JavaScript bundles, 6 stylesheets and the public Atlas replay API were verified. This supersedes the source-only status above. Existing replays use the updated viewer; no desktop rebuild or replay reprocessing was performed. Deployment `dpl_FMWAigBbZDynDBXciKebWTADkZsV` is retained for rollback. Release and preservation receipts: `output/release-atlas-might-20261011/`.
 
+### Local layout refinement — 11 October 2026
+
+The next local viewer revision labels each battlefield's top-right counter **Enemy might** and bottom-right counter **Our might**, matching the opponent and capture-player sides. A **Hide panel / Show panel** control beside Full screen remembers the viewer's choice in this browser. Hiding the rail centers the existing board and controls without stretching cards, changing playback, refetching the replay or discarding a note draft. Timeline note selection reveals the rail. Take control temporarily keeps its tools visible; caster and training layouts retain their existing panels.
+
+Validation: 70 existing player/layout tests and 6 new panel interaction tests, TypeScript and scoped ESLint passed. Browser checks at 1920×1080 and 1280×720 covered three battlefields, counter placement, hidden/shown layouts, refresh persistence and card hover. Evidence is in `output/playwright/replay-layout-20261011/`. This refinement is local source only; the publication receipt above remains the live version.
+
+### Local equipment layout refinement — 11 October 2026
+
+Equipped cards now tuck directly behind the unit with a 12px horizontal strip per attachment and aligned top edges, replacing the former 27px sideways / 37px downward starting offset. The unit stays in front; rear-card layering leaves each equipment strip accessible. Exhausted hosts allow for their rotated width. Base and battlefield stacks share the compact card-height footprint, while hover, keyboard focus and inspection remain available. Validation: 70 existing player/layout tests and browser fixtures at 1920×1080 and 1280×720, covering both players, multiple attachments, exhausted hosts and exhausted equipment. Evidence: `output/playwright/replay-equipment-20261011/`. Local source only, together with the might-label/panel refinements above; not deployed.
+
 ## Opening and game-transition sequence
 
 Every game has its own opening sequence. A BO3 is presented as one replay containing separately addressable games.
