@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("./useReplayAccountReview", () => import("./__fixtures__/signed-out-review-account"));
 import type { CanonicalReplayV2, ReplayEvent, ReplayPatchOperation } from "@/lib/replay-v2";
 
 const audio = vi.hoisted(() => ({

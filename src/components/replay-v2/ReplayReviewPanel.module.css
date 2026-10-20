@@ -1,0 +1,81 @@
+.panel { position: relative; z-index: 85; display: flex; min-height: 0; flex-direction: column; grid-column: 2; grid-row: 1 / span 2; overflow: hidden; border-left: 1px solid #20384d; background: linear-gradient(180deg, #0c1929, #080f1c); color: #dcebf5; font-size: 15px; }
+.panel[hidden] { display: none; }
+.header { display: flex; flex-direction: column; gap: 12px; padding: 25px 22px 18px; }
+.eyebrow { color: #7dd9df; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.header h2 { margin: 5px 0 0; font-size: 26px; line-height: 1.2; }
+.panel button, .panel input, .panel select { font: inherit; }
+.panel button { cursor: pointer; }
+.panel button:disabled { cursor: default; opacity: .4; }
+.panel button:focus-visible, .panel input:focus-visible, .panel select:focus-visible, .momentList summary:focus-visible { outline: 2px solid #75f1e5; outline-offset: 3px; }
+.back { align-self: flex-start; padding: 0; border: 0; background: none; color: #a7c5d9; font-size: 13px !important; }
+.back:hover, .textButton:hover { color: #8df3ed; }
+.tabs { display: grid; grid-template-columns: 1.25fr 1fr .9fr; gap: 3px; margin: 0 15px; padding: 4px; border: 1px solid #253b4f; border-radius: 10px; background: #060d18; }
+.tabs button { min-width: 0; padding: 11px 5px; border: 0; border-radius: 6px; background: transparent; color: #8fa9bf; font-size: 13px !important; font-weight: 650 !important; }
+.tabs button[aria-selected="true"] { background: #183748; color: #a1fff5; }
+.gameFilter { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #1d3043; color: #9cb2c7; font-size: 13px; }
+.gameFilter select { min-width: 0; flex: 1; }
+.panel select, .panel input { width: 100%; min-width: 0; padding: 10px; border: 1px solid #2a455c; border-radius: 7px; background: #0b1422; color: #e1edf7; }
+.body { min-height: 0; flex: 1; overflow-y: auto; padding: 18px 20px 26px; scrollbar-color: #35576d transparent; scrollbar-width: thin; }
+.intro { margin: 0 0 20px; color: #a1b7ca; font-size: 14px; line-height: 1.6; }
+.notice { margin: 0 0 16px; padding: 10px 12px; border: 1px solid #655539; border-radius: 7px; background: #3a2f1c55; color: #ecd299; font-size: 13px; line-height: 1.55; }
+.progress { display: flex; justify-content: space-between; margin-bottom: 12px; color: #7a9eb8; font-size: 12px; }
+.moment { padding: 18px 16px; border: 1px solid #2a4b60; border-radius: 12px; background: linear-gradient(145deg, #142d3f, #0c1728); }
+.time { color: #7de8dd; font-size: 12px; font-variant-numeric: tabular-nums; }
+.moment h3 { margin: 8px 0; font-size: 21px; line-height: 1.3; }
+.moment > p { margin: 0 0 20px; color: #b6c9d8; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.primary, .secondary { display: block; width: 100%; padding: 12px 10px; border: 1px solid #3f6578; border-radius: 8px; background: #142e40; color: #d2f6ff; font-size: 13px !important; font-weight: 650 !important; }
+.primary { border-color: #6fdfda; background: #77e7e0; color: #052532 !important; }
+.secondary:hover { background: #204359; }
+.prompt { margin: 22px 0 16px; padding-top: 16px; border-top: 1px solid #29485b; }
+.prompt > span { color: #8ce2db; font-size: 12px; font-weight: 700; }
+.prompt p { margin: 7px 0 0; color: #d9e6ee; font-size: 15px; line-height: 1.65; }
+.textButton { margin-top: 15px; padding: 0; border: 0; background: transparent; color: #9cdae5; font-size: 12px !important; }
+.navigation { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; }
+.navigation button { padding: 11px 6px; border: 0; background: none; color: #a6dbe4; font-size: 13px !important; }
+.momentList { margin-top: 20px; border-top: 1px solid #223b50; color: #a2bccc; font-size: 13px; }
+.momentList summary { padding: 16px 0; cursor: pointer; }
+.momentList button { display: flex; width: 100%; flex-direction: column; gap: 4px; padding: 12px 8px; border: 0; border-bottom: 1px solid #1c3040; border-radius: 5px; background: none; text-align: left; line-height: 1.4; }
+.momentList button[aria-current="step"] { background: #173142; color: #98f1e7; }
+.momentList small { color: #7395ae; font-size: 11px; }
+.field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; color: #a9c4d6; font-size: 13px; }
+.resultCount { color: #89a7bf; font-size: 12px; line-height: 1.5; }
+.entries { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 18px; }
+.entry { display: flex; width: 100%; flex-direction: column; gap: 5px; padding: 13px 12px; border: 1px solid #263e52; border-radius: 9px; background: #0c1b2b; text-align: left; overflow-wrap: anywhere; }
+.entry:hover, .entry[aria-current="true"] { border-color: #5cbcbf; background: #143243; }
+.entry small { color: #82b7ca; font-size: 11px; }
+.entry b { color: #d9eaf2; font-size: 14px; line-height: 1.45; }
+.entry span { color: #a2b7c7; font-size: 12px; line-height: 1.6; }
+.empty { margin: 24px 0; padding: 20px 15px; border: 1px dashed #2d4658; border-radius: 10px; }
+.empty h3 { margin: 0 0 10px; font-size: 17px; }
+.empty p { margin: 0; color: #9db4c8; font-size: 14px; line-height: 1.7; }
+.combatTitle { margin: 20px 0 14px; font-size: 20px; }
+.stageSwitch { display: flex; gap: 5px; margin-bottom: 12px; }
+.stageSwitch button { flex: 1; padding: 10px; border: 1px solid #2c475b; border-radius: 7px; background: #0a1422; color: #9db5c8; font-size: 13px !important; }
+.stageSwitch button[aria-pressed="true"] { border-color: #6cc4c6; background: #193a49; color: #9ff4e9; }
+.combatBoard { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+.side { padding: 12px; border: 1px solid #263e52; border-radius: 9px; background: #0c1928; }
+.side h4 { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 0 0 10px; font-size: 13px; }
+.side h4 span { overflow-wrap: anywhere; }
+.side h4 b { flex-shrink: 0; color: #9fe9e4; font-size: 12px; }
+.card { padding: 10px 0; border-top: 1px solid #22374a; }
+.card > div { display: flex; justify-content: space-between; gap: 8px; color: #d8e8f4; font-size: 13px; }
+.card strong { color: #b4ece8; }
+.card p { margin: 5px 0 0; color: #92adc3; font-size: 12px; line-height: 1.5; }
+.card p.statuses { color: #decda8; }
+.muted { color: #7b98b0; font-size: 12px; }
+.sectionTitle { margin: 24px 0 10px; color: #b8d8e8; font-size: 17px; }
+.footer { padding: 14px 20px; border-top: 1px solid #203449; color: #738fa6; font-size: 11px; line-height: 1.5; }
+
+/* The board is uniformly scaled; keep the new reading tools legible in smaller windows. */
+@media (max-width: 1450px), (max-height: 800px) {
+  .header { padding: 20px 18px 16px; }
+  .body { padding: 16px 17px 24px; }
+  .intro, .moment > p, .prompt p, .empty p { font-size: 18px; line-height: 1.55; }
+  .tabs button, .back, .primary, .secondary, .navigation button { font-size: 17px !important; }
+  .gameFilter, .field, .entry b, .card > div { font-size: 17px; }
+  .entry span, .card p, .notice, .momentList, .side h4 { font-size: 16px; }
+  .stageSwitch button { font-size: 17px !important; }
+  .progress, .time, .prompt > span, .resultCount, .side h4 b, .muted { font-size: 15px; }
+  .eyebrow, .footer, .entry small, .momentList small { font-size: 14px; }
+  .textButton { font-size: 16px !important; }
+}

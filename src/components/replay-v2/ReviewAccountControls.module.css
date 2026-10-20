@@ -1,0 +1,12 @@
+.controls { display: flex; flex: 0 0 auto; flex-direction: column; gap: 9px; max-height: 260px; overflow-y: auto; margin: 0 18px 16px; padding: 13px; border: 1px solid #294759; border-radius: 10px; background: #102332; color: #bed6e4; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.controls p { margin: 0; }
+.controls small { font-size: 11px; color: #97b6c9; }
+.controls a { color: #8de8df; }
+.controls button, .controls .primary { display: block; padding: 9px 11px; border: 1px solid #4e8898; border-radius: 7px; background: #193b4b; color: #d7faf6; font: inherit; text-align: center; cursor: pointer; text-decoration: none; }
+.controls .primary { background: #77e7e0; color: #052532; font-weight: 650; }
+.controls button:disabled { opacity: .5; cursor: default; }
+.controls :focus-visible { outline: 2px solid #75f1e5; outline-offset: 3px; }
+.controls .saved { color: #96e6bd; font-weight: 650; }
+.controls .error { color: #ffb4b4; }
+.recovery { display: flex; flex-direction: column; gap: 8px; color: #eed19b; }
+@media (max-width: 1450px), (max-height: 800px) { .controls { font-size: 16px; } .controls small { font-size: 14px; } }

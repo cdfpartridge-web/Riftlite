@@ -2063,6 +2063,21 @@ button.cardPile { cursor: pointer; }
   grid-template-rows: 69px 35px 54px 683px minmax(0, 1fr) 62px;
 }
 
+.accountNotesRail {
+  grid-template-rows: 69px 35px auto minmax(0, 1fr) minmax(160px, .4fr) 62px;
+}
+.accountNotesRail.historyDeckRail {
+  grid-template-rows: 69px 35px 54px auto minmax(0, 1fr) minmax(160px, .4fr) 62px;
+}
+.accountNotesRail .cardInspector { min-height: 0; }
+.accountNotesRail .replayNoteInspector { grid-template-rows: 130px minmax(0, 1fr); }
+.accountNotesRail .replayNoteDetails > p { max-height: none; font-size: 15px; line-height: 1.6; }
+.accountNotesRail .replayNoteEditorFields input,
+.accountNotesRail .replayNoteEditorFields textarea { font-size: 15px; }
+.accountNotesRail .replayNoteEditorFields > label > span { font-size: 11px; }
+.accountNotesRail .replayNoteActions button { min-height: 34px; font-size: 12px; }
+.accountNotesRail .replayNoteArt small { font-size: 10px; }
+
 .casterInspectorRail {
   grid-template-rows: 69px 35px minmax(0, 1fr) 62px;
   border-left-color: rgba(117, 241, 229, .2);

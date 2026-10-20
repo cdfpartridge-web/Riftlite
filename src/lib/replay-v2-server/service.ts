@@ -423,6 +423,11 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/** Reuse the viewer's live permissions without downloading its immutable artifact. */
+export async function readReadableReplayMetadata(replayId: string, viewerUid: string): Promise<ReplayRecord> {
+  return readableReplay(replayDb(), replayId, viewerUid);
+}
+
 export async function readCanonicalReplay(
   replayId: string,
   viewerUid: string,

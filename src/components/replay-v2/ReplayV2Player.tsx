@@ -37,6 +37,8 @@ import {
 } from "@/lib/replay-v2";
 import { firebaseClientApp } from "@/lib/firebase/client";
 import { ReplayHistoryDeckPanel } from "./ReplayHistoryDeckPanel";
+import { ReplayReviewPanel } from "./ReplayReviewPanel";
+import { buildReplayReview } from "./review-model";
 import { ReplayArtworkImage } from "./ReplayArtworkImage";
 import { CardStatusBadge } from "./CardStatusBadge";
 import { cardStatuses, cardStatusText } from "./card-status";
@@ -160,6 +162,8 @@ import {
   type ReplayNote,
   type ReplayNotesProjectV1,
 } from "./replay-notes";
+import { useReplayAccountReview } from "./useReplayAccountReview";
+import { ReviewAccountControls } from "./ReviewAccountControls";
 import {
   MAX_SHARED_REPLAY_NOTES_URL_BYTES,
   SHARED_REPLAY_NOTES_HASH_PARAM,
@@ -319,8 +323,10 @@ type ReplayAnalysisContextMenuState = {
 type ReplayActivityTab = "chat" | "log" | "notes";
 
 type ReplayNoteEditorState = {
+  scopeKey: string;
   id: string | null;
   atMs: number;
+  eventIndex?: number;
   title: string;
   body: string;
 };
@@ -361,6 +367,8 @@ export function ReplayV2Player({
   const [showHelp, setShowHelp] = useState(false);
   const [showScoreTags, setShowScoreTags] = useState(false);
   const [detailsPreferenceHidden, setDetailsPreferenceHidden] = useState(false);
+  const [reviewRequestedFor, setReviewRequestedFor] = useState<string | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [playerNamePrivacy, setPlayerNamePrivacy] = useState({ replayId, hidden: false });
   const [cardsUpPreference, setCardsUpPreference] = useState({ replayId, enabled: false });
   const [fullscreen, setFullscreen] = useState(false);
@@ -383,7 +391,37 @@ export function ReplayV2Player({
   );
   const replayNotesProjectRef = useRef(replayNotesProject);
   const [selectedReplayNoteId, setSelectedReplayNoteId] = useState<string | null>(null);
-  const [replayNoteEditor, setReplayNoteEditor] = useState<ReplayNoteEditorState | null>(null);
+  const [storedReplayNoteEditor, setReplayNoteEditor] = useState<ReplayNoteEditorState | null>(null);
+  const [accountNoteDrag, setAccountNoteDrag] = useState<{ scopeKey: string; project: ReplayNotesProjectV1 } | null>(null);
+  const accountReview = useReplayAccountReview({ replayId, enabled: !casterMode && !trainingReplay, paused: Boolean(storedReplayNoteEditor || accountNoteDrag) });
+  const noteScopeKey = accountReview.boundaryKey;
+  const noteScopeRef = useRef(noteScopeKey);
+  useLayoutEffect(() => { noteScopeRef.current = noteScopeKey; }, [noteScopeKey]);
+  const scopedReplayNoteEditor = storedReplayNoteEditor?.scopeKey === noteScopeKey ? storedReplayNoteEditor : null;
+  const replayNoteEditor = accountReview.status === "expired" ? null : scopedReplayNoteEditor;
+  const accountNotes = accountReview.status === "ready";
+  const notesWritable = !accountReview.saving && !accountReview.conflict && !accountReview.pendingNotes &&
+    (accountNotes ? accountReview.review?.available !== false : accountReview.status === "signed-out");
+  const activeNotesProject = useMemo(() => accountNotes
+    ? accountNoteDrag?.scopeKey === noteScopeKey ? accountNoteDrag.project : { ...createReplayNotesProject(replayId), notes: accountReview.notes }
+    : accountReview.status === "signed-out" ? replayNotesProject : createReplayNotesProject(replayId),
+  [accountNoteDrag, accountNotes, accountReview.notes, accountReview.status, noteScopeKey, replayId, replayNotesProject]);
+  const activeNotesProjectRef = useRef(activeNotesProject);
+  useLayoutEffect(() => { activeNotesProjectRef.current = activeNotesProject; }, [activeNotesProject]);
+  useEffect(() => {
+    queueMicrotask(() => {
+      if (noteScopeRef.current !== noteScopeKey) return;
+      setReplayNoteEditor(current => current?.scopeKey === noteScopeKey ? current : null);
+      setAccountNoteDrag(current => current?.scopeKey === noteScopeKey ? current : null);
+      setSelectedReplayNoteId(null);
+    });
+  }, [noteScopeKey]);
+  useEffect(() => {
+    if (!scopedReplayNoteEditor && !accountReview.hasPendingChanges) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [scopedReplayNoteEditor, accountReview.hasPendingChanges]);
   const [sharedReplayNotesLink, setSharedReplayNotesLink] = useState<SharedReplayNotesLinkState>({
     status: "none",
     notes: [],
@@ -407,7 +445,8 @@ export function ReplayV2Player({
   const shellRef = useRef<HTMLDivElement>(null);
   const detailsPanelId = useId();
   const detailsCanHide = !casterMode && !trainingReplay;
-  const detailsHidden = detailsCanHide && detailsPreferenceHidden && !analysisSession;
+  const reviewVisible = detailsCanHide && reviewOpen && reviewRequestedFor === replayId && !analysisSession;
+  const detailsHidden = detailsCanHide && detailsPreferenceHidden && !analysisSession && !reviewVisible;
   const canvasRef = useRef<HTMLDivElement>(null);
   const pendingSeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationLockedUntil = useRef(0);
@@ -436,6 +475,9 @@ export function ReplayV2Player({
       : sourceReplay,
     [allowPlayerNameHiding, hidePlayerNames, sourceReplay],
   );
+  // Index once when requested; playback and closing the rail do not rebuild it.
+  const reviewIndex = useMemo(() => replay && detailsCanHide && reviewRequestedFor === replayId
+    ? buildReplayReview(replay) : null, [detailsCanHide, replay, replayId, reviewRequestedFor]);
   const { hostRef, scale } = usePlayerScale();
 
   useEffect(() => {
@@ -539,6 +581,10 @@ export function ReplayV2Player({
         setClipRange(locationSelection.clipRange);
         setSharedReplayNotesLink(sharedNotesLink);
         if (sharedNotesLink.status !== "none") setActivityTab("notes");
+        if (!casterMode && sharedNotesLink.status === "none" && new URLSearchParams(window.location.search).get("review") === "1") {
+          setReviewRequestedFor(replayId);
+          setReviewOpen(true);
+        }
         setClipDraft(null);
         setClipStartMarkMs(null);
         setClipEndMarkMs(null);
@@ -574,14 +620,14 @@ export function ReplayV2Player({
       controller.abort();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [apiBasePath, reloadToken, replayId, trainingEditable, trainingReplay]);
+  }, [apiBasePath, casterMode, reloadToken, replayId, trainingEditable, trainingReplay]);
 
   const durationMs = replay ? replayDurationMs(replay) : 1;
   const playbackStartMs = clipRange?.startMs ?? 0;
   const playbackEndMs = clipRange?.endMs ?? durationMs;
   const localReplayNotes = useMemo(() => (
-    replayNotesProject.replayId === replayId ? replayNotesProject.notes : []
-  ), [replayId, replayNotesProject]);
+    activeNotesProject.replayId === replayId ? activeNotesProject.notes : []
+  ), [replayId, activeNotesProject]);
   const sharedReplayNotes = useMemo<ReplayNote[]>(() => {
     if (!replay || sharedReplayNotesLink.status !== "ready") return [];
     return sharedReplayNotesLink.notes.map((note, index) => ({
@@ -877,18 +923,25 @@ export function ReplayV2Player({
     };
   }, [casterMode, replayId]);
 
-  const persistReplayNotes = useCallback((
+  const persistReplayNotes = useCallback(async (
     update: (current: ReplayNotesProjectV1) => ReplayNotesProjectV1,
   ) => {
-    const current = replayNotesProjectRef.current;
+    const current = activeNotesProjectRef.current;
     const scoped = current.replayId === replayId
       ? current
       : createReplayNotesProject(replayId);
     const next = update(scoped);
+    if (accountReview.status === "ready") {
+      const scope = noteScopeKey;
+      const saved = await accountReview.saveNotes(next.notes);
+      if (noteScopeRef.current === scope) setAccountNoteDrag(null);
+      return { project: next, saved, scopeChanged: noteScopeRef.current !== scope };
+    }
+    if (accountReview.status !== "signed-out") return { project: scoped, saved: false, scopeChanged: false };
     replayNotesProjectRef.current = next;
     setReplayNotesProject(next);
-    return { project: next, saved: saveReplayNotesProject(next) };
-  }, [replayId]);
+    return { project: next, saved: saveReplayNotesProject(next), scopeChanged: false };
+  }, [accountReview, noteScopeKey, replayId]);
 
   const flashNotice = useCallback((message: string) => {
     setNotice(message);
@@ -1497,10 +1550,10 @@ export function ReplayV2Player({
     visibleReplayNotes,
   ]);
 
-  const saveSharedReplayNotesCopy = useCallback(() => {
-    if (!replay || sharedReplayNotesLink.status !== "ready") return;
-    const current = replayNotesProjectRef.current.replayId === replayId
-      ? replayNotesProjectRef.current
+  const saveSharedReplayNotesCopy = useCallback(async () => {
+    if (!replay || sharedReplayNotesLink.status !== "ready" || !notesWritable) return;
+    const current = activeNotesProjectRef.current.replayId === replayId
+      ? activeNotesProjectRef.current
       : createReplayNotesProject(replayId);
     const existing = new Set(current.notes.flatMap((note) => {
       const key = canonicalReplayNoteDedupeKey(note);
@@ -1547,33 +1600,38 @@ export function ReplayV2Player({
         return;
       }
     }
-    if (!saveReplayNotesProject(next)) {
-      flashNotice("Shared notes could not be saved to this browser — the link is still open");
+    const outcome = await persistReplayNotes(() => next);
+    if (outcome.scopeChanged) return;
+    if (!outcome.saved) {
+      flashNotice("Shared notes could not be saved — the link is still open");
       return;
     }
-    replayNotesProjectRef.current = next;
-    setReplayNotesProject(next);
     removeSharedReplayNotesLink();
     setActivityTab("notes");
     flashNotice(newSharedNotes.length
-      ? `${newSharedNotes.length} shared ${newSharedNotes.length === 1 ? "note" : "notes"} saved to this browser${duplicates ? ` · ${duplicates} already saved` : ""}`
-      : "Those shared notes are already saved in this browser");
+      ? `${newSharedNotes.length} shared ${newSharedNotes.length === 1 ? "note" : "notes"} saved ${accountNotes ? "privately to your account" : "to this browser"}${duplicates ? ` · ${duplicates} already saved` : ""}`
+      : "Those shared notes are already saved");
   }, [
     flashNotice,
     removeSharedReplayNotesLink,
     replay,
     replayId,
     sharedReplayNotesLink,
+    accountNotes,
+    notesWritable,
+    persistReplayNotes,
   ]);
 
   const dismissSharedReplayNotes = useCallback(() => {
     removeSharedReplayNotesLink();
     setActivityTab("notes");
-    flashNotice("Shared notes dismissed — your local notes are unchanged");
+    flashNotice("Shared notes dismissed — your own notes are unchanged");
   }, [flashNotice, removeSharedReplayNotesLink]);
 
-  const openNewReplayNote = useCallback(() => {
+  const openNewReplayNote = useCallback((requestedEventIndex?: number) => {
     if (!replay || !state || casterMode) return;
+    if (!notesWritable) { flashNotice("Wait for your account notes to load or resolve the save message first"); return; }
+    setReviewOpen(false);
     updateDetailsHidden(false);
     if (sharedReplayNotesActive) {
       flashNotice("Save a copy or dismiss the shared notes before adding your own");
@@ -1591,16 +1649,20 @@ export function ReplayV2Player({
     setPlaying(false);
     settleAnimations(false);
     setSelectedReplayNoteId(null);
+    const targetEvent = requestedEventIndex === undefined ? currentEvent : replay.events[requestedEventIndex];
     setReplayNoteEditor({
+      scopeKey: noteScopeKey,
       id: null,
-      atMs: Math.round(Math.min(playbackEndMs, Math.max(playbackStartMs, currentMs))),
-      title: eventLabel(currentEvent),
+      atMs: Math.round(Math.min(playbackEndMs, Math.max(playbackStartMs, requestedEventIndex === undefined ? currentMs : targetEvent?.atMs ?? currentMs))),
+      eventIndex: requestedEventIndex ?? eventIndex,
+      title: eventLabel(targetEvent),
       body: "",
     });
     setActivityTab("notes");
-  }, [casterMode, currentEvent, currentMs, flashNotice, playbackEndMs, playbackStartMs, replay, replayNoteEditor, settleAnimations, sharedReplayNotesActive, state, updateDetailsHidden]);
+  }, [casterMode, currentEvent, currentMs, eventIndex, flashNotice, playbackEndMs, playbackStartMs, replay, replayNoteEditor, settleAnimations, sharedReplayNotesActive, state, updateDetailsHidden, noteScopeKey, notesWritable]);
 
   const selectReplayNote = useCallback((note: ReplayNote) => {
+    setReviewOpen(false);
     updateDetailsHidden(false);
     if (replayNoteEditor) {
       flashNotice("Save or cancel the open note first");
@@ -1623,100 +1685,107 @@ export function ReplayV2Player({
     setSelectedReplayNoteId(note.id);
     setHoveredCard(null);
     setActivityTab("notes");
-    seekTo(note.atMs, { immediate: true });
-  }, [durationMs, flashNotice, playbackEndMs, playbackStartMs, replayNoteEditor, seekTo, settleAnimations, updateDetailsHidden]);
+    const anchorEvent = replay?.events[note.eventIndex];
+    seekTo(note.atMs, { immediate: true, eventIndex: anchorEvent?.id === note.eventId && anchorEvent.atMs === note.atMs ? note.eventIndex : undefined });
+  }, [durationMs, flashNotice, playbackEndMs, playbackStartMs, replay, replayNoteEditor, seekTo, settleAnimations, updateDetailsHidden]);
 
   const editReplayNote = useCallback((note: ReplayNote) => {
-    if (sharedReplayNotesActive) return;
+    if (sharedReplayNotesActive || !notesWritable) return;
     updateDetailsHidden(false);
     setPlaying(false);
     setSelectedReplayNoteId(note.id);
     setReplayNoteEditor({
+      scopeKey: noteScopeKey,
       id: note.id,
       atMs: note.atMs,
+      eventIndex: note.eventIndex,
       title: note.title,
       body: note.body,
     });
     setActivityTab("notes");
-  }, [sharedReplayNotesActive, updateDetailsHidden]);
+  }, [sharedReplayNotesActive, updateDetailsHidden, noteScopeKey, notesWritable]);
 
-  const saveReplayNote = useCallback(() => {
-    if (!replay || !replayNoteEditor) return;
+  const saveReplayNote = useCallback(async () => {
+    if (!replay || !replayNoteEditor || !notesWritable) return;
     const title = replayNoteEditor.title.trim();
     const body = replayNoteEditor.body.trim();
     if (!title && !body) {
       flashNotice("Add a title or note before saving");
       return;
     }
-    const anchor = replayNoteAnchorAt(replay, replayNoteEditor.atMs);
+    const anchor = replayNoteAnchorAt(replay, replayNoteEditor.atMs, replayNoteEditor.eventIndex);
     const noteId = replayNoteEditor.id ?? newReplayNoteId();
     const outcome = replayNoteEditor.id
-      ? persistReplayNotes((current) => updateReplayNote(current, noteId, {
+      ? await persistReplayNotes((current) => updateReplayNote(current, noteId, {
         ...anchor,
         title,
         body,
       }))
-      : persistReplayNotes((current) => addReplayNote(current, {
+      : await persistReplayNotes((current) => addReplayNote(current, {
         id: noteId,
         ...anchor,
         title,
         body,
       }));
+    if (outcome.scopeChanged) return;
     if (!outcome.project.notes.some((note) => note.id === noteId)) {
       flashNotice("Replay note limit reached — delete a note before adding another");
       return;
     }
+    if (accountNotes && !outcome.saved) { flashNotice("Your note is still open. Check the account save message."); return; }
     setReplayNoteEditor(null);
     setSelectedReplayNoteId(noteId);
     setActivityTab("notes");
     flashNotice(outcome.saved
-      ? "Replay note saved locally"
+      ? accountNotes ? "Replay note saved privately to your account" : "Replay note saved locally"
       : "Replay note kept for this session — browser storage is unavailable");
-  }, [flashNotice, persistReplayNotes, replay, replayNoteEditor]);
+  }, [flashNotice, persistReplayNotes, replay, replayNoteEditor, accountNotes, notesWritable]);
 
-  const removeReplayNote = useCallback((noteId: string) => {
-    if (sharedReplayNotesActive) return;
-    const outcome = persistReplayNotes((current) => deleteReplayNote(current, noteId));
+  const removeReplayNote = useCallback(async (noteId: string) => {
+    if (sharedReplayNotesActive || !notesWritable) return;
+    const outcome = await persistReplayNotes((current) => deleteReplayNote(current, noteId));
+    if (outcome.scopeChanged || (accountNotes && !outcome.saved)) return;
     setReplayNoteEditor(null);
     setSelectedReplayNoteId((current) => current === noteId ? null : current);
     flashNotice(outcome.saved
       ? "Replay note deleted"
       : "Note removed for this session — browser storage is unavailable");
-  }, [flashNotice, persistReplayNotes, sharedReplayNotesActive]);
+  }, [flashNotice, persistReplayNotes, sharedReplayNotesActive, accountNotes, notesWritable]);
 
   const moveReplayNote = useCallback((noteId: string, requestedMs: number) => {
-    if (!replay || sharedReplayNotesActive) return;
+    if (!replay || sharedReplayNotesActive || !notesWritable) return;
     const nextMs = Math.min(
       playbackEndMs,
       Math.max(playbackStartMs, Math.round(requestedMs / 50) * 50),
     );
-    const current = replayNotesProjectRef.current;
+    const current = activeNotesProjectRef.current;
     const scoped = current.replayId === replayId
       ? current
       : createReplayNotesProject(replayId);
     const next = updateReplayNote(scoped, noteId, { atMs: nextMs });
-    replayNotesProjectRef.current = next;
-    setReplayNotesProject(next);
+    if (accountNotes) setAccountNoteDrag({ scopeKey: noteScopeKey, project: next });
+    else { replayNotesProjectRef.current = next; setReplayNotesProject(next); }
     setReplayNoteEditor((current) => (
       current?.id === noteId ? { ...current, atMs: nextMs } : current
     ));
     setPlaying(false);
     setSelectedReplayNoteId(noteId);
     seekTo(nextMs, { immediate: true });
-  }, [playbackEndMs, playbackStartMs, replay, replayId, seekTo, sharedReplayNotesActive]);
+  }, [playbackEndMs, playbackStartMs, replay, replayId, seekTo, sharedReplayNotesActive, accountNotes, noteScopeKey, notesWritable]);
 
-  const commitReplayNoteMove = useCallback((noteId: string, requestedMs: number) => {
-    if (!replay || sharedReplayNotesActive) return;
+  const commitReplayNoteMove = useCallback(async (noteId: string, requestedMs: number) => {
+    if (!replay || sharedReplayNotesActive || !notesWritable) return;
     const nextMs = Math.min(
       playbackEndMs,
       Math.max(playbackStartMs, Math.round(requestedMs / 50) * 50),
     );
     const anchor = replayNoteAnchorAt(replay, nextMs);
-    const outcome = persistReplayNotes((current) => updateReplayNote(current, noteId, anchor));
+    const outcome = await persistReplayNotes((current) => updateReplayNote(current, noteId, anchor));
+    if (outcome.scopeChanged) return;
     if (!outcome.saved) {
-      flashNotice("Marker moved for this session — browser storage is unavailable");
+      flashNotice(accountNotes ? "Marker was not saved. Check the account save message." : "Marker moved for this session — browser storage is unavailable");
     }
-  }, [flashNotice, persistReplayNotes, playbackEndMs, playbackStartMs, replay, sharedReplayNotesActive]);
+  }, [flashNotice, persistReplayNotes, playbackEndMs, playbackStartMs, replay, sharedReplayNotesActive, accountNotes, notesWritable]);
 
   const closeReplayNote = useCallback(() => {
     setReplayNoteEditor(null);
@@ -1724,9 +1793,23 @@ export function ReplayV2Player({
   }, []);
 
   const cancelReplayNoteEditor = useCallback(() => {
+    if (accountReview.pendingNotes) {
+      if (window.confirm("Discard your unsaved account note changes and load the latest saved notes?")) {
+        void accountReview.reloadLatest().then(loaded => {
+          if (loaded) { setReplayNoteEditor(null); setAccountNoteDrag(null); setSelectedReplayNoteId(null); }
+        });
+      }
+      return;
+    }
     setReplayNoteEditor(null);
     setSelectedReplayNoteId(replayNoteEditor?.id ?? null);
-  }, [replayNoteEditor]);
+  }, [accountReview, replayNoteEditor]);
+
+  const resolveAccountNoteDraft = useCallback(() => {
+    setReplayNoteEditor(null);
+    setAccountNoteDrag(null);
+    setSelectedReplayNoteId(null);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (keyboardEvent: KeyboardEvent) => {
@@ -1988,6 +2071,7 @@ export function ReplayV2Player({
   ]);
 
   const toggleAnalysis = useCallback(() => {
+    setReviewOpen(false);
     if (analysisSession) clearAnalysis(true);
     else startAnalysis();
   }, [analysisSession, clearAnalysis, startAnalysis]);
@@ -2331,7 +2415,11 @@ export function ReplayV2Player({
                 suppressMotion={suppressMotion}
               />
               <InspectorRail
-                panelHidden={detailsHidden}
+                accountControls={!casterMode && !trainingReplay ? <ReviewAccountControls account={accountReview} embedded={embed} editing={Boolean(replayNoteEditor)} onResolved={resolveAccountNoteDraft} /> : null}
+                noteStorageLabel={accountNotes ? "Private · Saved to your RiftLite account" : accountReview.status === "signed-out" ? "Saved only in this browser" : "Account notes unavailable"}
+                noteSaving={accountReview.saving}
+                notesWritable={notesWritable}
+                panelHidden={detailsHidden || reviewVisible}
                 panelId={detailsPanelId}
                 activityTab={activityTab}
                 historyDeckControl={!trainingReplay && !casterMode && !combinedReplay && replay.source.schema === "riftreplay-raw-capture" ? (
@@ -2356,7 +2444,7 @@ export function ReplayV2Player({
                 fullscreen={fullscreen}
                 inspectedCard={inspectedCard}
                 onActivityTab={setActivityTab}
-                onAddNote={openNewReplayNote}
+                onAddNote={() => openNewReplayNote()}
                 onCapture={() => void captureFrame()}
                 onCancelNote={cancelReplayNoteEditor}
                 onClip={openClipEditor}
@@ -2380,6 +2468,36 @@ export function ReplayV2Player({
                 sharedNotesLinkInvalid={sharedReplayNotesLink.status === "invalid"}
                 state={state}
               />
+              {detailsCanHide && reviewIndex ? <ReplayReviewPanel
+                accountControls={<ReviewAccountControls account={accountReview} embedded={embed} editing={Boolean(replayNoteEditor)} onResolved={resolveAccountNoteDraft} />}
+                canAddNote={notesWritable && !sharedReplayNotesActive && sharedReplayNotesLink.status !== "invalid"}
+                currentEventIndex={eventIndex}
+                hidden={!reviewVisible}
+                index={reviewIndex}
+                initialGameId={state.gameId}
+                key={replayId}
+                noteDraftOpen={Boolean(replayNoteEditor)}
+                onAddNote={(index) => {
+                  if (!replayNoteEditor) {
+                    const event = replay.events[index];
+                    if (event) seekTo(event.atMs, { immediate: true, eventIndex: index });
+                  }
+                  openNewReplayNote(index);
+                }}
+                onClose={() => {
+                  setReviewOpen(false);
+                  requestAnimationFrame(() => shellRef.current?.querySelector<HTMLButtonElement>('[data-control="review-game"]')?.focus());
+                }}
+                onSeek={(index) => {
+                  const event = replay.events[index];
+                  if (!event || event.atMs < playbackStartMs || event.atMs > playbackEndMs) return;
+                  setPlaying(false);
+                  setHoveredCard(null);
+                  seekTo(event.atMs, { immediate: true, eventIndex: index });
+                }}
+                panelId={`${detailsPanelId}-review`}
+                range={{ startMs: playbackStartMs, endMs: playbackEndMs }}
+              /> : null}
               {casterMode && !casterClean ? (
                 <CasterStudioPanel
                   bookmarkNote={casterBookmarkNote}
@@ -2595,19 +2713,43 @@ export function ReplayV2Player({
               ) : (
                 <TransportControls
                   detailsControl={detailsCanHide ? (
+                    <>
                     <button
-                      aria-controls={detailsPanelId}
+                      aria-controls={`${detailsPanelId}-review`}
+                      aria-expanded={reviewVisible}
+                      className={styles.fullscreenButton}
+                      data-control="review-game"
+                      onClick={() => {
+                        if (reviewVisible) { setReviewOpen(false); return; }
+                        setPlaying(false);
+                        settleAnimations(false);
+                        clearAnalysis();
+                        setShowHelp(false);
+                        setShowMore(false);
+                        setDiscardOverlay(null);
+                        setBanishedOverlay(null);
+                        setHoveredCard(null);
+                        setReviewRequestedFor(replayId);
+                        setReviewOpen(true);
+                        requestAnimationFrame(() => shellRef.current?.querySelector<HTMLButtonElement>('[data-replay-review] [role="tab"][aria-selected="true"]')?.focus());
+                      }}
+                      title="Walk through the game, review combat or find an action"
+                      type="button"
+                    ><Icon name="list" /> Review game</button>
+                    <button
+                      aria-controls={reviewVisible ? `${detailsPanelId}-review` : detailsPanelId}
                       aria-expanded={!detailsHidden}
                       aria-label={detailsHidden ? "Show side panel" : "Hide side panel"}
                       className={styles.fullscreenButton}
                       data-control="details-panel"
                       disabled={Boolean(analysisSession)}
-                      onClick={() => updateDetailsHidden(!detailsHidden)}
+                      onClick={() => { setReviewOpen(false); updateDetailsHidden(!detailsHidden); }}
                       title={analysisSession ? "The side panel stays open while you take control" : "Show or hide card details, match decks, chat and notes"}
                       type="button"
                     >
                       <Icon name="panel" /> {detailsHidden ? "Show panel" : "Hide panel"}
                     </button>
+                    </>
                   ) : null}
                   soundControls={<ReplaySoundControls enabled={soundEnabled} volume={soundVolume}
                     onEnabledChange={setSoundEnabled} onVolumeChange={setSoundVolume} />}
@@ -5209,6 +5351,10 @@ function HoverCardPreview({
 }
 
 function InspectorRail({
+  accountControls,
+  noteStorageLabel,
+  noteSaving,
+  notesWritable,
   panelHidden = false,
   panelId,
   activityTab,
@@ -5251,6 +5397,10 @@ function InspectorRail({
   sharedNotesLinkInvalid,
   state,
 }: {
+  accountControls?: ReactNode;
+  noteStorageLabel: string;
+  noteSaving: boolean;
+  notesWritable: boolean;
   panelHidden?: boolean;
   panelId?: string;
   activityTab: ReplayActivityTab;
@@ -5302,6 +5452,7 @@ function InspectorRail({
     ? fields.filter(([label]) => !/^(?:Id|Name|Source|Owner Player Id|Exhausted|Created At|Card Code)$/i.test(label))
     : fields;
   const visibleActivityTab = allowNotes || activityTab !== "notes" ? activityTab : "chat";
+  const showAccountControls = Boolean(accountControls && (visibleActivityTab === "notes" || replayNoteEditor));
   const activityLength = visibleActivityTab === "chat"
     ? state.chat.length
     : visibleActivityTab === "log"
@@ -5320,7 +5471,7 @@ function InspectorRail({
       hidden={panelHidden}
       id={panelId}
       data-replay-details
-      className={`${styles.inspectorRail} ${historyDeckControl ? styles.historyDeckRail : ""} ${casterClean ? styles.casterInspectorRail : ""}`}
+      className={`${styles.inspectorRail} ${historyDeckControl ? styles.historyDeckRail : ""} ${showAccountControls ? styles.accountNotesRail : ""} ${casterClean ? styles.casterInspectorRail : ""}`}
       aria-label={casterClean ? "Caster card spotlight" : "Replay details"}
       data-caster-inspector={casterClean ? "true" : undefined}
     >
@@ -5381,9 +5532,13 @@ function InspectorRail({
         <span>Turn {state.room.turnNumber ?? "—"}</span>
       </div>
       {historyDeckControl}
+      {showAccountControls && accountControls}
 
       {allowNotes && replayNoteEditor ? (
         <ReplayNoteEditorPanel
+          storageLabel={noteStorageLabel}
+          saving={noteSaving}
+          writable={notesWritable}
           draft={replayNoteEditor}
           onCancel={onCancelNote}
           onChange={onNoteDraft}
@@ -5397,6 +5552,7 @@ function InspectorRail({
           onEdit={() => onEditNote(selectedReplayNote)}
           onSeek={() => onSelectNote(selectedReplayNote)}
           readOnly={sharedNotes}
+          disabled={!notesWritable}
         />
       ) : (
         <section className={styles.cardInspector} aria-live="polite" data-card-inspector>
@@ -5485,7 +5641,7 @@ function InspectorRail({
                 </button>
               ) : null}
               {!sharedNotes && !sharedNotesLinkInvalid ? (
-                <button className={styles.activityHeaderAction} onClick={onAddNote} type="button">
+                <button className={styles.activityHeaderAction} disabled={!notesWritable} onClick={onAddNote} type="button">
                   <Icon name="note" /> Add
                 </button>
               ) : null}
@@ -5506,9 +5662,9 @@ function InspectorRail({
               role="status"
             >
               <div><Icon name="link" /><span><b>Shared notes</b> View-only notes carried by this link.</span></div>
-              <small>Anyone with this link can read them. They are not saved to your browser yet.</small>
+              <small>Anyone with this link can read them. They are not saved to your own notes yet.</small>
               <div>
-                <button onClick={onSaveSharedNotes} type="button">Save a copy</button>
+                <button disabled={!notesWritable} onClick={onSaveSharedNotes} type="button">Save a copy</button>
                 <button onClick={onDismissSharedNotes} type="button">Dismiss</button>
               </div>
             </div>
@@ -5569,11 +5725,17 @@ function InspectorRail({
 }
 
 function ReplayNoteEditorPanel({
+  storageLabel,
+  saving,
+  writable,
   draft,
   onCancel,
   onChange,
   onSave,
 }: {
+  storageLabel: string;
+  saving: boolean;
+  writable: boolean;
   draft: ReplayNoteEditorState;
   onCancel: () => void;
   onChange: (draft: ReplayNoteEditorState) => void;
@@ -5584,7 +5746,7 @@ function ReplayNoteEditorPanel({
       <div className={styles.replayNoteArt}>
         <Icon name="note" />
         <span>{formatReplayClipTimecode(draft.atMs)}</span>
-        <small>Saved only in this browser</small>
+        <small>{storageLabel}</small>
       </div>
       <form
         className={`${styles.inspectorDetails} ${styles.replayNoteEditorFields}`}
@@ -5597,6 +5759,7 @@ function ReplayNoteEditorPanel({
         <label>
           <span>Title</span>
           <input
+            disabled={!writable || saving}
             aria-label="Replay note title"
             maxLength={160}
             onChange={(event) => onChange({ ...draft, title: event.currentTarget.value })}
@@ -5607,6 +5770,7 @@ function ReplayNoteEditorPanel({
         <label>
           <span>Note</span>
           <textarea
+            disabled={!writable || saving}
             aria-label="Replay note"
             autoFocus
             maxLength={4_000}
@@ -5617,8 +5781,8 @@ function ReplayNoteEditorPanel({
           />
         </label>
         <div className={styles.replayNoteActions}>
-          <button onClick={onCancel} type="button">Cancel</button>
-          <button className={styles.replayNotePrimaryAction} type="submit">Save note</button>
+          <button disabled={saving} onClick={onCancel} type="button">Cancel</button>
+          <button className={styles.replayNotePrimaryAction} disabled={!writable || saving} type="submit">{saving ? "Saving…" : "Save note"}</button>
         </div>
       </form>
     </section>
@@ -5626,6 +5790,7 @@ function ReplayNoteEditorPanel({
 }
 
 function ReplayNoteInspector({
+  disabled,
   note,
   onBack,
   onDelete,
@@ -5633,6 +5798,7 @@ function ReplayNoteInspector({
   onSeek,
   readOnly,
 }: {
+  disabled: boolean;
   note: ReplayNote;
   onBack: () => void;
   onDelete: () => void;
@@ -5661,9 +5827,9 @@ function ReplayNoteInspector({
         {note.body ? <p>{note.body}</p> : <p>No additional note text.</p>}
         <div className={styles.replayNoteActions}>
           <button onClick={onBack} type="button">Back to card details</button>
-          {!readOnly ? <button onClick={onEdit} type="button">Edit</button> : null}
+          {!readOnly ? <button disabled={disabled} onClick={onEdit} type="button">Edit</button> : null}
           {!readOnly ? (
-            <button className={styles.replayNoteDeleteAction} onClick={onDelete} type="button">Delete</button>
+            <button className={styles.replayNoteDeleteAction} disabled={disabled} onClick={onDelete} type="button">Delete</button>
           ) : null}
         </div>
       </div>
@@ -8157,12 +8323,14 @@ function jsonStringList(value: JsonValue | undefined): string[] {
 function replayNoteAnchorAt(
   replay: CanonicalReplayV2,
   requestedMs: number,
+  requestedEventIndex?: number,
 ): Pick<ReplayNote, "atMs" | "eventId" | "eventIndex" | "gameId" | "gameNumber" | "turn"> {
   const atMs = Math.max(0, Math.round(requestedMs));
-  const eventIndex = eventIndexAtTime(replay, atMs);
+  const exactEvent = requestedEventIndex === undefined ? undefined : replay.events[requestedEventIndex];
+  const eventIndex = exactEvent?.atMs === atMs ? requestedEventIndex! : eventIndexAtTime(replay, atMs);
   const event = replay.events[eventIndex];
   try {
-    const projectedState = seekReplay(replay, atMs).state;
+    const projectedState = exactEvent?.atMs === atMs ? seekReplayByEventIndex(replay, eventIndex).state : seekReplay(replay, atMs).state;
     const game = gameForState(replay, projectedState);
     return {
       atMs,

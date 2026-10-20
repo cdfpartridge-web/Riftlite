@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("./useReplayAccountReview", () => import("./__fixtures__/signed-out-review-account"));
 
 import { normalizeRawCaptureV1, type CanonicalReplayV2 } from "@/lib/replay-v2";
 import { syntheticBo3Capture } from "@/lib/replay-v2/__fixtures__/synthetic-captures";

@@ -32,8 +32,9 @@ import {
 
 import styles from "./ReplayLibrary.module.css";
 import { ReplayVisibilityDialog } from "./ReplayVisibilityDialog";
+import { SavedReplayReviews } from "./SavedReplayReviews";
 
-type ReplayScope = "public" | "mine";
+type ReplayScope = "public" | "mine" | "reviews";
 type ReplayVisibility = "private" | "unlisted" | "public";
 type ReplayStatus = "uploading" | "processing" | "ready" | "failed";
 type ReplayFormat = "bo1" | "bo3" | "unknown";
@@ -125,7 +126,7 @@ export function ReplayLibrary({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deleteConfirmRef = useRef<HTMLButtonElement>(null);
   const deleteReturnFocusRef = useRef<HTMLButtonElement | null>(null);
-  const [scope, setScope] = useState<ReplayScope>(embedded ? "mine" : initialScope);
+  const [scope, setScope] = useState<ReplayScope>(embedded && initialScope !== "reviews" ? "mine" : initialScope);
   const [authReady, setAuthReady] = useState(embedded);
   const [user, setUser] = useState<User | null>(null);
   const [publicReplays, setPublicReplays] = useState<ReplaySummary[]>([]);
@@ -575,6 +576,9 @@ export function ReplayLibrary({
             >
               <LockKeyhole aria-hidden="true" size={17} /> My replays
             </button>
+            <button aria-selected={scope === "reviews"} className={scope === "reviews" ? styles.activeTab : undefined} onClick={() => setScope("reviews")} role="tab" type="button">
+              <ShieldCheck aria-hidden="true" size={17} /> My reviews
+            </button>
           </div>
           <div className={styles.toolbarActions}>
             {!embedded ? (
@@ -582,7 +586,7 @@ export function ReplayLibrary({
                 <GitMerge aria-hidden="true" size={16} /> Combine two replays
               </Link>
             ) : null}
-            <button
+            {scope !== "reviews" ? <button
               className={styles.refreshButton}
               disabled={loading || publicLoadingMore || (scope === "mine" && !user && !embedded)}
               onClick={() => void (scope === "public" ? loadPublicReplays() : loadMyReplays(user))}
@@ -590,7 +594,7 @@ export function ReplayLibrary({
             >
               <RefreshCw aria-hidden="true" className={loading ? styles.spinning : undefined} size={16} />
               Refresh
-            </button>
+            </button> : null}
           </div>
         </div>
 
@@ -621,7 +625,7 @@ export function ReplayLibrary({
           </section>
         ) : null}
 
-        {embedded && embeddedOwnerUnavailable ? (
+        {embedded && embeddedOwnerUnavailable && scope !== "reviews" ? (
           <section className={styles.accountPanel}>
             <LockKeyhole aria-hidden="true" size={25} />
             <div>
@@ -631,7 +635,9 @@ export function ReplayLibrary({
           </section>
         ) : null}
 
-        {scope === "public" || (authReady && (user || embedded)) ? (
+        {scope === "reviews" ? <SavedReplayReviews embedded={embedded} /> : null}
+
+        {scope === "public" || (scope === "mine" && authReady && (user || embedded)) ? (
           <section aria-live="polite" className={styles.results}>
             <div className={styles.resultsHeading}>
               <div>

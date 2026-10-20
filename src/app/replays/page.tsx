@@ -14,5 +14,5 @@ type ReplaysPageProps = {
 export default async function ReplaysPage({ searchParams }: ReplaysPageProps) {
   const params = await searchParams;
   const scope = Array.isArray(params.scope) ? params.scope[0] : params.scope;
-  return <ReplayLibrary initialScope={scope === "mine" ? "mine" : "public"} />;
+  return <ReplayLibrary initialScope={scope === "reviews" ? "reviews" : scope === "mine" ? "mine" : "public"} />;
 }
