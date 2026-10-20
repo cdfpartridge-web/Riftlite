@@ -26,3 +26,16 @@ Live acceptance uses public pages and unauthenticated API GET requests. Real-acc
 The published desktop's existing replay cookie lasts ten minutes and is renewed when the app opens its replay viewer. This website release does not add a desktop renewal mechanism. After expiry, saved account notes remain durable, while unfinished changes stay hidden in the current tab and require the same account to reconnect. Reopening the desktop viewer may navigate that tab; closing/reloading it still loses unsaved in-memory work and now triggers a warning. Website Firebase sign-in refreshes automatically and is the practical option for extended review sessions.
 
 Evidence: `output/release-account-reviews-20261020/`.
+
+## Publication receipt
+
+Published to https://www.riftlite.com on **20 October 2026 at 09:16 UK time**.
+
+- Runtime source: `e7cf581941c3c99e4803a333c9a7a520913d2eed`, pushed to `codex/opening-turns-lab-20260923`.
+- Production deployment: `dpl_jGHmmRLHsMvfxyZcrAfeUmRuvJim`, https://riftlite-i8bmy5kjb-cdfpartridge-3985s-projects.vercel.app.
+- Exact source archive SHA256: `93233db267b040a03ddf893bdff2cd84d85402716c7ee1cf7acf01955a3038e7`.
+- Final website suite: **1,714 passed, nine skipped**. Scoped lint, fresh Vercel production compilation and TypeScript passed.
+- Candidate and live verification passed seven page URLs, 34 JavaScript bundles and 6 stylesheets, including the new review tools and retained replay/community markers. Anonymous list/detail and invalid-token reads returned private/no-store 401 responses without notes. Public replay playback data remained accessible.
+- The existing Vercel protection blocked the candidate's isolated browser; protection was retained. Browser acceptance on the public domain is recorded separately in the release evidence folder.
+- No production account writes or real-account cross-device acceptance was performed. These flows were verified using local tests/demo accounts; signed-in live acceptance remains for the user.
+- Previous deployment `dpl_2yg1c8WEGxuSvKCTJog4tsQTv6Fe` remains available for rollback. Desktop source/artifacts and unrelated website files were preserved, including exact `next-env.d.ts` and build metadata bytes.
