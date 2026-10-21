@@ -30,3 +30,7 @@ The official public Atlas source audit is preserved in the desktop worktree's `o
 Evidence and local preview: `output/playwright/replay-motion-20261020/`. The isolated preview listens at `http://127.0.0.1:4236/?t=4`; its 40-second synthetic timeline shows targets at 4/8 seconds, trash at 12/20 seconds, rune recycling at 16/24 seconds, hidden-card trash at 28/32 seconds and clearing at 36 seconds. `preview.mjs` can rebuild/restart this fixture. Existing preview scripts are preserved.
 
 The pre-existing dirty `next-env.d.ts` bytes remain SHA256 `3b942af44c5547b81cbd961c8f99001767ea89e2b6ec6923afbfd199369af814`. The existing desktop worktrees, installers, live deployment and saved reviews are unchanged.
+
+## Published — 21 October 2026
+
+The user subsequently authorized publication. These features are now live from `c910a13b6f5e68d5ba8f84eb34bd08669e7108be`, deployment `dpl_6PQbwc9WzjZFDVGCPurEg1bnc4F1`. This supersedes the local-only status above. See [the publication receipt](./WEB-RELEASE-2026-10-21.md) for release validation.

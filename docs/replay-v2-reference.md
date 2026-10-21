@@ -1,6 +1,6 @@
 # RiftLite Replay V2 Reference Contract
 
-**Local visual clarity update — 20 October 2026:** Recorded Atlas targeting arrows now render for both players, confirmed trash/rune recycling moves use brief, privacy-preserving animations, and each rune rail shows active runes out of the total in play. Playback, seeking, BO3, reduced motion and existing recording compatibility are covered in [the implementation and validation receipt](./REPLAY-TARGETS-MOTION-2026-10-20.md). This update is local source only; no deployment is recorded here.
+**Published visual clarity update — 21 October 2026:** Recorded Atlas targeting arrows now render for both players, confirmed trash/rune recycling moves use brief, privacy-preserving animations, and each rune rail shows active runes out of the total in play. Playback, seeking, BO3, reduced motion and existing recording compatibility are covered in [the implementation and validation receipt](./REPLAY-TARGETS-MOTION-2026-10-20.md). Published from `c910a13b6f5e68d5ba8f84eb34bd08669e7108be`, deployment `dpl_6PQbwc9WzjZFDVGCPurEg1bnc4F1`; see [the publication receipt](./WEB-RELEASE-2026-10-21.md).
 
 Status: implementation baseline
 
