@@ -324,6 +324,28 @@
 
 .runeRailBottom { flex-direction: row; }
 
+.activeRuneCount {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 52px;
+  display: flex;
+  height: 27px;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 9px;
+  border: 1px solid rgba(117, 241, 229, 0.35);
+  border-radius: 6px;
+  background: #0b202b;
+  color: #d8fffb;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.runeRailTop .activeRuneCount { right: 52px; left: auto; }
+.activeRuneCount span { font-size: 11px; font-weight: 700; }
+.activeRuneCount b { color: #8ff5df; font-size: 19px; line-height: 1; }
+.activeRuneCount small { color: #b3c7d3; font-size: 12px; }
+
 .runeSlots {
   display: flex;
   height: 53px;

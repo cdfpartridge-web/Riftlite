@@ -1,0 +1,10 @@
+.layer { position: absolute; inset: 0; z-index: 43; width: 1590px; height: 962px; pointer-events: none; overflow: visible; }
+.ours { color: #77f0e4; }
+.theirs { color: #ffab85; }
+.arrow, .outline { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.outline { stroke: #06101deb; stroke-width: 8; }
+.arrow { stroke: currentColor; stroke-width: 3.5; }
+.source { fill: #0b1524; stroke: currentColor; stroke-width: 2.5; }
+.key { position: absolute; left: 50%; top: 67px; z-index: 44; transform: translateX(-50%); display: flex; gap: 13px; align-items: center; padding: 6px 12px; border: 1px solid #6f9da443; border-radius: 99px; background: #07111feb; font-size: 11px; color: #c1cedd; pointer-events: none; }
+.key span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.key i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }

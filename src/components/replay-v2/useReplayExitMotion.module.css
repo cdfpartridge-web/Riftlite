@@ -1,0 +1,39 @@
+.ghost {
+  position: absolute;
+  z-index: 65;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  pointer-events: none !important;
+  user-select: none;
+  transform-origin: center;
+  filter: drop-shadow(0 3px 8px rgb(0 0 0 / 55%));
+  will-change: transform, opacity;
+}
+
+.ghost *, .ghost *::before, .ghost *::after {
+  pointer-events: none !important;
+}
+
+.ghost > * {
+  width: 100%;
+  height: 100%;
+}
+
+.back {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgb(113 207 225 / 70%);
+  border-radius: 7px;
+  background: linear-gradient(145deg, #17344a, #071321);
+  color: #a4d6e4;
+  font: 700 24px/1 serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghost { display: none; }
+}

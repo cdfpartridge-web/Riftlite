@@ -178,6 +178,16 @@ export type ReplayChainEntry = {
   fields: JsonObject;
 };
 
+/** Atlas's authoritative player-drawn arrows, separate from chain targeting. */
+export type ReplayTargetArrow = {
+  id: string;
+  actorPlayerId: string;
+  sourceCardId: string;
+  targetCardId: string;
+  sourceAnchor: "board" | "chain";
+  targetAnchor: "board" | "chain";
+};
+
 export type ReplayLogEntry = {
   id: string;
   at?: number;

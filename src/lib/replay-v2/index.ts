@@ -22,3 +22,4 @@ export {
   seekToGameStart,
 } from "@/lib/replay-v2/seek";
 export { stableDigest, stableId } from "@/lib/replay-v2/stable-id";
+export { getReplayTargetArrows } from "@/lib/replay-v2/target-arrows";

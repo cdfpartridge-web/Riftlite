@@ -21,6 +21,7 @@ function accountState(patch: Partial<ReturnType<typeof useReplayAccountReview>> 
 }
 function note(title: string): ReplayNote {
   const event = replay.events[1];
+  if (!event.gameId) throw new Error("The review fixture must start inside a game.");
   return { id: title, title, body: `${title} private text`, atMs: event.atMs, eventId: event.id, eventIndex: 1, gameId: event.gameId, gameNumber: 1, turn: null, createdAt: 1, updatedAt: 1 };
 }
 function review(notes: ReplayNote[]): SavedReplayReview { return { replayId, revision: 1, notes, createdAt: 1, updatedAt: 1, title: "Public sample", platform: "atlas", available: true }; }

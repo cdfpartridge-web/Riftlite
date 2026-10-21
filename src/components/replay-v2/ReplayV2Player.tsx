@@ -45,6 +45,8 @@ import { cardStatuses, cardStatusText } from "./card-status";
 import { totalBattlefieldMight } from "./battlefield-might";
 import { ReplaySoundControls } from "./ReplaySoundControls";
 import { useReplaySounds } from "./use-replay-sounds";
+import { ReplayTargetArrows } from "./ReplayTargetArrows";
+import { useReplayExitMotion } from "./useReplayExitMotion";
 
 import styles from "./ReplayV2Player.module.css";
 import {
@@ -378,6 +380,7 @@ export function ReplayV2Player({
   const [selectedCard, setSelectedCard] = useState<ReplayCardState | null>(null);
   const [activityTab, setActivityTab] = useState<ReplayActivityTab>("chat");
   const [suppressMotion, setSuppressMotion] = useState(false);
+  const [motionEpoch, setMotionEpoch] = useState(0);
   const [notice, setNotice] = useState("");
   const [casterClean, setCasterClean] = useState(false);
   const [casterCursorIdle, setCasterCursorIdle] = useState(false);
@@ -981,7 +984,7 @@ export function ReplayV2Player({
   }, []);
 
   const seekTo = useCallback(
-    (targetMs: number, options?: { immediate?: boolean; eventIndex?: number }) => {
+    (targetMs: number, options?: { immediate?: boolean; eventIndex?: number; animateStep?: boolean }) => {
       if (!replay) return;
       silenceSounds();
       naturalPlaybackEndedRef.current = false;
@@ -996,6 +999,7 @@ export function ReplayV2Player({
         pendingSeekTimer.current = null;
         silenceSounds();
         if (backwards || options?.immediate) setMotionSuppressedBriefly();
+        if (!options?.animateStep || backwards) setMotionEpoch(value => value + 1);
         clearAnalysis();
         setPresentation(null);
         setManualEventIndex(targetEventIndex ?? null);
@@ -1149,7 +1153,7 @@ export function ReplayV2Player({
       if (targetIndex === undefined) return;
       const target = replay.events[targetIndex];
       if (clipRange && (target.atMs < playbackStartMs || target.atMs > playbackEndMs)) return;
-      seekTo(target.atMs, { immediate: direction < 0, eventIndex: targetIndex });
+      seekTo(target.atMs, { immediate: direction < 0, eventIndex: targetIndex, animateStep: direction > 0 });
     },
     [
       advancePresentation,
@@ -2392,6 +2396,7 @@ export function ReplayV2Player({
                 cardsUp={cardsUpProjectionActive && !combinedReplay}
                 currentMs={currentMs}
                 eventIndex={eventIndex}
+                motionEpoch={motionEpoch}
                 getAnalysisDraggingCardId={getAnalysisDraggingCardId}
                 inspectedCard={inspectedCard}
                 onCardHover={setHoveredCard}
@@ -2901,6 +2906,7 @@ function ReplayBoard({
   cardsUp,
   currentMs,
   eventIndex,
+  motionEpoch,
   getAnalysisDraggingCardId,
   inspectedCard,
   onAnalysisDrop,
@@ -2922,6 +2928,7 @@ function ReplayBoard({
   cardsUp: boolean;
   currentMs: number;
   eventIndex: number;
+  motionEpoch: number;
   getAnalysisDraggingCardId: () => string | null;
   inspectedCard: ReplayCardState | null;
   onAnalysisDrop: (cardId: string, playerId: string, zone: string) => void;
@@ -2968,6 +2975,8 @@ function ReplayBoard({
     return banishedTransitions(previous, state);
   }, [eventIndex, replay, state]);
   const banishLabel = banishedEventLabel(banishChanges);
+  useReplayExitMotion({ rootRef: boardRef, replay, eventIndex, gameId: state.gameId,
+    speed, suppressMotion, enabled: !scene && !analysisActive, motionEpoch });
   useCardMotion(boardRef, eventIndex, speed, suppressMotion);
   useEventEmphasis(boardRef, action, speed);
   const arrows = useTargetArrows(boardRef, state.chain, eventIndex);
@@ -3122,6 +3131,8 @@ function ReplayBoard({
         player={players.bottom}
       />
       <TargetArrowLayer arrows={arrows} />
+      <ReplayTargetArrows rootRef={boardRef} state={state} eventIndex={eventIndex}
+        perspectivePlayerId={players.bottom.id} speed={speed} playing={playing} suppressed={Boolean(scene) || analysisActive} />
       <div
         className={`${styles.actionCaption} ${banishLabel ? styles.banishActionCaption : ""} ${
           analysisActive ? styles.analysisActionCaption : ""
@@ -3517,6 +3528,7 @@ function PlayerHalf({
               className={styles.boardLane}
               data-analysis-drop-player-id={player.id}
               data-analysis-drop-zone={zone.key === "board" ? "base" : zone.key}
+              data-replay-arrow-anchor-id={zone.key === "base" || zone.key === "board" ? `base-area-marker:${player.id}` : undefined}
               key={zone.key}
             >
               <span className={styles.zoneLabel}>{laneLabel(zone.label, zoneIndex)}</span>
@@ -3557,6 +3569,7 @@ function RuneRail({
 }) {
   const runeArea = zoneCards(player, ["runeArea"]);
   const runeDeck = zoneCards(player, ["runeDeck"]);
+  const activeRunes = runeArea.filter((card) => !card.exhausted).length;
   const capacity = Math.max(12, runeArea.length + runeDeck.length);
   const emptySlots = Math.max(0, capacity - runeArea.length);
 
@@ -3569,9 +3582,22 @@ function RuneRail({
       data-rune-rail
     >
       <div
+        aria-label={`${player.name}: ${activeRunes} active runes out of ${runeArea.length} in play`}
+        className={styles.activeRuneCount}
+        data-active-rune-count={activeRunes}
+        data-runes-in-play={runeArea.length}
+        title="Active runes are ready to exhaust. The total includes exhausted runes in play."
+      >
+        <span>Active runes</span>
+        <b>{activeRunes}</b>
+        <small>/ {runeArea.length}</small>
+      </div>
+      <div
         aria-label={`${player.name} rune deck, ${runeDeck.length} cards`}
         className={styles.runeDeck}
         data-rune-deck-count={runeDeck.length}
+        data-replay-pile-player-id={player.id}
+        data-replay-pile-zone="runeDeck"
         role="img"
       >
         <span className={styles.runeDeckStack} aria-hidden="true" />
@@ -3641,6 +3667,8 @@ function CardPile({
       data-analysis-drop-player-id={analysisDropPlayerId}
       data-analysis-drop-zone={analysisDropZone}
       data-open-discard
+      data-replay-pile-player-id={analysisDropPlayerId}
+      data-replay-pile-zone={kind === "discard" ? "discard" : "deck"}
       onClick={onClick}
       type="button"
     >
@@ -3756,6 +3784,7 @@ function CardTile({
       data-card-exhausted={card.exhausted ? "true" : "false"}
       data-card-hidden-at-battlefield={gameplayHidden ? "true" : undefined}
       data-card-id={card.id}
+      data-replay-card-anchor={analysisChainEntryId ? "chain" : "board"}
       data-card-label-count={labels.length || undefined}
       data-card-status-count={statuses.length || undefined}
       data-card-motion-id={motionId}
@@ -3991,7 +4020,7 @@ function CentralArena({
                 />
               </>
             ) : null}
-            <div className={styles.battlefieldCardDock} data-battlefield-card-dock>
+            <div className={styles.battlefieldCardDock} data-battlefield-card-dock data-replay-arrow-anchor-id={`battlefield-marker:${lane.key}`}>
               {lane.battlefield ? (
                 <BattlefieldTile
                   card={lane.battlefield}

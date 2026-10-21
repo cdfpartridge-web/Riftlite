@@ -5,9 +5,11 @@ import {
   resetGameScopedBattlefieldSelections,
 } from "@/lib/replay-v2/project-state";
 import type { CanonicalReplayV2, ReplayCheckpoint, ReplaySeekResult } from "@/lib/replay-v2/types";
+import { normalizeReplayPhase } from "@/lib/replay-v2/normalization";
 
 const PLAYER_BATTLEFIELD_SELECTION_FIELDS = ["selectedBattlefield", "battlefieldCard", "battlefield"] as const;
 const ROOM_BATTLEFIELD_SELECTION_FIELDS = ["selectedBattlefields", "battlefieldCards", "battlefields"] as const;
+const targetArrowEvidenceByReplay = new WeakMap<CanonicalReplayV2, WeakMap<ReplayCheckpoint, boolean>>();
 
 export function seekReplay(replay: CanonicalReplayV2, targetMs: number): ReplaySeekResult {
   const normalizedTarget = Number.isFinite(targetMs) ? Math.max(0, targetMs) : 0;
@@ -28,6 +30,7 @@ export function seekReplayByEventIndex(
   let state = checkpoint
     ? cloneReplayState(checkpoint.state)
     : createInitialReplayState(replay.series);
+  if (checkpoint) reconcileCheckpointTargetArrows(replay, checkpoint, state);
   const checkpointEventIndex = checkpoint?.eventIndex ?? -1;
   for (let index = checkpointEventIndex + 1; index <= eventIndex; index += 1) {
     state = reduceReplayEvent(state, replay.events[index]);
@@ -41,6 +44,59 @@ export function seekReplayByEventIndex(
     checkpointEventIndex,
     state,
   };
+}
+
+function reconcileCheckpointTargetArrows(
+  replay: CanonicalReplayV2,
+  checkpoint: ReplayCheckpoint,
+  state: ReplaySeekResult["state"],
+): void {
+  if (!state.room.fields.targetArrowsByPlayer || (state.gameOrdinal ?? 1) <= 1) return;
+  const game = replay.series.games.find(candidate => candidate.id === state.gameId);
+  if (!game) return;
+  let evidence = targetArrowEvidenceByReplay.get(replay);
+  if (!evidence) {
+    evidence = new WeakMap();
+    targetArrowEvidenceByReplay.set(replay, evidence);
+  }
+  const cached = evidence.get(checkpoint);
+  if (cached !== undefined) {
+    if (!cached) delete state.room.fields.targetArrowsByPlayer;
+    return;
+  }
+  // Older checkpoints could carry game one's room fields into game two. An
+  // arrow must have current-game authoritative evidence before it can return.
+  // Canonical replay/checkpoint inputs are immutable: cache this historical
+  // check so advancing the playback clock never rescans the game each frame.
+  let observed = false;
+  let setup = true;
+  for (let index = game.eventStartIndex; index <= checkpoint.eventIndex; index += 1) {
+    const event = replay.events[index];
+    if (event.kind === "phase") setup = targetArrowSetupPhase(event.phase);
+    if (event.kind === "snapshot") {
+      setup = targetArrowSetupPhase(event.snapshot.room.phase);
+      observed = Object.hasOwn(event.snapshot.room.fields, "targetArrowsByPlayer");
+    }
+    if (event.kind === "action") {
+      for (const operation of event.patch.operations) {
+        if (operation.op === "set_room_fields") {
+          if (typeof operation.fields.phase === "string") {
+            setup = targetArrowSetupPhase(operation.fields.phase);
+          }
+          if (Object.hasOwn(operation.fields, "targetArrowsByPlayer")) observed = true;
+        }
+        if (operation.op === "unset_room_fields" && operation.fields.includes("targetArrowsByPlayer")) observed = false;
+      }
+    }
+    if (setup) observed = false;
+  }
+  evidence.set(checkpoint, observed);
+  if (!observed) delete state.room.fields.targetArrowsByPlayer;
+}
+
+function targetArrowSetupPhase(value: string): boolean {
+  const { phase } = normalizeReplayPhase(value);
+  return phase === "sideboarding" || phase === "battlefield_pick";
 }
 
 function shouldReconcileLegacyCheckpoint(

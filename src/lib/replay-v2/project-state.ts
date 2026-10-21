@@ -65,6 +65,7 @@ export function reduceReplayEvent(previous: ReplayState, event: ReplayEvent): Re
         state.room.phase = "unknown";
         state.room.rawPhase = "";
         state.room.gameNumber = event.gameNumber;
+        delete state.room.fields.targetArrowsByPlayer;
         resetGameScopedBattlefieldSelections(state, new Set(), false, true);
       }
       break;
@@ -109,6 +110,10 @@ export function reduceReplayEvent(previous: ReplayState, event: ReplayEvent): Re
       break;
     case "unknown":
       break;
+  }
+  if ((state.gameOrdinal ?? 1) > 1 &&
+    (state.phase === "sideboarding" || state.phase === "battlefield_pick")) {
+    delete state.room.fields.targetArrowsByPlayer;
   }
   state.appliedEventIndex = event.index;
   return state;
