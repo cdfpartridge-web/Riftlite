@@ -17,3 +17,7 @@ Full website suite: **1,772 passed, nine skipped** (194 passed files, one skippe
 TypeScript passed with the ignored `output/radiance-season-20261023/tsconfig.validation.json`, covering source, tracked scripts and current generated routes while excluding archived output and the untracked local demo. The first default wildcard run exhausted Node's 4 GB heap after including 4,825 archived TypeScript files under ignored output. No product config or preserved environment file was changed to run validation.
 
 `next-env.d.ts` remained byte-identical to the baseline hash above. Release build, candidate browser checks, deployment and publication receipts are coordinated separately by the release owner.
+
+## Publication
+
+Published and verified with desktop v0.9.86. Live deployment `dpl_8Qk5bD4m31uZHJXW21gw14e33a3F` uses runtime `520c4c49776bee683380d72698337054c59b9362`. See [release receipt](./WEB-RELEASE-2026-10-23.md) for build, HTTP and live browser results. The fixed cutoff above is unchanged.
