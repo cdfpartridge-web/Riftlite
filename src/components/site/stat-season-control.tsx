@@ -1,9 +1,9 @@
 import { STAT_SEASONS } from "@/lib/stat-seasons";
 
 export function RadianceSeasonNotice() {
-  return <aside aria-label="Radiance pre-season" className="rounded-2xl border border-amber-300/25 bg-amber-300/[0.07] px-4 py-3 text-sm text-slate-200">
-    <strong className="text-amber-100">Radiance pre-season is here</strong>
-    <p className="mt-1 text-xs leading-relaxed text-slate-300">Stats start from 10 October 2026 at 17:35:38 UK time. Earlier results are preserved: choose another season or All seasons to see them.</p>
+  return <aside aria-label="Radiance season" className="rounded-2xl border border-amber-300/25 bg-amber-300/[0.07] px-4 py-3 text-sm text-slate-200">
+    <strong className="text-amber-100">Radiance season is here</strong>
+    <p className="mt-1 text-xs leading-relaxed text-slate-300">Official season stats start from 23 October 2026 at 13:11:27 UK time. Radiance season is now the default. Your pre-season and older results are preserved: choose another season or All seasons to see them.</p>
   </aside>;
 }
 

@@ -13,7 +13,7 @@ import { DeckComparePicker } from "./deck-compare-picker";
 import { CommunityNav } from "./community-nav";
 
 describe("season-preserving drilldowns", () => {
-  it.each(["", "vendetta-launch", "radiance-preseason"])("keeps season %s in legend, deck cancel and community navigation", (season) => {
+  it.each(["", "vendetta-launch", "radiance-preseason", "radiance"])("keeps season %s in legend, deck cancel and community navigation", (season) => {
     navigation.search = new URLSearchParams({ season, range: "7d" }).toString();
     const legend = render(createElement(LegendChip, { legend: "Annie", href: "/community/legends/Annie" }));
     expect(new URL(legend.getByRole("link").getAttribute("href")!, "http://localhost").searchParams.get("season")).toBe(season);

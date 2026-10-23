@@ -35,7 +35,7 @@ describe("public profile dates and privacy", () => {
 
   it("does not present lifetime totals as Radiance statistics when match history is private", async () => {
     const view = render(await UserProfilePage({ params: Promise.resolve({ handle: "player" }), searchParams: Promise.resolve({}) }));
-    expect(view.getByRole("combobox", { name: "Season" })).toHaveValue("radiance-preseason");
+    expect(view.getByRole("combobox", { name: "Season" })).toHaveValue("radiance");
     expect(view.getByText("Unavailable")).toBeInTheDocument();
     expect(view.queryByText("30W · 20L · 0D")).not.toBeInTheDocument();
   });

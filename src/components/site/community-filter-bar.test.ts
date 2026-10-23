@@ -109,4 +109,17 @@ describe("CommunityFilterBar format filter", () => {
     expect(target.searchParams.get("season")).toBe("");
   });
 
+  it("starts in the official season, allows pre-season and resets back to official Radiance", () => {
+    const view = render(createElement(CommunityFilterBar, { filters: DEFAULT_FILTERS }));
+    const season = view.getByRole("combobox", { name: "Season" });
+    expect(season).toHaveValue("radiance");
+    expect(view.getByText("Radiance season is here")).toBeInTheDocument();
+    fireEvent.change(season, { target: { value: "radiance-preseason" } });
+    fireEvent.click(view.getByRole("button", { name: "Apply filters" }));
+    expect(new URL(navigation.push.mock.calls[0][0], "http://localhost").searchParams.get("season")).toBe("radiance-preseason");
+    fireEvent.click(view.getByRole("button", { name: "Clear filters" }));
+    expect(season).toHaveValue("radiance");
+    expect(navigation.push).toHaveBeenLastCalledWith("/community/meta");
+  });
+
 });

@@ -1002,11 +1002,7 @@ export function MetaStudioCanvas({
                 onChange={(event) => updateFilter("season", event.target.value as MetaStudioFilters["season"])}
                 value={filters.season}
               >
-                <option value="radiance-preseason">Radiance pre-season</option>
-                <option value="">All seasons</option>
-                <option value="vendetta-launch">Vendetta season</option>
-                <option value="vendetta-preview">Vendetta preview</option>
-                <option value="pre-vendetta">Pre-Vendetta</option>
+                {STAT_SEASONS.map((season) => <option key={season.id} value={season.id}>{season.label}</option>)}
               </select>
             </label>
             <label>

@@ -4,10 +4,13 @@ export const VENDETTA_PREVIEW_START_MS = Date.UTC(2026, 6, 6);
 export const VENDETTA_LAUNCH_START_MS = Date.UTC(2026, 6, 31);
 export const RADIANCE_PRESEASON_START_AT = "2026-10-10T16:35:38.000Z";
 export const RADIANCE_PRESEASON_START_MS = Date.parse(RADIANCE_PRESEASON_START_AT);
-export const CURRENT_STAT_SEASON = "radiance-preseason";
+export const RADIANCE_START_AT = "2026-10-23T12:11:27.000Z";
+export const RADIANCE_START_MS = Date.parse(RADIANCE_START_AT);
+export const CURRENT_STAT_SEASON = "radiance";
 
 export const STAT_SEASONS = [
-  { id: CURRENT_STAT_SEASON, label: "Radiance pre-season" },
+  { id: CURRENT_STAT_SEASON, label: "Radiance season" },
+  { id: "radiance-preseason", label: "Radiance pre-season" },
   { id: "vendetta-launch", label: "Vendetta season" },
   { id: "vendetta-preview", label: "Vendetta preview" },
   { id: "pre-vendetta", label: "Pre-Vendetta" },
@@ -43,7 +46,8 @@ export function statMatchDateValue(match: { capturedAt?: unknown; date?: unknown
 }
 
 export function statSeasonForTimestamp(value: number): Exclude<StatSeason, ""> {
-  if (value >= RADIANCE_PRESEASON_START_MS) return CURRENT_STAT_SEASON;
+  if (value >= RADIANCE_START_MS) return CURRENT_STAT_SEASON;
+  if (value >= RADIANCE_PRESEASON_START_MS) return "radiance-preseason";
   if (value >= VENDETTA_LAUNCH_START_MS) return "vendetta-launch";
   if (value >= VENDETTA_PREVIEW_START_MS) return "vendetta-preview";
   return "pre-vendetta";

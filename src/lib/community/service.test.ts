@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_FILTERS } from "@/lib/constants";
 import { FIXTURE_MATCHES } from "@/lib/fixtures/community";
-import { RADIANCE_PRESEASON_START_MS as START } from "@/lib/stat-seasons";
+import { RADIANCE_START_MS as START } from "@/lib/stat-seasons";
 
 const data = vi.hoisted(() => ({
   filterCommunityMatchesByDays: vi.fn((matches: unknown[]) => matches),
@@ -14,7 +14,7 @@ const data = vi.hoisted(() => ({
 
 vi.mock("@/lib/community/data", () => data);
 
-import { getLegendMeta, getMatrix, getFilteredCommunityMatches, getPaginatedDecks, getPaginatedMatches } from "./service";
+import { getCommunityOverview, getLegendMeta, getMatrix, getFilteredCommunityMatches, getPaginatedDecks, getPaginatedMatches } from "./service";
 
 describe("community service format filters", () => {
   beforeEach(() => {
@@ -82,5 +82,17 @@ describe("community service format filters", () => {
     expect(meta.reduce((sum, legend) => sum + legend.games, 0)).toBe(1);
     expect(matrix.matrixReadyMatchCount).toBe(1);
     expect(data.getCommunityRangeStats).not.toHaveBeenCalled();
+  });
+
+  it("uses the official season for homepage current meta while preserving lifetime totals", async () => {
+    data.getCommunityMatchWindow.mockResolvedValue([
+      ...Array.from({ length: 3 }, (_, i) => ({ ...FIXTURE_MATCHES[0], id: `preseason-${i}`, date: new Date(START - 1).toISOString(), myChampion: "Annie" })),
+      { ...FIXTURE_MATCHES[0], id: "official", date: new Date(START).toISOString(), myChampion: "Jinx" },
+    ]);
+    data.getCommunityAggregateCounts.mockResolvedValue({ privateMatchCount: 0, privatePlayerCount: 0 });
+    const overview = await getCommunityOverview();
+    expect(overview.totalMatches).toBe(4);
+    expect(overview.topLegend?.legend).toBe("Jinx");
+    expect(overview.featuredDecks.reduce((sum, deck) => sum + deck.games, 0)).toBe(1);
   });
 });

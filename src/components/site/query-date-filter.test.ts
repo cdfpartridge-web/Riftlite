@@ -43,7 +43,7 @@ describe("date query controls", () => {
 
   it("shows the launch notice and preserves explicit All seasons while changing dates", () => {
     const view = render(createElement(QueryDateFilter, { initialValue: ALL_DATES, initialSeason: "" }));
-    expect(view.getByText("Radiance pre-season is here")).toBeInTheDocument();
+    expect(view.getByText("Radiance season is here")).toBeInTheDocument();
     expect(view.getByRole("combobox", { name: "Season" })).toHaveValue("");
     fireEvent.click(view.getByRole("button", { name: "Apply filters" }));
     const params = new URL(navigation.push.mock.calls[0][0], "http://localhost").searchParams;

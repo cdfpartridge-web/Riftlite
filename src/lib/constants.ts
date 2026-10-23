@@ -44,9 +44,15 @@ export const TWITCH_STATUS_CACHE_MS = 60_000;
 export const COMMUNITY_SEASONS = [
   {
     id: CURRENT_STAT_SEASON,
+    label: "Radiance season",
+    shortLabel: "Radiance season",
+    description: "From 23 October 2026 at 13:11:27 UK time.",
+  },
+  {
+    id: "radiance-preseason",
     label: "Radiance pre-season",
     shortLabel: "Radiance pre-season",
-    description: "From 10 October 2026 at 17:35:38 UK time.",
+    description: "From 10 October 2026 at 17:35:38 until 23 October 2026 at 13:11:27 UK time.",
   },
   {
     id: "vendetta-launch",
