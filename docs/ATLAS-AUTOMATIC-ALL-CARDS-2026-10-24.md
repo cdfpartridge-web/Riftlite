@@ -1,6 +1,8 @@
-# Automatic Atlas post-game cards — local implementation
+# Automatic Atlas post-game cards
 
-The user requested automatic collection after an Atlas match, preserving RiftLite's opening capture and adding an All cards view. Manual JSON import is a secondary recovery option, not the normal workflow. Local rebuild only; no deployment, version bump, release, installation, or real-profile operation is authorized by this work.
+**Website published 24 October 2026:** The user explicitly authorized deployment for real-game testing. Runtime `197d0e43dcf5d1e428dbf034a0cf8947cff08c31`, deployment `dpl_5u36hqwVXeNT77d77cspwEXKQ7JB`, is live at www.riftlite.com. See [publication and validation](./WEB-RELEASE-2026-10-24-ALL-CARDS.md). The desktop collector remains in the latest local test installer; the public desktop release was not changed. Restart that local build to reset any retries exhausted before the endpoint existed, then leave Atlas signed in at its lobby. Real authenticated attachment remains for the user's test.
+
+The user requested automatic collection after an Atlas match, preserving RiftLite's opening capture and adding an All cards view. Manual JSON import is a secondary recovery option, not the normal workflow. The initial implementation was authorized for local rebuild only; the later website deployment authorization and outcome are recorded above. No desktop release, version bump, installation or real-profile operation was included.
 
 ## Viewer and storage
 
@@ -30,6 +32,6 @@ The original `next-env.d.ts` bytes are preserved (SHA256 `3b942af44c5547b81cbd96
 
 Final source checks passed: 72 player/hook tests (20-second per-test allowance while packaging/build work ran concurrently), scoped ESLint with zero warnings, scoped TypeScript, and the final Next production build including the new route. Browser QA confirmed four hidden opponent cards become visible in All cards and hidden again in Player view, private imports disappear for another account, and explicit sharing makes them available to that viewer. The separate automatic simulation passes both supplied games and the synthetic opening fixture. The desktop full gate passes 3,000 tests plus 82 account checks.
 
-## Still local
+## Original local validation boundary
 
-The automatic desktop installer uses the fixed production RiftLite API. The new website endpoint must be deployed separately before a real installed-game run can complete automatic attachment. No authenticated Atlas request or production attachment was performed during development. The local simulation is not a live end-to-end sign-in test. Public Windows/Mac v0.9.86 and the published website remain unchanged.
+The automatic desktop installer uses the fixed production RiftLite API. The separately required website endpoint is now deployed as recorded above. No authenticated Atlas request or production attachment was performed by the agent. The local simulation is not a live end-to-end sign-in test. Public Windows/Mac v0.9.86 remains unchanged.

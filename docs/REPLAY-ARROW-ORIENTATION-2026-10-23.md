@@ -1,5 +1,7 @@
 # Web replay arrow orientation — 23 October 2026
 
+**Published 24 October:** Included with the explicitly authorized All cards website deployment, runtime `197d0e43dcf5d1e428dbf034a0cf8947cff08c31`, deployment `dpl_5u36hqwVXeNT77d77cspwEXKQ7JB`. See [the release receipt](./WEB-RELEASE-2026-10-24-ALL-CARDS.md). The local-only statements below describe the original implementation stage.
+
 The user reported that targeting arrowheads always point down. Both the recorded Atlas arrows and the existing chain/analysis arrow layer ended their cubic paths with a control point directly above the endpoint. SVG automatic marker orientation therefore followed a downward final tangent, regardless of the source card's position.
 
 Both layers now use `replayTargetArrowPath`. Its last control point sits behind the endpoint along the source-to-target direction, so automatic rotation points into the target. The earlier part retains a gentle, bounded curve that rotates with the arrow. Existing source/target anchors, card-edge inset, player colors and visibility rules are preserved.
