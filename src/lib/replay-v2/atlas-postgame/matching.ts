@@ -1,6 +1,6 @@
 import { isRecord } from "../json";
 import { createInitialReplayState, reduceReplayEvent } from "../project-state";
-import type { CanonicalReplayV2, JsonObject, ReplayCardState, ReplayState } from "../types";
+import type { CanonicalReplayV2, JsonObject, ReplayCardState, ReplayEvent, ReplayState } from "../types";
 import { AtlasPostgameError, type AtlasPostgameAlignment, type AtlasPostgameFrame, type AtlasPostgameProjection, type AtlasPostgameSource, type AtlasPostgameMismatchReason, type AtlasPostgameMatchDiagnostics } from "./types";
 import { ATLAS_CARD_ZONES } from "./validation";
 
@@ -69,6 +69,22 @@ function positionMismatch(state: ReplayState, frame: AtlasPostgameFrame): AtlasP
 }
 function samePosition(state: ReplayState, frame: AtlasPostgameFrame): boolean { return positionMismatch(state, frame) === null; }
 
+function preservesMatchedPosition(event: ReplayEvent, matchedSourceMessageId: string | undefined): boolean {
+  if (["log", "chat", "interaction", "phase", "game_boundary"].includes(event.kind)) return true;
+  if (event.kind !== "unknown") return false;
+  // This Atlas message only updates the confirmation prompt; the eventual
+  // rewind changes the board through a separate authoritative commit/snapshot.
+  if (event.reason === "unsupported_packet" && event.packetType === "rewind_confirmation_state") return true;
+  // Atlas handles pong solely as a heartbeat acknowledgement, before any board
+  // reducers. Other unrecognized packet types still invalidate the held frame.
+  if (event.reason === "unsupported_packet" && event.packetType === "pong") return true;
+  // The normalizer appends diagnostics after the action at the same timestamp.
+  // Its post-operation board has already matched this exact Atlas frame. Never
+  // carry across a diagnostic from a different or unverified source message.
+  return event.reason === "unknown_patch_operation" && event.packetType === "authoritative_patch_commit"
+    && matchedSourceMessageId !== undefined && event.sourceMessageId === matchedSourceMessageId;
+}
+
 export function matchAtlasPostgameReplay(canonical: CanonicalReplayV2, source: AtlasPostgameSource): AtlasPostgameAlignment {
   const sanitizedRoomIdentity = canonical.series.roomCode === "" && canonical.source.roomCode === "" && canonical.source.captureSessionId === "";
   if (canonical.source.schema !== "riftreplay-raw-capture" || (!sanitizedRoomIdentity && canonical.series.roomCode !== source.metadata.roomCode) || !sameIds(canonical.series.participants.map(player => player.id), source.metadata.participantIds)) throw new AtlasPostgameError("This Atlas file belongs to a different replay.", { metadata: 1 });
@@ -83,13 +99,14 @@ export function matchAtlasPostgameReplay(canonical: CanonicalReplayV2, source: A
   const diagnostics: AtlasPostgameMatchDiagnostics = {};
   const count = (reason: AtlasPostgameMismatchReason) => { diagnostics[reason] = Math.min(1_000_000, (diagnostics[reason] ?? 0) + 1); };
   let state = createInitialReplayState(canonical), lastMatched: AtlasPostgameFrame | undefined;
+  let matchedSourceMessageId: string | undefined;
   for (const event of canonical.events) {
     if (event.index > game.eventEndIndex) break;
     // Logs/chat never change board identity. Avoid repeatedly cloning growing log histories during matching.
     if (!["log", "chat", "interaction", "unknown"].includes(event.kind)) {
       state = reduceReplayEvent(state, event); state.log = []; state.chat = [];
     } else state = { ...state, appliedEventIndex: event.index };
-    if (state.gameId !== game.id || event.index < game.eventStartIndex) { lastMatched = undefined; continue; }
+    if (state.gameId !== game.id || event.index < game.eventStartIndex) { lastMatched = undefined; matchedSourceMessageId = undefined; continue; }
     const sequence = event.kind === "snapshot" ? event.sequence : event.kind === "action" ? event.patch.sequence : undefined;
     if (sequence !== undefined) {
       const candidates = bySequence.get(sequence) ?? [];
@@ -100,10 +117,11 @@ export function matchAtlasPostgameReplay(canonical: CanonicalReplayV2, source: A
         return mismatch === null;
       });
       lastMatched = frames.length === 1 ? frames[0] : undefined;
+      matchedSourceMessageId = lastMatched ? event.sourceMessageId : undefined;
       if (lastMatched) matchedFrames.add(lastMatched.index);
-    } else if (!["log", "chat", "interaction", "phase", "game_boundary"].includes(event.kind)) lastMatched = undefined;
+    } else if (!preservesMatchedPosition(event, matchedSourceMessageId)) lastMatched = undefined;
     if (lastMatched && samePosition(state, lastMatched)) frameByEventIndex[event.index] = lastMatched.index;
-    else lastMatched = undefined;
+    else { lastMatched = undefined; matchedSourceMessageId = undefined; }
   }
   if (matchedFrames.size < 2) {
     count("insufficient_matching_positions");

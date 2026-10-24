@@ -4,6 +4,9 @@ import { projectReplayState } from "../project-state";
 import type { CanonicalReplayV2, JsonObject, ReplayEvent } from "../types";
 import { decodeAtlasPostgameReplay, encodeAtlasPostgameReplay, matchAtlasPostgameReplay, projectAtlasPostgameState } from "./index";
 import { sanitizeCanonicalReplay } from "../../replay-v2-server/projection";
+import { atlasPostgamePlayerFixture } from "@/components/replay-v2/__fixtures__/atlas-postgame-player";
+import { normalizeReplayProviderCapture } from "../provider-normalization";
+import { seekReplay } from "../seek";
 
 const START = 1_790_000_000_000;
 function card(id: string, name = id) { return { id, name, cardCode: `SET-${id}`, ownerPlayerId: id.startsWith("b") ? "b" : "a", source: "mainDeck", exhausted: false, createdAt: START }; }
@@ -91,6 +94,63 @@ describe("Atlas post-game files", () => {
 });
 
 describe("Atlas attachment alignment", () => {
+  it("keeps a verified frame at normal playback positions following Atlas rewind-confirmation housekeeping", () => {
+    const fixture = atlasPostgamePlayerFixture(true), before = JSON.stringify(fixture.canonical);
+    const current = seekReplay(fixture.canonical, 15_500);
+    expect(fixture.canonical.events[current.eventIndex]).toMatchObject({ kind: "unknown", packetType: "rewind_confirmation_state" });
+    const projected = projectAtlasPostgameState(current.state, fixture.source, fixture.alignment);
+    expect(projected.available).toBe(true);
+    expect(projected.state.players.b.zones.hand[0].name).toBe("Daring Poro");
+    expect(current.state.players.b.zones.hand[0].name).toBe("");
+    expect(JSON.stringify(fixture.canonical)).toBe(before);
+  });
+  it.each(["pong", "ping", "ready"])("carries only the verified heartbeat control through a %s packet", packetType => {
+    const fixture = atlasPostgamePlayerFixture(), raw = structuredClone(fixture.raw);
+    raw.messages.splice(2, 0, { seq: 2, ts: fixture.source.metadata.createdAt + 5000, dir: "in", raw: JSON.stringify({ type: packetType }) });
+    raw.messages.forEach((message, seq) => { message.seq = seq; });
+    const canonical = sanitizeCanonicalReplay(normalizeReplayProviderCapture(raw, "atlas", fixture.replayId).replay);
+    const before = JSON.stringify(canonical), current = seekReplay(canonical, 15_500);
+    expect(canonical.events[current.eventIndex]).toMatchObject({ kind: "unknown", reason: "unsupported_packet", packetType });
+    const alignment = matchAtlasPostgameReplay(canonical, fixture.source);
+    const projected = projectAtlasPostgameState(current.state, fixture.source, alignment);
+    expect(projected.available).toBe(packetType === "pong");
+    expect(projected.state.players.b.zones.hand[0].name).toBe(packetType === "pong" ? "Daring Poro" : "");
+    expect(current.state.players.b.zones.hand[0].name).toBe("");
+    expect(JSON.stringify(canonical)).toBe(before);
+  });
+  it("keeps the verified post-operation frame through its same-source diagnostic at the exact seek timestamp", () => {
+    const fixture = atlasPostgamePlayerFixture(), raw = structuredClone(fixture.raw);
+    const final = JSON.parse(raw.messages[2].raw);
+    raw.messages[2].raw = JSON.stringify({ type: "authoritative_patch_commit", gameInstanceId: "UIMASK", sequence: 11, baseSequence: 10,
+      patch: { operations: [
+        { op: "set_room_fields", fields: { turnNumber: final.snapshot.turnNumber,
+          gameHistoryEndedAt: final.snapshot.gameHistoryEndedAt, gameOutcome: final.snapshot.gameOutcome } },
+        { op: "zone_reorder", playerId: "a", zone: "hand", cardIds: ["a-hand"] },
+      ] } });
+    const canonical = sanitizeCanonicalReplay(normalizeReplayProviderCapture(raw, "atlas", fixture.replayId).replay);
+    const action = canonical.events.find(event => event.kind === "action")!;
+    const diagnostic = canonical.events.find(event => event.kind === "unknown" && event.reason === "unknown_patch_operation")!;
+    expect(diagnostic).toMatchObject({ sourceMessageId: action.sourceMessageId, atMs: action.atMs });
+    const alignment = matchAtlasPostgameReplay(canonical, fixture.source);
+    expect(projectAtlasPostgameState(seekReplay(canonical, action.atMs).state, fixture.source, alignment).available).toBe(true);
+    const unrelated = structuredClone(canonical);
+    unrelated.events[diagnostic.index].sourceMessageId = "unrelated-source-message";
+    const unrelatedAlignment = matchAtlasPostgameReplay(unrelated, fixture.source);
+    expect(projectAtlasPostgameState(seekReplay(unrelated, action.atMs).state, fixture.source, unrelatedAlignment).available).toBe(false);
+  });
+  it("invalidates a held frame on an unrecognized later packet and resumes only at a new exact authoritative anchor", () => {
+    const fixture = atlasPostgamePlayerFixture(), raw = structuredClone(fixture.raw);
+    raw.messages.splice(2, 0, { seq: 2, ts: fixture.source.metadata.createdAt + 5000, dir: "in", raw: JSON.stringify({
+      type: "future_board_snapshot", state: { cardName: "Unverified future card" },
+    }) });
+    raw.messages.forEach((message, seq) => { message.seq = seq; });
+    const canonical = sanitizeCanonicalReplay(normalizeReplayProviderCapture(raw, "atlas", fixture.replayId).replay);
+    const alignment = matchAtlasPostgameReplay(canonical, fixture.source), state = seekReplay(canonical, 15_500).state;
+    const projected = projectAtlasPostgameState(state, fixture.source, alignment);
+    expect(projected).toMatchObject({ available: false, state });
+    expect(projected.state.players.b.zones.hand[0].name).toBe("");
+    expect(projectAtlasPostgameState(seekReplay(canonical, 40_000).state, fixture.source, alignment).available).toBe(true);
+  });
   it("matches the production privacy-sanitized canonical without restoring its private room identity", () => {
     const source = decodeAtlasPostgameReplay(fixture()), canonical = sanitizeCanonicalReplay(maskedCanonicalFor());
     const before = JSON.stringify(canonical);
