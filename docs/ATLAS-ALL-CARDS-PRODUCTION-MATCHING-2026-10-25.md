@@ -1,0 +1,21 @@
+# Atlas All cards production matching — 25 October 2026
+
+The user restarted the desktop after the first website correction, but All cards remained grey. Exact-replay request correlation showed renewed successful metadata GETs followed by PUT 409 responses. This proved the restart and desktop collection worked; the problem remained in server attachment validation.
+
+## Production-only cause
+
+`normalizeCapture()` calls `sanitizeCanonicalReplay()` before storing the original replay. That privacy transform deliberately blanks `source.roomCode`, `series.roomCode` and `source.captureSessionId`, and removes private room identifiers. The All cards matcher required a nonblank room code to equal the completed Atlas export, rejecting every production-sanitized original before comparing positions. The earlier raw-normalizer fixture omitted this production transform. Its hidden-slot fix was necessary but did not resolve this earlier gate.
+
+An anonymous read of this accessible replay confirmed the actual stored canonical has the sanitized identity shape. All 739 events and authoritative sequences match the locally normalized original. The production sanitizer preserves all 262 compared board positions' player/cards, chain, turn and history-start data; there is no additional alias-replacement drift in this game. Evidence is aggregate-only under `output/atlas-allcards-restart-20261025/`, with no private raw payload copied into fixtures.
+
+## Correction
+
+The server now checks the completed export's room code against the replay's private upload record before alignment. Missing or mismatched private room metadata fails closed. The browser matcher recognizes only the complete production-sanitized identity shape; every position requires exact history start, participants, game, authoritative sequence, card-zone counts and public-card anchors. Existing nonblank room mismatches still fail. Private room codes are never restored to published canonical files or attachment metadata.
+
+Regression tests use `normalizeReplayProviderCapture` followed by `sanitizeCanonicalReplay`, then the real decoder, matcher, PUT handler and browser projection. The regression failed before correction with PUT 409 and a client different-replay error. After correction it verifies PUT 200 and availability, revealed identities only in the transient All cards projection, unchanged original canonical bytes/IDs/opening/Player view, and no private attachment metadata or contents for anonymous readers. Tests also reject absent/wrong private room binding, partial privacy sanitization, missing/wrong history starts, wrong sequences and participants. Independent review found no blocker. Core/server suite: 74 passed.
+
+Safe diagnostics use only fixed mismatch categories/counts and whitelisted conflict codes. They never log replay/account/room/card identifiers, credentials, raw bodies or arbitrary exception messages. Diagnostic-only runtime `8401d4dbbc3e4bb7e8936a73e2e5d32c35939710` was built as candidate `dpl_EBrY69EtRd7v71URUx24ZeyMEi42` but not promoted; the concrete fix supersedes that candidate.
+
+Deployment and final checks are recorded in `output/all-cards-production-fix-20261025/`. The preceding live runtime is `f7a2743b4a712b1d75476ab1d4ebb9bc18a9faf4`, deployment `dpl_5vikKPTt4paThPBCMW6LZVUQkMtU`. No desktop rebuild, version bump, installation, normal profile mutation or production replay rewrite is part of this correction. The user's existing installer can retry the same capture within the six-hour collection window after restarting the exhausted in-memory queue. An actual owner attachment success remains to be verified.
+
+A separate read-only audit found unsupported native `zone_reorder` operations; only four base-zone order differences occur late in this game and cannot explain zero matching positions. Those are not changed by this correction. All cards continues to require an exact supported position and falls back to the recorded view when it cannot safely align.

@@ -3,6 +3,7 @@ import { normalizeSnapshot } from "../normalization";
 import { projectReplayState } from "../project-state";
 import type { CanonicalReplayV2, JsonObject, ReplayEvent } from "../types";
 import { decodeAtlasPostgameReplay, encodeAtlasPostgameReplay, matchAtlasPostgameReplay, projectAtlasPostgameState } from "./index";
+import { sanitizeCanonicalReplay } from "../../replay-v2-server/projection";
 
 const START = 1_790_000_000_000;
 function card(id: string, name = id) { return { id, name, cardCode: `SET-${id}`, ownerPlayerId: id.startsWith("b") ? "b" : "a", source: "mainDeck", exhausted: false, createdAt: START }; }
@@ -24,7 +25,7 @@ function canonicalFor(input = fixture()): CanonicalReplayV2 {
     events.push({ kind: "snapshot", id: `snapshot-${frame.index}`, index: events.length, at: START + frame.elapsedMs, atMs: 5000 + frame.elapsedMs, sourceMessageId: String(frame.sequence), gameId: "game-1", sequence: frame.sequence, snapshot: normalizeSnapshot(frame.state, `source-${frame.index}`, 1, "a") });
   }
   return {
-    schema: "riftlite-canonical-replay", version: 2, id: "capture", source: { schema: "riftreplay-raw-capture", version: 1, captureSessionId: "capture", roomCode: "ROOM", startedAt: START - 5000, endedAt: START + 1000, messageCount: 3 },
+    schema: "riftlite-canonical-replay", version: 2, id: "capture", source: { schema: "riftreplay-raw-capture", version: 1, captureSessionId: "fixture-capture-session", roomCode: "ROOM", startedAt: START - 5000, endedAt: START + 1000, messageCount: 3 },
     series: { id: "series", perspectivePlayerId: "a", format: "bo1", bestOf: 1, roomCode: "ROOM", startedAt: START - 5000, endedAt: START + 1000, participants: [{ id: "a", name: "Player A", isPerspective: true, fields: {} }, { id: "b", name: "Player B", isPerspective: false, fields: {} }], games: [{ id: "game-1", ordinal: 1, gameNumber: 1, sourceIdentity: { explicitGameNumber: false, gameInstanceIds: [] }, startedAt: START - 5000, endedAt: START + 1000, startedAtMs: 0, endedAtMs: 6000, eventStartIndex: 0, eventEndIndex: 3, phases: [] }] },
     events, unknownEvents: [], diagnostics: [], checkpoints: [],
   };
@@ -90,6 +91,19 @@ describe("Atlas post-game files", () => {
 });
 
 describe("Atlas attachment alignment", () => {
+  it("matches the production privacy-sanitized canonical without restoring its private room identity", () => {
+    const source = decodeAtlasPostgameReplay(fixture()), canonical = sanitizeCanonicalReplay(maskedCanonicalFor());
+    const before = JSON.stringify(canonical);
+    expect(canonical.series.roomCode).toBe("");
+    expect(canonical.source.captureSessionId).toBe("");
+    const alignment = matchAtlasPostgameReplay(canonical, source);
+    expect(alignment.matchedEventCount).toBe(2);
+    const state = projectReplayState(canonical, alignment.firstMatchedEventIndex);
+    expect(projectAtlasPostgameState(state, source, alignment).state.players.b.zones.hand[0].name).toBe("b-hand");
+    expect(state.players.b.zones.hand[0].name).toBe("");
+    expect(JSON.stringify(canonical)).toBe(before);
+    expect(JSON.stringify(canonical)).not.toContain('"ROOM"');
+  });
   it("reports only bounded categorical mismatch counts while retaining the rejection", () => {
     const source = decodeAtlasPostgameReplay(fixture()), canonical = canonicalFor();
     for (const event of canonical.events) if (event.kind === "snapshot") event.snapshot.players.a.zones.legend[0].fields.exhausted = true;
@@ -97,6 +111,20 @@ describe("Atlas attachment alignment", () => {
     try { matchAtlasPostgameReplay(canonical, source); } catch (error) { diagnostic = (error as { matchDiagnostics?: unknown }).matchDiagnostics; }
     expect(diagnostic).toEqual({ sequence_overlap: 1, status: 2, insufficient_matching_positions: 1 });
     expect(JSON.stringify(diagnostic)).not.toMatch(/ROOM|Player|legend|1790/);
+  });
+  it.each(["history", "missing history", "participant", "game", "sequence", "public card", "nonblank room", "partial sanitization"])("retains exact %s checks for a sanitized canonical", changed => {
+    const source = decodeAtlasPostgameReplay(fixture()), canonical = sanitizeCanonicalReplay(maskedCanonicalFor());
+    if (changed === "participant") canonical.series.participants[1].id = "other";
+    if (changed === "game") canonical.series.games[0].gameNumber = 2;
+    if (changed === "nonblank room") canonical.series.roomCode = "OTHER";
+    if (changed === "partial sanitization") canonical.source.captureSessionId = "still-private";
+    for (const event of canonical.events) if (event.kind === "snapshot") {
+      if (changed === "history") event.snapshot.room.fields.gameHistoryStartedAt = START - 1;
+      if (changed === "missing history") delete event.snapshot.room.fields.gameHistoryStartedAt;
+      if (changed === "sequence") event.sequence = 99;
+      if (changed === "public card") event.snapshot.players.b.zones.legend[0].id = "other-legend";
+    }
+    expect(() => matchAtlasPostgameReplay(canonical, source)).toThrow();
   });
   it("matches genuine masked capture slots using exact public cards and sequences without changing original IDs or opening", () => {
     const input = fixture();

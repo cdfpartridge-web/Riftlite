@@ -23,6 +23,9 @@ function isMaskedSlot(card: ReplayCardState, playerId: string, zone: string, ind
 function positionMismatch(state: ReplayState, frame: AtlasPostgameFrame): AtlasPostgameMismatchReason | null {
   const raw = frame.state;
   if (state.room.rawPhase !== raw.phase || state.room.turnNumber !== raw.turnNumber || state.room.activeTurnPlayerId !== raw.activeTurnPlayerId || state.room.gameNumber !== (raw.gameNumber ?? 1)) return "room_or_turn";
+  // Public canonical artifacts deliberately omit room codes. The captured
+  // game's exact history start remains mandatory for every matching position.
+  if (state.room.fields.gameHistoryStartedAt !== raw.gameHistoryStartedAt) return "room_timestamp";
   for (const key of ["createdAt", "gameHistoryStartedAt", "gameHistoryEndedAt"]) {
     if (state.room.fields[key] !== undefined && raw[key] !== state.room.fields[key]) return "room_timestamp";
   }
@@ -45,7 +48,6 @@ function positionMismatch(state: ReplayState, frame: AtlasPostgameFrame): AtlasP
           // Atlas masks live private zones by owner/zone/slot. The exact game,
           // authoritative sequence and public board anchor this one position;
           // a masked slot is never itself evidence of a matching card identity.
-          if (state.room.fields.gameHistoryStartedAt !== raw.gameHistoryStartedAt) return "room_timestamp";
           continue;
         }
         if (a.id !== b.id) return a.id.startsWith("__hidden_zone__:") ? "hidden_slot_id" : "card_id";
@@ -68,7 +70,8 @@ function positionMismatch(state: ReplayState, frame: AtlasPostgameFrame): AtlasP
 function samePosition(state: ReplayState, frame: AtlasPostgameFrame): boolean { return positionMismatch(state, frame) === null; }
 
 export function matchAtlasPostgameReplay(canonical: CanonicalReplayV2, source: AtlasPostgameSource): AtlasPostgameAlignment {
-  if (canonical.source.schema !== "riftreplay-raw-capture" || canonical.series.roomCode !== source.metadata.roomCode || !sameIds(canonical.series.participants.map(player => player.id), source.metadata.participantIds)) throw new AtlasPostgameError("This Atlas file belongs to a different replay.", { metadata: 1 });
+  const sanitizedRoomIdentity = canonical.series.roomCode === "" && canonical.source.roomCode === "" && canonical.source.captureSessionId === "";
+  if (canonical.source.schema !== "riftreplay-raw-capture" || (!sanitizedRoomIdentity && canonical.series.roomCode !== source.metadata.roomCode) || !sameIds(canonical.series.participants.map(player => player.id), source.metadata.participantIds)) throw new AtlasPostgameError("This Atlas file belongs to a different replay.", { metadata: 1 });
   if (canonical.series.format !== "unknown" && canonical.series.format !== source.view.frames[0].state.matchFormat) throw new AtlasPostgameError("The Atlas export and captured replay have different match formats.", { metadata: 1 });
   const candidates = canonical.series.games.filter(game => game.gameNumber === source.metadata.gameNumber && game.startedAt <= source.metadata.completedAt + 15_000 && game.endedAt >= source.metadata.createdAt - 15_000);
   if (candidates.length !== 1) throw new AtlasPostgameError("The Atlas file could not be matched to one game in this replay.", { game_identity_or_time: 1 });

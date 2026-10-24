@@ -20,11 +20,11 @@ import { readAtlasPostgame, saveAtlasPostgame, shareAtlasPostgame, MAX_ATLAS_POS
 import { atlasPostgameArtifactPointers } from "./atlas-postgame-model";
 import { ReplayV2Error } from "./errors";
 import { sha256Hex } from "./ids";
-import { projectReplaySummaryRecord } from "./projection";
+import { projectReplaySummaryRecord, sanitizeCanonicalReplay } from "./projection";
 import { REPLAY_EMBED_COOKIE, signReplayEmbedSession } from "./session";
 import { GET, PATCH, PUT } from "@/app/api/v2/replays/[replayId]/atlas-postgame/route";
 import type { ReplayArtifactPointer, ReplayRecord } from "./model";
-import { normalizeRawCaptureV1 } from "@/lib/replay-v2/normalize-replay";
+import { normalizeReplayProviderCapture } from "@/lib/replay-v2/provider-normalization";
 import { projectReplayState } from "@/lib/replay-v2/project-state";
 import type { JsonObject } from "@/lib/replay-v2/types";
 
@@ -101,7 +101,7 @@ beforeEach(() => {
     if (record.visibility === "private" && !aliases.has(record.ownerUid) && !granted.has(uid)) throw new ReplayV2Error(403, "replay_private", "Replay is private.");
     return structuredClone(record);
   });
-  mocks.decode.mockImplementation(value => ({ validated: value }));
+  mocks.decode.mockImplementation(value => ({ validated: value, metadata: { roomCode: "original-room" } }));
   mocks.encode.mockReturnValue(safeExport);
   mocks.match.mockReturnValue(alignment);
   mocks.store.mockImplementation(async (_db: unknown, input: { kind: "raw"; generation: string; bytes: Buffer }) => {
@@ -160,9 +160,24 @@ describe("private per-game Atlas post-game attachments", () => {
           type: "authoritative_snapshot", gameInstanceId: "ROOM", viewerPlayerId: "a", sequence: frame.sequence, snapshot,
         }) };
       }) };
-    const original = normalizeRawCaptureV1(raw), originalJson = JSON.stringify(original), sourceJson = JSON.stringify(source);
+    // This is the same provider-normalization + privacy-projection pipeline used
+    // by normalizeCapture before production stores a canonical artifact.
+    const original = sanitizeCanonicalReplay(normalizeReplayProviderCapture(raw, "atlas", ID).replay);
+    const originalJson = JSON.stringify(original), sourceJson = JSON.stringify(source);
+    expect(original.source.roomCode).toBe("");
+    expect(original.series.roomCode).toBe("");
+    record.roomCode = "ROOM";
     const originalBytes = gzipSync(Buffer.from(originalJson)), originalPointer = pointer("canonical", originalBytes);
     files.set(originalPointer.generation, originalBytes); record.canonicalArtifact = originalPointer;
+    for (const roomCode of ["OTHER", ""]) {
+      record.roomCode = roomCode;
+      const rejected = await PUT(request("PUT", { expectedAccountId: "owner", expectedSha256: null, replay: source },
+        { authorization: "Bearer owner" }), context);
+      expect(rejected.status).toBe(409);
+      expect(await rejected.json()).toMatchObject({ code: "postgame_match_mismatch" });
+      expect(writes).toEqual([]);
+    }
+    record.roomCode = "ROOM";
     const response = await PUT(request("PUT", { expectedAccountId: "owner", expectedSha256: null, replay: source },
       { authorization: "Bearer owner" }), context);
     expect(response.status).toBe(200);
@@ -198,7 +213,7 @@ describe("private per-game Atlas post-game attachments", () => {
     const bytes = files.get(atlasPostgame!.games[0].artifact.generation)!;
     expect(JSON.parse(gunzipSync(bytes).toString())).toEqual(safeExport);
     expect(gunzipSync(bytes).toString()).not.toContain("credential");
-    expect(mocks.match).toHaveBeenCalledWith(canonical, { validated: { unsafe: "credential" } });
+    expect(mocks.match).toHaveBeenCalledWith(canonical, { validated: { unsafe: "credential" }, metadata: { roomCode: "original-room" } });
     expect(projectReplaySummaryRecord(record, false)).not.toHaveProperty("atlasPostgame");
     expect(projectReplaySummaryRecord(record, true)).not.toHaveProperty("atlasPostgame");
   });

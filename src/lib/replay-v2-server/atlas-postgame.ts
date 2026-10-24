@@ -176,7 +176,15 @@ export async function saveAtlasPostgame(accountId: string, replayId: string, inp
   try { source = decodeAtlasPostgameReplay(value.replay); }
   catch { throw new ReplayV2Error(422, "postgame_export_invalid", "This must be a supported completed Atlas duel export with available card information."); }
   let alignment: ReturnType<typeof matchAtlasPostgameReplay>;
-  try { alignment = matchAtlasPostgameReplay(canonical, source); }
+  try {
+    // The immutable public canonical intentionally has no room code. Bind the
+    // import against private upload metadata without restoring that private
+    // value to the artifact or sending it to the browser.
+    if (!record.roomCode || record.roomCode !== source.metadata.roomCode) {
+      throw new AtlasPostgameError("This Atlas file belongs to a different replay.", { metadata: 1 });
+    }
+    alignment = matchAtlasPostgameReplay(canonical, source);
+  }
   catch (error) {
     const counts: Record<string, number> = {};
     if (error instanceof AtlasPostgameError) {
