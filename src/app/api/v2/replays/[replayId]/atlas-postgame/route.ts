@@ -30,7 +30,14 @@ export async function PUT(request: Request, context: Context) {
     const id = await replayId(context), accountId = await requireReplayMutationUser(request);
     const body = await readBoundedJson(request, MAX_ATLAS_POSTGAME_REQUEST_BYTES);
     return noStoreJson(await saveAtlasPostgame(accountId, id, body));
-  } catch (error) { return replayApiError(error); }
+  } catch (error) {
+    if (error instanceof ReplayV2Error && error.status === 409) {
+      const codes = ["postgame_match_mismatch", "postgame_account_changed", "postgame_replay_not_ready", "postgame_import_changed", "postgame_original_changed"];
+      // Only fixed error codes: no replay/account identifiers, body or error text.
+      console.warn("Atlas postgame attachment rejected", { code: codes.includes(error.code) ? error.code : "other_conflict" });
+    }
+    return replayApiError(error);
+  }
 }
 export async function PATCH(request: Request, context: Context) {
   try {

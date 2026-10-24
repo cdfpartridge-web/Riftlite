@@ -9,8 +9,11 @@ export const ATLAS_POSTGAME_LIMITS = Object.freeze({
   maxExpandedBytes: 512 * 1024 * 1024,
 });
 
+export const ATLAS_POSTGAME_MISMATCH_REASONS = ["metadata", "game_identity_or_time", "room_or_turn", "room_timestamp", "player", "score", "resource", "zone_count", "hidden_slot_id", "card_id", "card_identity", "status", "chain", "public_anchor_count", "sequence_overlap", "insufficient_matching_positions", "unclassified"] as const;
+export type AtlasPostgameMismatchReason = typeof ATLAS_POSTGAME_MISMATCH_REASONS[number];
+export type AtlasPostgameMatchDiagnostics = Partial<Record<AtlasPostgameMismatchReason, number>>;
 export class AtlasPostgameError extends Error {
-  constructor(message: string) { super(message); this.name = "AtlasPostgameError"; }
+  constructor(message: string, public readonly matchDiagnostics?: AtlasPostgameMatchDiagnostics) { super(message); this.name = "AtlasPostgameError"; }
 }
 
 export type AtlasPostgamePlayer = JsonObject & { id: string; name: string; board: JsonObject };

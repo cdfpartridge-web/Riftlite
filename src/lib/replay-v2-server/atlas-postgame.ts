@@ -8,6 +8,7 @@ import {
   decodeAtlasPostgameReplay, encodeAtlasPostgameReplay, matchAtlasPostgameReplay,
 } from "@/lib/replay-v2/atlas-postgame";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2/types";
+import { AtlasPostgameError, ATLAS_POSTGAME_MISMATCH_REASONS } from "@/lib/replay-v2/atlas-postgame/types";
 import {
   deleteImmutableArtifact, readImmutableArtifact, storeImmutableArtifact,
 } from "./artifacts";
@@ -176,7 +177,18 @@ export async function saveAtlasPostgame(accountId: string, replayId: string, inp
   catch { throw new ReplayV2Error(422, "postgame_export_invalid", "This must be a supported completed Atlas duel export with available card information."); }
   let alignment: ReturnType<typeof matchAtlasPostgameReplay>;
   try { alignment = matchAtlasPostgameReplay(canonical, source); }
-  catch { throw new ReplayV2Error(409, "postgame_match_mismatch", "This Atlas export does not match the original replay. Choose the same game."); }
+  catch (error) {
+    const counts: Record<string, number> = {};
+    if (error instanceof AtlasPostgameError) {
+      for (const key of ATLAS_POSTGAME_MISMATCH_REASONS) {
+        const value = error.matchDiagnostics?.[key];
+        if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) counts[key] = Math.min(value, 1_000_000);
+      }
+    }
+    if (!Object.keys(counts).length) counts.unclassified = 1;
+    console.warn("[atlas-postgame-match-diagnostic]", counts);
+    throw new ReplayV2Error(409, "postgame_match_mismatch", "This Atlas export does not match the original replay. Choose the same game.");
+  }
   // Re-encode the validated allowlisted source. Never persist the original
   // envelope, unused DAG nodes, credentials or an expanded per-frame JSON graph.
   const encoded = Buffer.from(JSON.stringify(encodeAtlasPostgameReplay(source)), "utf8");

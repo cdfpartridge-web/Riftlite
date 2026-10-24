@@ -90,6 +90,14 @@ describe("Atlas post-game files", () => {
 });
 
 describe("Atlas attachment alignment", () => {
+  it("reports only bounded categorical mismatch counts while retaining the rejection", () => {
+    const source = decodeAtlasPostgameReplay(fixture()), canonical = canonicalFor();
+    for (const event of canonical.events) if (event.kind === "snapshot") event.snapshot.players.a.zones.legend[0].fields.exhausted = true;
+    let diagnostic: unknown;
+    try { matchAtlasPostgameReplay(canonical, source); } catch (error) { diagnostic = (error as { matchDiagnostics?: unknown }).matchDiagnostics; }
+    expect(diagnostic).toEqual({ sequence_overlap: 1, status: 2, insufficient_matching_positions: 1 });
+    expect(JSON.stringify(diagnostic)).not.toMatch(/ROOM|Player|legend|1790/);
+  });
   it("matches genuine masked capture slots using exact public cards and sequences without changing original IDs or opening", () => {
     const input = fixture();
     const players = input.replay.frames[0].state.players as JsonObject[];

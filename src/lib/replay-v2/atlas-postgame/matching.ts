@@ -1,7 +1,7 @@
 import { isRecord } from "../json";
 import { createInitialReplayState, reduceReplayEvent } from "../project-state";
 import type { CanonicalReplayV2, JsonObject, ReplayCardState, ReplayState } from "../types";
-import { AtlasPostgameError, type AtlasPostgameAlignment, type AtlasPostgameFrame, type AtlasPostgameProjection, type AtlasPostgameSource } from "./types";
+import { AtlasPostgameError, type AtlasPostgameAlignment, type AtlasPostgameFrame, type AtlasPostgameProjection, type AtlasPostgameSource, type AtlasPostgameMismatchReason, type AtlasPostgameMatchDiagnostics } from "./types";
 import { ATLAS_CARD_ZONES } from "./validation";
 
 const STATUS_FIELDS = ["exhausted", "hidden", "attachedToCardId", "banishedByCardId", "temporaryMightBuff", "whiteCounter", "redCounter", "customLabels"];
@@ -20,61 +20,65 @@ function isMaskedSlot(card: ReplayCardState, playerId: string, zone: string, ind
 }
 
 /** Exact sequence plus the captured board is the anchor; elapsed time alone is never an alignment. */
-function samePosition(state: ReplayState, frame: AtlasPostgameFrame): boolean {
+function positionMismatch(state: ReplayState, frame: AtlasPostgameFrame): AtlasPostgameMismatchReason | null {
   const raw = frame.state;
-  if (state.room.rawPhase !== raw.phase || state.room.turnNumber !== raw.turnNumber || state.room.activeTurnPlayerId !== raw.activeTurnPlayerId || state.room.gameNumber !== (raw.gameNumber ?? 1)) return false;
+  if (state.room.rawPhase !== raw.phase || state.room.turnNumber !== raw.turnNumber || state.room.activeTurnPlayerId !== raw.activeTurnPlayerId || state.room.gameNumber !== (raw.gameNumber ?? 1)) return "room_or_turn";
   for (const key of ["createdAt", "gameHistoryStartedAt", "gameHistoryEndedAt"]) {
-    if (state.room.fields[key] !== undefined && raw[key] !== state.room.fields[key]) return false;
+    if (state.room.fields[key] !== undefined && raw[key] !== state.room.fields[key]) return "room_timestamp";
   }
-  if (!sameIds(Object.keys(state.players), raw.players.map(player => player.id))) return false;
+  if (!sameIds(Object.keys(state.players), raw.players.map(player => player.id))) return "player";
   let anchoredCards = 0;
   for (const player of raw.players) {
     const captured = state.players[player.id];
-    if (!captured || captured.score !== player.board.score) return false;
+    if (!captured) return "player";
+    if (captured.score !== player.board.score) return "score";
     for (const field of ["floatingEnergy", "floatingPower", "legendXp"]) {
-      if (captured.boardFields[field] !== undefined && !equal(captured.boardFields[field], player.board[field])) return false;
+      if (captured.boardFields[field] !== undefined && !equal(captured.boardFields[field], player.board[field])) return "resource";
     }
     for (const zone of ATLAS_CARD_ZONES) {
       const cards = (player.board[zone] ?? []) as JsonObject[];
       const existing = captured.zones[zone] ?? [];
-      if (existing.length !== cards.length) return false;
+      if (existing.length !== cards.length) return "zone_count";
       for (let index = 0; index < cards.length; index++) {
         const a = existing[index], b = cards[index];
         if (isMaskedSlot(a, player.id, zone, index)) {
           // Atlas masks live private zones by owner/zone/slot. The exact game,
           // authoritative sequence and public board anchor this one position;
           // a masked slot is never itself evidence of a matching card identity.
-          if (state.room.fields.gameHistoryStartedAt !== raw.gameHistoryStartedAt) return false;
+          if (state.room.fields.gameHistoryStartedAt !== raw.gameHistoryStartedAt) return "room_timestamp";
           continue;
         }
-        if (a.id !== b.id) return false;
+        if (a.id !== b.id) return a.id.startsWith("__hidden_zone__:") ? "hidden_slot_id" : "card_id";
         if (!HIDDEN_ZONES.has(zone)) anchoredCards++;
-        if (a.name && a.name !== b.name || a.cardCode && a.cardCode !== b.cardCode) return false;
+        if (a.name && a.name !== b.name || a.cardCode && a.cardCode !== b.cardCode) return "card_identity";
         for (const field of STATUS_FIELDS) {
-          if (a.fields[field] !== undefined && !equal(a.fields[field], b[field])) return false;
+          if (a.fields[field] !== undefined && !equal(a.fields[field], b[field])) return "status";
         }
       }
     }
   }
   const chain = raw.chainEntries;
-  if (!Array.isArray(chain) || chain.length !== state.chain.length) return false;
+  if (!Array.isArray(chain) || chain.length !== state.chain.length) return "chain";
   for (let index = 0; index < chain.length; index++) {
     const entry = chain[index], existing = state.chain[index];
-    if (!isRecord(entry) || existing.id !== entry.id || !isRecord(entry.card) || !isRecord(existing.fields.card) || existing.fields.card.id !== entry.card.id) return false;
+    if (!isRecord(entry) || existing.id !== entry.id || !isRecord(entry.card) || !isRecord(existing.fields.card) || existing.fields.card.id !== entry.card.id) return "chain";
   }
-  return anchoredCards >= 2;
+  return anchoredCards >= 2 ? null : "public_anchor_count";
 }
+function samePosition(state: ReplayState, frame: AtlasPostgameFrame): boolean { return positionMismatch(state, frame) === null; }
 
 export function matchAtlasPostgameReplay(canonical: CanonicalReplayV2, source: AtlasPostgameSource): AtlasPostgameAlignment {
-  if (canonical.source.schema !== "riftreplay-raw-capture" || canonical.series.roomCode !== source.metadata.roomCode || !sameIds(canonical.series.participants.map(player => player.id), source.metadata.participantIds)) throw new AtlasPostgameError("This Atlas file belongs to a different replay.");
-  if (canonical.series.format !== "unknown" && canonical.series.format !== source.view.frames[0].state.matchFormat) throw new AtlasPostgameError("The Atlas export and captured replay have different match formats.");
+  if (canonical.source.schema !== "riftreplay-raw-capture" || canonical.series.roomCode !== source.metadata.roomCode || !sameIds(canonical.series.participants.map(player => player.id), source.metadata.participantIds)) throw new AtlasPostgameError("This Atlas file belongs to a different replay.", { metadata: 1 });
+  if (canonical.series.format !== "unknown" && canonical.series.format !== source.view.frames[0].state.matchFormat) throw new AtlasPostgameError("The Atlas export and captured replay have different match formats.", { metadata: 1 });
   const candidates = canonical.series.games.filter(game => game.gameNumber === source.metadata.gameNumber && game.startedAt <= source.metadata.completedAt + 15_000 && game.endedAt >= source.metadata.createdAt - 15_000);
-  if (candidates.length !== 1) throw new AtlasPostgameError("The Atlas file could not be matched to one game in this replay.");
+  if (candidates.length !== 1) throw new AtlasPostgameError("The Atlas file could not be matched to one game in this replay.", { game_identity_or_time: 1 });
   const game = candidates[0];
   const bySequence = new Map<number, AtlasPostgameFrame[]>();
   for (const frame of source.view.frames) bySequence.set(frame.sequence, [...(bySequence.get(frame.sequence) ?? []), frame]);
   const frameByEventIndex: Record<number, number> = {};
   const matchedFrames = new Set<number>();
+  const diagnostics: AtlasPostgameMatchDiagnostics = {};
+  const count = (reason: AtlasPostgameMismatchReason) => { diagnostics[reason] = Math.min(1_000_000, (diagnostics[reason] ?? 0) + 1); };
   let state = createInitialReplayState(canonical), lastMatched: AtlasPostgameFrame | undefined;
   for (const event of canonical.events) {
     if (event.index > game.eventEndIndex) break;
@@ -85,14 +89,23 @@ export function matchAtlasPostgameReplay(canonical: CanonicalReplayV2, source: A
     if (state.gameId !== game.id || event.index < game.eventStartIndex) { lastMatched = undefined; continue; }
     const sequence = event.kind === "snapshot" ? event.sequence : event.kind === "action" ? event.patch.sequence : undefined;
     if (sequence !== undefined) {
-      const frames = (bySequence.get(sequence) ?? []).filter(frame => samePosition(state, frame));
+      const candidates = bySequence.get(sequence) ?? [];
+      if (!candidates.length) count("sequence_overlap");
+      const frames = candidates.filter(frame => {
+        const mismatch = positionMismatch(state, frame);
+        if (mismatch) count(mismatch);
+        return mismatch === null;
+      });
       lastMatched = frames.length === 1 ? frames[0] : undefined;
       if (lastMatched) matchedFrames.add(lastMatched.index);
     } else if (!["log", "chat", "interaction", "phase", "game_boundary"].includes(event.kind)) lastMatched = undefined;
     if (lastMatched && samePosition(state, lastMatched)) frameByEventIndex[event.index] = lastMatched.index;
     else lastMatched = undefined;
   }
-  if (matchedFrames.size < 2) throw new AtlasPostgameError("This file does not have enough matching captured positions. Your original replay has been kept.");
+  if (matchedFrames.size < 2) {
+    count("insufficient_matching_positions");
+    throw new AtlasPostgameError("This file does not have enough matching captured positions. Your original replay has been kept.", diagnostics);
+  }
   const indices = Object.keys(frameByEventIndex).map(Number).sort((a, b) => a - b);
   return {
     gameId: game.id, gameNumber: game.gameNumber, frameCount: source.view.frames.length,
