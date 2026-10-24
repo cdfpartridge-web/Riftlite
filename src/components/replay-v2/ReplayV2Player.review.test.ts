@@ -16,8 +16,12 @@ import { ReplayV2Player } from "./ReplayV2Player";
 import { replayNotesStorageKey } from "./replay-notes";
 
 const replayId = "rp_review_tools";
+const replayUrl = `/api/v2/replays/${replayId}`;
+const metadataUrl = `${replayUrl}/atlas-postgame?metadata=1`;
 const preferenceKey = "riftlite.replay.details-hidden.v1";
 let replay: CanonicalReplayV2;
+
+const requestedUrls = () => vi.mocked(fetch).mock.calls.map(([url]) => String(url));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -27,15 +31,23 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), { headers: { "content-type": "application/json" }, status: 200 })));
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url !== replayUrl && url !== metadataUrl) throw new Error(`Unexpected replay request: ${url}`);
+    const payload = url === replayUrl ? { replay }
+      : { accountId: "public", canManage: false, available: false, games: [] };
+    return new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" }, status: 200 });
+  }));
   if (!HTMLElement.prototype.scrollTo) HTMLElement.prototype.scrollTo = () => undefined;
   if (!HTMLElement.prototype.animate) HTMLElement.prototype.animate = () => ({ pause() {}, play() {} }) as Animation;
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.localStorage.clear(); window.history.replaceState({}, "", "/"); });
 
 async function open() {
+  const previousRequests = requestedUrls();
   const view = render(createElement(ReplayV2Player, { replayId }));
   await view.findByRole("slider", { name: "Replay progress" });
+  await waitFor(() => expect(requestedUrls()).toEqual([...previousRequests, replayUrl, metadataUrl]));
   return view;
 }
 
@@ -43,6 +55,7 @@ describe("review player integration", () => {
   it("builds only when opened, pauses and seeks exactly, caches across playback and restores panel preference", async () => {
     window.localStorage.setItem(preferenceKey, "true");
     const view = await open();
+    const initialRequests = requestedUrls();
     await view.findByRole("button", { name: "Show side panel" });
     expect(buildReplayReview).not.toHaveBeenCalled();
     fireEvent.click(view.getByRole("button", { name: "Play replay" }));
@@ -64,7 +77,7 @@ describe("review player integration", () => {
     fireEvent.click(view.getByRole("button", { name: "Review game" }));
     expect(buildReplayReview).toHaveBeenCalledOnce();
     expect(view.getByRole("tab", { name: "Search" })).toHaveAttribute("aria-selected", "true");
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(requestedUrls()).toEqual(initialRequests);
   });
 
   it("keeps a note draft intact while reviewing and returns to the same editor", async () => {

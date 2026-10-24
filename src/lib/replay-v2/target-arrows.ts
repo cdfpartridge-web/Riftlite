@@ -6,6 +6,18 @@ const BOARD_ZONES = ["base", "battlefieldA", "battlefieldB", "battlefieldC", "ba
 const BATTLEFIELD_PREFIX = "battlefield-marker:";
 const BASE_PREFIX = "base-area-marker:";
 
+/** Curve gently, then approach the target along its source-to-target direction. */
+export function replayTargetArrowPath({ fromX, fromY, toX, toY }: {
+  fromX: number; fromY: number; toX: number; toY: number;
+}): string {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const bend = Math.min(.12, 65 / Math.max(1, Math.hypot(dx, dy)));
+  // SVG orient="auto" follows the final tangent. Keeping this control point
+  // behind the target avoids forcing every arrowhead to face down.
+  return `M ${fromX} ${fromY} C ${fromX + dx / 3 + dy * bend} ${fromY + dy / 3 - dx * bend}, ${toX - dx / 3} ${toY - dy / 3}, ${toX} ${toY}`;
+}
+
 /**
  * Read captured room state, never infer arrows from intents or future events.
  * Atlas persists arrows until an authoritative clear/removal, not a timer.

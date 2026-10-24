@@ -15,7 +15,11 @@ import { ReplayV2Player } from "./ReplayV2Player";
 
 const preferenceKey = "riftlite.replay.details-hidden.v1";
 const replayId = "rp_side_panel";
+const replayUrl = `/api/v2/replays/${replayId}`;
+const metadataUrl = `${replayUrl}/atlas-postgame?metadata=1`;
 let replay: CanonicalReplayV2;
+
+const requestedUrls = () => vi.mocked(fetch).mock.calls.map(([url]) => String(url));
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -25,10 +29,13 @@ beforeEach(() => {
   // Keep time fixed so a layout change cannot be mistaken for a playback seek.
   vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ replay }), {
-    headers: { "content-type": "application/json" },
-    status: 200,
-  })));
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url !== replayUrl && url !== metadataUrl) throw new Error(`Unexpected replay request: ${url}`);
+    const payload = url === replayUrl ? { replay }
+      : { accountId: "public", canManage: false, available: false, games: [] };
+    return new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" }, status: 200 });
+  }));
   if (!HTMLElement.prototype.scrollTo) HTMLElement.prototype.scrollTo = () => undefined;
   if (!HTMLElement.prototype.animate) {
     HTMLElement.prototype.animate = () => ({ pause() {}, play() {} }) as Animation;
@@ -44,14 +51,17 @@ afterEach(() => {
 });
 
 async function openReplay() {
+  const previousRequests = requestedUrls();
   const view = render(createElement(ReplayV2Player, { replayId }));
   await view.findByRole("slider", { name: "Replay progress" });
+  await waitFor(() => expect(requestedUrls()).toEqual([...previousRequests, replayUrl, metadataUrl]));
   return view;
 }
 
 describe("replay side panel preference", () => {
   it("expands the board without remounting details, refetching, or changing playback and activity", async () => {
     const view = await openReplay();
+    const initialRequests = requestedUrls();
     const details = view.getByRole("complementary", { name: "Replay details" });
     const timeline = view.getByRole("slider", { name: "Replay progress" });
     const toggle = view.getByRole("button", { name: "Hide side panel" });
@@ -80,7 +90,7 @@ describe("replay side panel preference", () => {
     expect(view.container.querySelector('[data-details-hidden="true"]')).not.toBeInTheDocument();
     fireEvent.click(view.getByRole("button", { name: "Hide side panel" }));
     expect(view.getByRole("button", { name: "Pause replay" })).toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(requestedUrls()).toEqual(initialRequests);
   });
 
   it("remembers a hidden panel on a fresh mount and remembers showing it again", async () => {
@@ -109,17 +119,19 @@ describe("replay side panel preference", () => {
       throw new DOMException("Storage unavailable", "SecurityError");
     });
     const view = await openReplay();
+    const initialRequests = requestedUrls();
     fireEvent.click(view.getByRole("button", { name: "Hide side panel" }));
     expect(view.container.querySelector("[data-replay-details]")).toHaveAttribute("hidden");
     fireEvent.click(view.getByRole("button", { name: "Show side panel" }));
     expect(view.getByRole("complementary", { name: "Replay details" })).not.toHaveAttribute("hidden");
     expect(write).toHaveBeenCalledWith(preferenceKey, "true");
     expect(write).toHaveBeenCalledWith(preferenceKey, "false");
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(requestedUrls()).toEqual(initialRequests);
   });
 
   it("reveals timeline notes while preserving an unsaved draft across hiding", async () => {
     const view = await openReplay();
+    const initialRequests = requestedUrls();
     fireEvent.click(view.getByRole("button", { name: "Add replay note at 0:02.500" }));
     const title = await view.findByRole("textbox", { name: "Replay note title" });
     const body = view.getByRole("textbox", { name: "Replay note" });
@@ -141,7 +153,7 @@ describe("replay side panel preference", () => {
     expect(view.getByRole("button", { name: "Hide side panel" })).toHaveAttribute("aria-expanded", "true");
     expect(view.container.querySelector("[data-replay-note-inspector]")).toHaveTextContent("Keep the temporary buff in mind.");
     expect(view.getByRole("slider", { name: "Replay progress" })).toHaveValue("2500");
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(requestedUrls()).toEqual(initialRequests);
   });
 
   it("temporarily opens details for analysis and restores the saved preference on return", async () => {

@@ -1,0 +1,11 @@
+.views{display:inline-flex;align-items:center;gap:2px;padding:3px;border:1px solid #284458;border-radius:9px;background:#081522;flex-shrink:0}
+.views button,.manage,.dialog button{border:1px solid #36526a;border-radius:7px;background:#122638;color:#dff6ff;padding:7px 10px;font:inherit;font-size:12px;cursor:pointer}
+.views button{border-color:transparent;background:transparent}
+.views button[aria-pressed=true]{background:#21485b;border-color:#4ac8d6;color:#fff}
+.views button:disabled,.dialog button:disabled{opacity:.45;cursor:default}
+.views button:focus-visible,.manage:focus-visible,.dialog button:focus-visible{outline:2px solid #69e6f3;outline-offset:3px}
+.coverage,.error{font-size:12px;max-width:340px}.coverage{color:#b3cad9}.error{color:#ffb5c4}
+.dialog{width:min(550px,calc(100vw - 40px));max-height:85vh;overflow:auto;color:#dbeaf4;border:1px solid #365a72;border-radius:15px;padding:22px;background:#0d1c2b;box-shadow:0 20px 100px #0009;font-size:14px;line-height:1.55}
+.dialog::backdrop{background:#000a}.dialog header{display:flex;align-items:center;justify-content:space-between;gap:12px}.dialog h2{font-size:21px;margin:0}.dialog p{margin:14px 0}.dialog ol{padding-left:23px}.dialog li{padding:3px 0}
+.dialog .primary{background:#7be0e8;color:#062332;border-color:#7be0e8;font-weight:700}.dialog footer{display:flex;justify-content:flex-end;margin-top:18px}
+.file{display:none}.hint{font-size:12px;color:#a2bbcc}.game{border-top:1px solid #2b4357;padding:14px 0}.game div{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between}.game span{font-size:12px;color:#a2bbcc}.game label{display:flex;align-items:center;gap:9px;margin-top:10px;font-size:13px}.success{color:#93f1cd}

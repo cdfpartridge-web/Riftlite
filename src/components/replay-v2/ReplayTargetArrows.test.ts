@@ -58,6 +58,27 @@ beforeEach(() => {
 afterEach(() => { cleanup(); board.remove(); vi.unstubAllGlobals(); });
 
 describe("captured target arrows", () => {
+  it.each([
+    [400, 0], [-400, 0], [0, 400], [0, -400],
+    [400, 300], [-400, 300], [400, -300], [-400, -300], [12, -12],
+  ])("points the arrowhead toward the target at offset (%i, %i)", (dx, dy) => {
+    replayArrowElement(board, "a", "board")!.getBoundingClientRect = () => rectangle(600, 400);
+    replayArrowElement(board, "b", "board")!.getBoundingClientRect = () => rectangle(600 + dx, 400 + dy);
+    const view = render(createElement(ReplayTargetArrows, props()));
+    measureFrame();
+    const line = view.container.querySelector('[data-recorded-target-arrow="ours"] path[marker-end]')!;
+    const coordinates = line.getAttribute("d")!.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/g)!.map(Number);
+    expect(coordinates).toHaveLength(8);
+    expect(coordinates.every(Number.isFinite)).toBe(true);
+    const tangentX = coordinates[6] - coordinates[4];
+    const tangentY = coordinates[7] - coordinates[5];
+    // Marker rotation is determined by the final tangent, not the overall chord.
+    const alignment = (tangentX * dx + tangentY * dy) / (Math.hypot(tangentX, tangentY) * Math.hypot(dx, dy));
+    expect(alignment).toBeCloseTo(1, 10);
+    const markerId = line.getAttribute("marker-end")!.slice(5, -1);
+    expect([...view.container.querySelectorAll("marker")].find(marker => marker.id === markerId)).toHaveAttribute("orient", "auto");
+  });
+
   it("measures an initially mounted board after its parent ref attaches", () => {
     const rootRef: { current: HTMLDivElement | null } = { current: null };
     const view = render(createElement("div", { ref: (element: HTMLDivElement | null) => {

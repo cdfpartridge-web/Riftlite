@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState, type RefObject } from "react";
-import { getReplayTargetArrows } from "@/lib/replay-v2/target-arrows";
+import { getReplayTargetArrows, replayTargetArrowPath } from "@/lib/replay-v2/target-arrows";
 import type { ReplayState, ReplayTargetArrow } from "@/lib/replay-v2/types";
 import styles from "./ReplayTargetArrows.module.css";
 
@@ -94,8 +94,7 @@ export function ReplayTargetArrows({ rootRef, state, eventIndex, perspectivePlay
       </marker>)}</defs>
       {arrows.map(arrow => {
         const side = arrow.actorPlayerId === perspectivePlayerId ? "ours" : "theirs";
-        const curve = Math.min(65, Math.max(20, Math.abs(arrow.toX - arrow.fromX) * .12));
-        const d = `M ${arrow.fromX} ${arrow.fromY} C ${arrow.fromX} ${arrow.fromY - curve}, ${arrow.toX} ${arrow.toY - curve}, ${arrow.toX} ${arrow.toY}`;
+        const d = replayTargetArrowPath(arrow);
         return <g className={styles[side]} data-recorded-target-arrow={side} key={arrow.id}>
           <path className={styles.outline} d={d} />
           <path className={styles.arrow} d={d} markerEnd={`url(#${markerPrefix}-${side})`} />

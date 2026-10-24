@@ -46,6 +46,8 @@ export type ReplayRecord = {
   listing?: ReplayListingMetadata;
   /** Private post-game deck attachment. Excluded from public/canonical projections. */
   ownerHistoryDecks?: import("@/lib/replay-v2/atlas-history").AtlasMatchHistory;
+  /** Separate post-game supplement. Private unless its owner explicitly shares it. */
+  atlasPostgame?: import("./atlas-postgame-model").AtlasPostgameManifest;
   expectedRaw: {
     sha256: string;
     bytes: number;

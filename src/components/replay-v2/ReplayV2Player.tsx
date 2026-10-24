@@ -46,6 +46,7 @@ import { totalBattlefieldMight } from "./battlefield-might";
 import { ReplaySoundControls } from "./ReplaySoundControls";
 import { useReplaySounds } from "./use-replay-sounds";
 import { ReplayTargetArrows } from "./ReplayTargetArrows";
+import { replayTargetArrowPath } from "@/lib/replay-v2/target-arrows";
 import { useReplayExitMotion } from "./useReplayExitMotion";
 
 import styles from "./ReplayV2Player.module.css";
@@ -165,6 +166,8 @@ import {
   type ReplayNotesProjectV1,
 } from "./replay-notes";
 import { useReplayAccountReview } from "./useReplayAccountReview";
+import { useAtlasPostgame } from "./useAtlasPostgame";
+import { AtlasPostgameControls } from "./AtlasPostgameControls";
 import { ReviewAccountControls } from "./ReviewAccountControls";
 import {
   MAX_SHARED_REPLAY_NOTES_URL_BYTES,
@@ -466,6 +469,17 @@ export function ReplayV2Player({
     : false;
   const deferredCardsUp = useDeferredValue(cardsUp);
   const sourceReplay = loadState.status === "ready" ? loadState.replay : null;
+  const atlasPostgame = useAtlasPostgame({ replayId, apiBasePath, replay: sourceReplay,
+    enabled: !casterMode && !trainingReplay && sourceReplay?.source.schema === "riftreplay-raw-capture" });
+  const resetCardView = useCallback(() => {
+    setPlaying(false);
+    setCardsUpPreference({ replayId, enabled: false });
+    setHoveredCard(null);
+    setSelectedCard(null);
+    setDiscardOverlay(null);
+    setBanishedOverlay(null);
+    setMotionEpoch(value => value + 1);
+  }, [replayId]);
   const {
     enabled: soundEnabled, volume: soundVolume, setEnabled: setSoundEnabled,
     setVolume: setSoundVolume, unlock: unlockSounds, silence: silenceSounds, advance: advanceSounds,
@@ -802,9 +816,27 @@ export function ReplayV2Player({
       return null;
     }
   }, [cardsUpProjectionCache, eventIndex]);
-  const cardsUpProjectionActive = cardsUp && Boolean(cardsUpProjection) && !analysisSession;
-  const state = analysisSession?.state ?? (
-    cardsUp ? cardsUpProjection?.state : null
+  const projectAtlasState = atlasPostgame.project;
+  const atlasProjection = useMemo(() => projectAtlasState(canonicalState), [projectAtlasState, canonicalState]);
+  const capturedOpening = Boolean(presentationStage || (replay && canonicalState && activeScene(replay, canonicalState, currentMs) === "opening"));
+  const allCardsActive = atlasPostgame.allCards && atlasProjection?.available === true && !analysisSession && !capturedOpening && !combinedReplay;
+  const cardsUpProjectionActive = cardsUp && Boolean(cardsUpProjection) && !analysisSession && !atlasPostgame.allCards;
+  const cardInformationBoundary = `${atlasPostgame.boundaryKey}:${atlasPostgame.allCards}:${allCardsActive}`;
+  const previousAllCards = useRef(false);
+  useLayoutEffect(() => {
+    const hadAllCards = previousAllCards.current;
+    previousAllCards.current = atlasPostgame.allCards;
+    if (!hadAllCards && !atlasPostgame.allCards) return;
+    // Never leave an inspected private card visible after switching back or losing access.
+    // This security boundary must clear before paint, including a remote account change.
+    setHoveredCard(null);
+    setSelectedCard(null);
+    setDiscardOverlay(null);
+    setBanishedOverlay(null);
+    setMotionEpoch(value => value + 1);
+  }, [cardInformationBoundary, atlasPostgame.allCards]);
+  const state = analysisSession?.state ?? (allCardsActive ? atlasProjection?.state : null) ?? (
+    cardsUpProjectionActive ? cardsUpProjection?.state : null
   ) ?? casterCanonicalState;
   const currentEvent = useMemo(
     () => (replay ? replayDisplayEvent(replay, eventIndex) : undefined),
@@ -2394,6 +2426,7 @@ export function ReplayV2Player({
                 analysisActive={Boolean(analysisSession)}
                 analysisDraggingCardId={analysisDraggingCardId}
                 cardsUp={cardsUpProjectionActive && !combinedReplay}
+                allCards={allCardsActive}
                 currentMs={currentMs}
                 eventIndex={eventIndex}
                 motionEpoch={motionEpoch}
@@ -2717,6 +2750,8 @@ export function ReplayV2Player({
                 />
               ) : (
                 <TransportControls
+                  atlasControls={!casterMode && !trainingReplay && !combinedReplay ? <AtlasPostgameControls
+                    atlas={atlasPostgame} covered={allCardsActive} capturedOpening={capturedOpening} knownCards={cardsUpProjectionActive} disabled={Boolean(analysisSession)} onChangeView={resetCardView} /> : null}
                   detailsControl={detailsCanHide ? (
                     <>
                     <button
@@ -2797,10 +2832,10 @@ export function ReplayV2Player({
                   onStepTurn={stepTurn}
                   onToggleMore={() => setShowMore((value) => !value)}
                   onToggleAnalysis={toggleAnalysis}
-                  onToggleCardsUp={() => setCardsUpPreference((current) => ({
+                  onToggleCardsUp={() => { atlasPostgame.showPlayerView(); setCardsUpPreference((current) => ({
                     enabled: current.replayId === replayId ? !current.enabled : true,
                     replayId,
-                  }))}
+                  })); }}
                   onShowScoreTagsChange={updateShowScoreTags}
                   onTogglePlayerNames={() => setPlayerNamePrivacy((current) => ({
                     hidden: current.replayId === replayId ? !current.hidden : true,
@@ -2901,6 +2936,7 @@ export function ReplayV2Player({
 }
 
 function ReplayBoard({
+  allCards,
   analysisActive,
   analysisDraggingCardId,
   cardsUp,
@@ -2923,6 +2959,7 @@ function ReplayBoard({
   suppressScenes,
   suppressMotion,
 }: {
+  allCards: boolean;
   analysisActive: boolean;
   analysisDraggingCardId: string | null;
   cardsUp: boolean;
@@ -2964,7 +3001,8 @@ function ReplayBoard({
     () => replayDisplayEvent(replay, eventIndex),
     [eventIndex, replay],
   );
-  const openHands = isConsentedDualPerspectiveReplay(replay);
+  const combinedHands = isConsentedDualPerspectiveReplay(replay);
+  const openHands = combinedHands || allCards;
   const deckPeek = useMemo(
     () => buildDeckPeekPresentation(replay, state, eventIndex),
     [eventIndex, replay, state],
@@ -3067,6 +3105,7 @@ function ReplayBoard({
       data-analysis-board={analysisActive ? "true" : undefined}
       data-analysis-dragging={analysisDraggingCardId ? "true" : undefined}
       data-cards-up={cardsUp ? "known-only" : undefined}
+      data-atlas-all-cards={allCards ? "true" : undefined}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       ref={boardRef}
@@ -3149,12 +3188,15 @@ function ReplayBoard({
           <span>What-if branch</span>
         </div>
       ) : null}
-      {openHands ? (
+      {combinedHands ? (
         <div className={styles.combinedReplayBadge} data-combined-replay="open-hands">
           <Icon name="combine" />
           <span>Combined replay <i>·</i> Open hands</span>
         </div>
       ) : null}
+      {allCards ? <div className={styles.cardsUpBoardBadge} data-atlas-all-cards-badge>
+        <Icon name="eye" /><span>All cards <i>·</i> Atlas post-game</span>
+      </div> : null}
       {cardsUp ? (
         <div className={styles.cardsUpBoardBadge} data-cards-up-badge="known-only">
           <Icon name="eye" />
@@ -3175,6 +3217,7 @@ function ReplayBoard({
       ) : null}
       {scene ? (
         <SceneOverlay
+          allCards={allCards && scene !== "opening"}
           battlefields={battlefields}
           cardsUp={cardsUp}
           currentMs={currentMs}
@@ -4237,12 +4280,11 @@ function TargetArrowLayer({ arrows }: { arrows: TargetArrow[] }) {
         </marker>
       </defs>
       {arrows.map((arrow) => {
-        const curve = Math.max(24, Math.abs(arrow.toX - arrow.fromX) * 0.18);
         return (
           <path
             className={arrow.analysis ? styles.analysisTargetArrow : undefined}
             data-analysis-target-arrow={arrow.analysis ? "true" : undefined}
-            d={`M ${arrow.fromX} ${arrow.fromY} C ${arrow.fromX} ${arrow.fromY - curve}, ${arrow.toX} ${arrow.toY - curve}, ${arrow.toX} ${arrow.toY}`}
+            d={replayTargetArrowPath(arrow)}
             key={arrow.id}
             markerEnd={`url(#${
               arrow.analysis ? "replay-analysis-arrow-head" : "replay-arrow-head"
@@ -4255,6 +4297,7 @@ function TargetArrowLayer({ arrows }: { arrows: TargetArrow[] }) {
 }
 
 function SceneOverlay({
+  allCards,
   battlefields,
   cardsUp,
   currentMs,
@@ -4265,6 +4308,7 @@ function SceneOverlay({
   speed,
   state,
 }: {
+  allCards: boolean;
   battlefields: Array<ReplayCardState | undefined>;
   cardsUp: boolean;
   currentMs: number;
@@ -4276,7 +4320,7 @@ function SceneOverlay({
   state: ReplayState;
 }) {
   const game = gameForState(replay, state);
-  const openHands = isConsentedDualPerspectiveReplay(replay);
+  const openHands = isConsentedDualPerspectiveReplay(replay) || allCards;
   const nextGame = game
     ? replay.series.games.find((candidate) => candidate.ordinal === game.ordinal + 1)
     : replay.series.games[0];
@@ -6613,6 +6657,7 @@ function CasterLowerThird({
 }
 
 function TransportControls({
+  atlasControls,
   detailsControl,
   practiceOnly = false,
   soundControls,
@@ -6665,6 +6710,7 @@ function TransportControls({
   state,
   turns,
 }: {
+  atlasControls: ReactNode;
   practiceOnly?: boolean;
   soundControls: ReactNode;
   detailsControl: ReactNode;
@@ -7055,6 +7101,7 @@ function TransportControls({
           <Icon name="fullscreen" /> {fullscreen ? "Exit full screen" : "Full screen"}
         </button>
         {detailsControl}
+        {atlasControls}
         <button
           aria-expanded={showMore}
           className={`${styles.moreButton} ${showMore ? styles.moreButtonActive : ""}`}

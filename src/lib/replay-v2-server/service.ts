@@ -1,5 +1,6 @@
 import "server-only";
 import { normalizeAtlasMatchHistory, type AtlasMatchHistory } from "@/lib/replay-v2/atlas-history";
+import { atlasPostgameArtifactPointers } from "./atlas-postgame-model";
 
 import { gzipSync, gunzipSync } from "node:zlib";
 
@@ -576,6 +577,7 @@ export async function deleteOwnerReplay(
     deleteReplayReferenceDocuments(db, "replayDiscordRequestReceipts", replayId),
     ...(deleted.rawArtifact ? [deleteImmutableArtifact(db, deleted.rawArtifact)] : []),
     ...(deleted.canonicalArtifact ? [deleteImmutableArtifact(db, deleted.canonicalArtifact)] : []),
+    ...atlasPostgameArtifactPointers(deleted.atlasPostgame).map(pointer => deleteImmutableArtifact(db, pointer)),
   ]);
   const cleanupComplete = cleanup.every((result) => result.status === "fulfilled");
   if (!cleanupComplete) {

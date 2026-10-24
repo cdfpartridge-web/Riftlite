@@ -255,6 +255,28 @@ describe("replay captured-time persistence", () => {
     });
     expect(fake.transaction.delete).not.toHaveBeenCalled();
   });
+
+  it("cleans separate Atlas attachments when the owning replay is deleted", async () => {
+    const existing = replayRecord();
+    const generation = "raw_" + "a".repeat(32);
+    const artifact = { provider: "firestore-chunks" as const, kind: "raw" as const,
+      generation, artifactId: `${existing.replayId}_${generation}`, chunkCount: 1,
+      sha256: "b".repeat(64), bytes: 100, contentType: "application/gzip" as const };
+    existing.atlasPostgame = { schema: "riftlite-atlas-postgame-attachments", version: 1, games: [{
+      gameId: "game-1", gameNumber: 1, frameCount: 12, firstElapsedMs: 0, lastElapsedMs: 1000,
+      matchedEventCount: 3, firstMatchedEventIndex: 1, lastMatchedEventIndex: 8,
+      sha256: "c".repeat(64), importedAt: "2026-10-24T12:00:00.000Z", shared: false,
+      encodedBytes: 100, canonicalSha256: "d".repeat(64), artifact,
+    }] };
+    const fake = fakeReplayDb(existing);
+    const recursiveDelete = vi.fn(async () => undefined);
+    getFirestoreAdminMock.mockReturnValue({ ...fake.db, recursiveDelete });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await deleteOwnerReplay("owner-1", existing.replayId);
+      expect(recursiveDelete).toHaveBeenCalledWith(expect.objectContaining({ path: `replayV2Artifacts/${artifact.artifactId}` }));
+    } finally { consoleError.mockRestore(); }
+  });
 });
 
 describe("replay completion concurrency", () => {
