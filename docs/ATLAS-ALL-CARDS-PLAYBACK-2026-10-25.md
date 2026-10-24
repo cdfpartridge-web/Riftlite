@@ -1,6 +1,6 @@
 # Atlas All cards playback coverage — 25 October 2026
 
-Publication pending final checks. This follows the live production privacy-matching correction in `ATLAS-ALL-CARDS-PRODUCTION-MATCHING-2026-10-25.md`.
+**Live at 00:39 UK:** website runtime `54d4a7148f2115969cf321f225baa07ac3cc38fc`, deployment `dpl_95Gh2Qk7D9PR8YwpzQ4VZmRUJ4j3`, on `https://www.riftlite.com`. All 82 focused tests, scoped lint, TypeScript, the production build, isolated Chromium rendering and six candidate/six live read-only checks passed. This follows the production privacy-matching correction in `ATLAS-ALL-CARDS-PRODUCTION-MATCHING-2026-10-25.md`. Close and reopen or refresh the existing replay, then select All cards; the actual owner attachment already succeeded, so no new game or desktop restart is required. The owner's live rendering after refresh remains for their test.
 
 ## Report and cause
 
@@ -16,10 +16,10 @@ The client recomputes alignment from the already stored attachment. Refreshing o
 
 ## Validation
 
-All 82 focused tests pass: 54 core matching/import tests, 26 server/privacy tests and two full-player tests. Scoped ESLint passes. TypeScript and production build status are recorded with the deployment receipt.
+All 82 focused tests pass: 54 core matching/import tests, 26 server/privacy tests and two full-player tests. Scoped ESLint, isolated TypeScript and the production build passed. The candidate and main-domain GET checks verify the exact deployment marker, original replay availability, private attachment exclusion and invalid-ID validation.
 
 Regression fixtures pass through the real provider normalizer and privacy sanitizer. Core tests cover seeking through housekeeping, same-timestamp patch diagnostics, invalidation on unrelated packets and recovery at a new exact anchor. Full React-player tests use the actual decoder, matcher, account hook and renderer; they verify revealed names/images, switching back to hidden Player view, preserved opening and unchanged canonical data.
 
 An isolated Chromium fixture reproduced the failure before the change. Afterward the same seek position displays the opponent's Daring Poro name and a loaded card image (natural width 1,030px), shows the All cards badge and removes the fallback message. Switching back to Player view restores Hidden card with no identity image. The fixture uses synthetic players and data and no real account services. Browser evidence is under `output/all-cards-playback-20261025/`; focused-suite receipts are under `output/atlas-allcards-display-20261025/`.
 
-Deployment, exact runtime source and final validation receipts will be recorded under `output/all-cards-playback-fix-20261025/`. Preserve the previous runtime `74d07be891f16474ce272beceb33b5b681bcb377` / deployment `dpl_EYtb7FxSKim8kKgSNWefSqu3pV9D` as the immediate rollback. No desktop source, public version, installer or real profile changes are part of this website correction.
+Deployment, exact runtime source and final validation receipts are recorded under `output/all-cards-playback-fix-20261025/`. Archive SHA256: `1e01aacd400d2c0506cf520ff376c630edea123fbf065f403ddf5df47dea427c`. Preserve the previous runtime `74d07be891f16474ce272beceb33b5b681bcb377` / deployment `dpl_EYtb7FxSKim8kKgSNWefSqu3pV9D` as the immediate rollback. No desktop runtime source, public version, installer or real profile changes are part of this website correction. The website's pre-existing `next-env.d.ts` bytes and local demo scripts remain preserved.
