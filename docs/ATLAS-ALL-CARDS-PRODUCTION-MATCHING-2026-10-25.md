@@ -1,5 +1,7 @@
 # Atlas All cards production matching — 25 October 2026
 
+**Live at 00:20 UK:** website runtime `74d07be891f16474ce272beceb33b5b681bcb377`, deployment `dpl_EYtb7FxSKim8kKgSNWefSqu3pV9D`, on `https://www.riftlite.com`. The 74 core/server tests plus 72 player/account-hook tests passed (146 distinct tests), alongside scoped lint, TypeScript and the isolated production build. Six candidate and six final live GET checks passed. The first immediate live check briefly saw the previous homepage build during alias/cache propagation; a subsequent marker check and complete verification passed. A real owner attachment success still requires the desktop retry and has not been observed. Use the current installer, restart its exhausted in-memory queue, leave signed-in Atlas at the lobby briefly and refresh the same recent replay. No additional installer is required for this website correction.
+
 The user restarted the desktop after the first website correction, but All cards remained grey. Exact-replay request correlation showed renewed successful metadata GETs followed by PUT 409 responses. This proved the restart and desktop collection worked; the problem remained in server attachment validation.
 
 ## Production-only cause
