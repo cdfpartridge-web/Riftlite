@@ -1,5 +1,7 @@
 # Atlas All cards attachment correction — 24 October 2026
 
+**Live at 00:02 UK on 25 October (23:02 UTC on 24 October):** runtime `f7a2743b4a712b1d75476ab1d4ebb9bc18a9faf4`, deployment `dpl_5vikKPTt4paThPBCMW6LZVUQkMtU`, on `https://www.riftlite.com`. The isolated production build and TypeScript checks passed. Six read-only candidate checks and six live checks passed, covering the deployment identity, replay page/canonical, private attachment metadata/content exclusion, and invalid-ID rejection. The authenticated owner's real retry is still unobserved. No desktop rebuild or release was needed for this website correction.
+
 The owner tested a new completed Atlas game after the All cards website deployment, but All cards remained disabled. Read-only inspection of the original capture confirmed a Ready upload, current account consent, active local parents and one valid completed-game target. Production request logs, correlated to that replay in memory without exporting its identifiers, showed six attachment PUT requests returning HTTP 409. The desktop reached website delivery and exhausted its six-attempt budget.
 
 ## Cause and correction
