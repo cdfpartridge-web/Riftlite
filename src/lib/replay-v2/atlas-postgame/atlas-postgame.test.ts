@@ -30,6 +30,25 @@ function canonicalFor(input = fixture()): CanonicalReplayV2 {
   };
 }
 
+function maskedCanonicalFor(input = fixture()): CanonicalReplayV2 {
+  const canonical = canonicalFor(input);
+  for (const event of canonical.events) if (event.kind === "snapshot") {
+    for (const [playerId, player] of Object.entries(event.snapshot.players)) {
+      for (const [zone, cards] of Object.entries(player.zones)) {
+        if (!["deck", "runeDeck", "sideboard"].includes(zone) && !(playerId === "b" && zone === "hand")) continue;
+        // Atlas's actual player capture masks private zones with owner/zone/slot IDs.
+        // These IDs intentionally differ from the post-game export's real card IDs.
+        player.zones[zone] = cards.map((_card, index) => {
+          const id = `__hidden_zone__:${playerId}:${zone}:${index}`;
+          return { id, name: "", ownerPlayerId: playerId, source: zone, isPlaceholder: true,
+            fields: { id, ownerPlayerId: playerId, source: zone, isPlaceholder: true } };
+        });
+      }
+    }
+  }
+  return canonical;
+}
+
 describe("Atlas post-game files", () => {
   it("accepts completed duel v1/v2 and retains shared board references without expansion", () => {
     const first = decodeAtlasPostgameReplay(fixture());
@@ -71,6 +90,64 @@ describe("Atlas post-game files", () => {
 });
 
 describe("Atlas attachment alignment", () => {
+  it("matches genuine masked capture slots using exact public cards and sequences without changing original IDs or opening", () => {
+    const input = fixture();
+    const players = input.replay.frames[0].state.players as JsonObject[];
+    ((players[1].board as JsonObject).hand as JsonObject[]).push(card("b-hand-2"));
+    const source = decodeAtlasPostgameReplay(input), canonical = maskedCanonicalFor(input);
+    const before = JSON.stringify(canonical), alignment = matchAtlasPostgameReplay(canonical, source);
+    expect(alignment.matchedEventCount).toBe(2);
+    const state = projectReplayState(canonical, 2), projected = projectAtlasPostgameState(state, source, alignment);
+    expect(projected.available).toBe(true);
+    expect(projected.state.players.b.zones.hand.map(card => card.name)).toEqual(["b-hand", "b-hand-2"]);
+    expect(projected.state.players.b.zones.hand.map(card => card.id)).toEqual(["__hidden_zone__:b:hand:0", "__hidden_zone__:b:hand:1"]);
+    expect(projected.state.players.a.zones.deck[0].name).toBe("a-deck");
+    expect(projected.state.players.b.boardFields.handRevealToOpponent).toBe(false);
+    expect(state.players.b.zones.hand.every(card => card.name === "" && card.isPlaceholder === true)).toBe(true);
+    const opening = projectReplayState(canonical, 1);
+    expect(projectAtlasPostgameState(opening, source, alignment)).toMatchObject({ state: opening, available: false });
+    expect(JSON.stringify(canonical)).toBe(before);
+  });
+  it.each(["owner", "zone", "slot", "count", "visible card", "sequence", "history", "missing history", "identity", "placeholder flag", "owner field"])("rejects masked-slot %s mismatches", changed => {
+    const source = decodeAtlasPostgameReplay(fixture()), canonical = maskedCanonicalFor();
+    for (const event of canonical.events) if (event.kind === "snapshot") {
+      const hand = event.snapshot.players.b.zones.hand, hidden = hand[0];
+      if (changed === "owner") hidden.id = "__hidden_zone__:a:hand:0";
+      if (changed === "zone") hidden.id = "__hidden_zone__:b:deck:0";
+      if (changed === "slot") hidden.id = "__hidden_zone__:b:hand:1";
+      if (changed === "count") hand.pop();
+      if (changed === "visible card") event.snapshot.players.b.zones.legend[0].id = "different-legend";
+      if (changed === "sequence") event.sequence = 99;
+      if (changed === "history") event.snapshot.room.fields.gameHistoryStartedAt = START - 1;
+      if (changed === "missing history") delete event.snapshot.room.fields.gameHistoryStartedAt;
+      if (changed === "identity") hidden.name = "Already identified card";
+      if (changed === "placeholder flag") hidden.isPlaceholder = false;
+      if (changed === "owner field") hidden.fields.ownerPlayerId = "a";
+    }
+    expect(() => matchAtlasPostgameReplay(canonical, source)).toThrow();
+  });
+  it("never counts masked slots or known private cards as the two public card anchors", () => {
+    const input = fixture();
+    const players = input.replay.frames[0].state.players as JsonObject[];
+    (players[1].board as JsonObject).legend = [];
+    const source = decodeAtlasPostgameReplay(input), canonical = maskedCanonicalFor(input);
+    expect(() => matchAtlasPostgameReplay(canonical, source)).toThrow("enough matching");
+  });
+  it("projects a masked slot only from its exact frame and never carries a prior slot identity forward", () => {
+    const input = fixture();
+    input.replay.frames[1].state = structuredClone(input.replay.frames[1].state);
+    const players = input.replay.frames[1].state.players as JsonObject[];
+    ((players[1].board as JsonObject).hand as JsonObject[])[0] = card("b-new-hand");
+    const source = decodeAtlasPostgameReplay(input), canonical = maskedCanonicalFor(input);
+    const alignment = matchAtlasPostgameReplay(canonical, source);
+    const first = projectAtlasPostgameState(projectReplayState(canonical, 2), source, alignment);
+    const last = projectAtlasPostgameState(projectReplayState(canonical, 3), source, alignment);
+    expect(first.state.players.b.zones.hand[0]).toMatchObject({ id: "__hidden_zone__:b:hand:0", name: "b-hand" });
+    expect(last.state.players.b.zones.hand[0]).toMatchObject({ id: "__hidden_zone__:b:hand:0", name: "b-new-hand" });
+    const stale = projectReplayState(canonical, 3);
+    stale.players.b.zones.hand.push({ ...stale.players.b.zones.hand[0], id: "__hidden_zone__:b:hand:1" });
+    expect(projectAtlasPostgameState(stale, source, alignment).available).toBe(false);
+  });
   it("enriches only matched captured positions and preserves the opening, timeline, review identity and visibility flags", () => {
     const source = decodeAtlasPostgameReplay(fixture()), canonical = canonicalFor();
     const before = JSON.stringify(canonical), alignment = matchAtlasPostgameReplay(canonical, source);

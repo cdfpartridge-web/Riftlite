@@ -6,8 +6,18 @@ import { ATLAS_CARD_ZONES } from "./validation";
 
 const STATUS_FIELDS = ["exhausted", "hidden", "attachedToCardId", "banishedByCardId", "temporaryMightBuff", "whiteCounter", "redCounter", "customLabels"];
 const IDENTITY_FIELDS = ["name", "cardCode", "type", "domains", "text", "energyCost", "powerCost", "might", "keywords", "subtypes", "rarity", "set"];
+const HIDDEN_ZONES = new Set(["deck", "hand", "runeDeck", "sideboard"]);
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const sameIds = (a: string[], b: string[]) => a.length === b.length && [...a].sort().every((id, index) => id === [...b].sort()[index]);
+
+function isMaskedSlot(card: ReplayCardState, playerId: string, zone: string, index: number): boolean {
+  return HIDDEN_ZONES.has(zone) && card.isPlaceholder === true && card.fields.isPlaceholder === true
+    && card.name === "" && !card.cardCode && !card.fields.name && !card.fields.cardCode
+    && card.id === `__hidden_zone__:${playerId}:${zone}:${index}`
+    && (card.fields.id === undefined || card.fields.id === card.id)
+    && (card.ownerPlayerId === undefined || card.ownerPlayerId === playerId)
+    && (card.fields.ownerPlayerId === undefined || card.fields.ownerPlayerId === playerId);
+}
 
 /** Exact sequence plus the captured board is the anchor; elapsed time alone is never an alignment. */
 function samePosition(state: ReplayState, frame: AtlasPostgameFrame): boolean {
@@ -30,8 +40,15 @@ function samePosition(state: ReplayState, frame: AtlasPostgameFrame): boolean {
       if (existing.length !== cards.length) return false;
       for (let index = 0; index < cards.length; index++) {
         const a = existing[index], b = cards[index];
+        if (isMaskedSlot(a, player.id, zone, index)) {
+          // Atlas masks live private zones by owner/zone/slot. The exact game,
+          // authoritative sequence and public board anchor this one position;
+          // a masked slot is never itself evidence of a matching card identity.
+          if (state.room.fields.gameHistoryStartedAt !== raw.gameHistoryStartedAt) return false;
+          continue;
+        }
         if (a.id !== b.id) return false;
-        anchoredCards++;
+        if (!HIDDEN_ZONES.has(zone)) anchoredCards++;
         if (a.name && a.name !== b.name || a.cardCode && a.cardCode !== b.cardCode) return false;
         for (const field of STATUS_FIELDS) {
           if (a.fields[field] !== undefined && !equal(a.fields[field], b[field])) return false;

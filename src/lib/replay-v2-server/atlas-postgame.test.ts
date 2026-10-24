@@ -24,6 +24,9 @@ import { projectReplaySummaryRecord } from "./projection";
 import { REPLAY_EMBED_COOKIE, signReplayEmbedSession } from "./session";
 import { GET, PATCH, PUT } from "@/app/api/v2/replays/[replayId]/atlas-postgame/route";
 import type { ReplayArtifactPointer, ReplayRecord } from "./model";
+import { normalizeRawCaptureV1 } from "@/lib/replay-v2/normalize-replay";
+import { projectReplayState } from "@/lib/replay-v2/project-state";
+import type { JsonObject } from "@/lib/replay-v2/types";
 
 const ID = "rl2_" + "a".repeat(32);
 const origin = "https://www.riftlite.com";
@@ -115,6 +118,75 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("private per-game Atlas post-game attachments", () => {
+  it("accepts an actual-shaped masked player capture through PUT while keeping its opening and all-cards attachment private", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/replay-v2/atlas-postgame")>("@/lib/replay-v2/atlas-postgame");
+    mocks.decode.mockImplementation(actual.decodeAtlasPostgameReplay);
+    mocks.encode.mockImplementation(actual.encodeAtlasPostgameReplay);
+    mocks.match.mockImplementation(actual.matchAtlasPostgameReplay);
+    const start = 1_790_000_000_000;
+    const players = ["a", "b"].map(id => {
+      const card = (zone: string) => ({ id: `${id}-${zone}`, name: `${id} ${zone}`, cardCode: `SET-${id}-${zone}`, ownerPlayerId: id });
+      return { id, name: `Player ${id}`, board: { score: 0, floatingEnergy: 0, floatingPower: 0,
+        hand: [card("hand")], deck: [card("deck")], runeDeck: [card("runeDeck")], legend: [card("legend")],
+        base: [], trash: [], battlefieldA: [], battlefieldB: [], champion: [], runeArea: [], handRevealToOpponent: false } };
+    });
+    const state: JsonObject = { roomCode: "ROOM", createdAt: start - 10_000, gameHistoryStartedAt: start,
+      phase: "in_game", gameVariant: "duel", roomMode: "multiplayer", matchFormat: "bo1", gameNumber: 1,
+      rewindProtocolVersion: 5, testMode: false, activeTurnPlayerId: "a", turnNumber: 1,
+      players, chainEntries: [], log: [], targetArrowsByPlayer: {} };
+    const frames = [
+      { index: 0, sequence: 10, elapsedMs: 0, actionType: "start", state },
+      { index: 1, sequence: 11, elapsedMs: 1000, actionType: "concede", state: { ...state, turnNumber: 2,
+        gameHistoryEndedAt: start + 1000, gameOutcome: { winnerPlayerIds: ["a"], reason: "concession" } } },
+    ];
+    const source = { format: "riftatlas-replay", version: 1, replay: { replayId: "synthetic-completed-game",
+      viewerPlayerId: "a", players: players.map(({ id, name }) => ({ id, name })), canFork: true, canSwitchPerspective: true,
+      createdAt: start, completedAt: start + 1000, frames } };
+    const captureFrames = [{ sequence: 9, elapsedMs: -1000, state: { ...state, phase: "mulligan" } }, ...frames];
+    const raw = { schema: "riftreplay-raw-capture", version: 1,
+      capture: { captureSessionId: "masked-capture", identity: { firstSeenAt: start - 1000, lastSeenAt: start + 1000 } },
+      messages: captureFrames.map((frame, seq) => {
+        const snapshot = structuredClone(frame.state) as JsonObject;
+        for (const player of snapshot.players as JsonObject[]) {
+          const board = player.board as JsonObject;
+          for (const zone of ["deck", "runeDeck", ...(player.id === "b" ? ["hand"] : [])]) {
+            board[zone] = (board[zone] as JsonObject[]).map((_card, index) => ({
+              id: `__hidden_zone__:${player.id}:${zone}:${index}`, name: "", isPlaceholder: true,
+              source: zone === "runeDeck" ? "runeDeck" : "mainDeck", exhausted: false, createdAt: 0,
+            }));
+          }
+        }
+        return { seq, ts: start + frame.elapsedMs, dir: "in", raw: JSON.stringify({
+          type: "authoritative_snapshot", gameInstanceId: "ROOM", viewerPlayerId: "a", sequence: frame.sequence, snapshot,
+        }) };
+      }) };
+    const original = normalizeRawCaptureV1(raw), originalJson = JSON.stringify(original), sourceJson = JSON.stringify(source);
+    const originalBytes = gzipSync(Buffer.from(originalJson)), originalPointer = pointer("canonical", originalBytes);
+    files.set(originalPointer.generation, originalBytes); record.canonicalArtifact = originalPointer;
+    const response = await PUT(request("PUT", { expectedAccountId: "owner", expectedSha256: null, replay: source },
+      { authorization: "Bearer owner" }), context);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ canManage: true, available: true, shared: false,
+      games: [{ gameNumber: 1, shared: false, frameCount: 2 }] });
+    expect(await readAtlasPostgame("", ID, { metadataOnly: true })).toEqual({
+      accountId: "public", canManage: false, available: false, shared: false, games: [],
+    });
+    expect(await readAtlasPostgame("", ID)).toMatchObject({ available: false, exports: [] });
+    const validated = actual.decodeAtlasPostgameReplay(source), aligned = actual.matchAtlasPostgameReplay(original, validated);
+    const openingEvent = original.events.find(event => event.kind === "snapshot" && event.snapshot.room.rawPhase === "mulligan")!;
+    const opening = projectReplayState(original, openingEvent.index);
+    expect(actual.projectAtlasPostgameState(opening, validated, aligned)).toMatchObject({ available: false, state: opening });
+    const position = projectReplayState(original, aligned.firstMatchedEventIndex);
+    expect(position.players.b.zones.hand[0].name).toBe("");
+    expect(actual.projectAtlasPostgameState(position, validated, aligned).state.players.b.zones.hand[0]).toMatchObject({
+      id: "__hidden_zone__:b:hand:0", name: "b hand",
+    });
+    expect(position.players.b.zones.hand[0].name).toBe("");
+    expect(record.canonicalArtifact).toEqual(originalPointer);
+    expect(files.get(originalPointer.generation)).toEqual(originalBytes);
+    expect(JSON.stringify(original)).toBe(originalJson);
+    expect(JSON.stringify(source)).toBe(sourceJson);
+  });
   it("stores only the re-encoded compact export and leaves the canonical, raw metadata, title, visibility and timeline intact", async () => {
     const before = structuredClone(record);
     const response = await importGame();
