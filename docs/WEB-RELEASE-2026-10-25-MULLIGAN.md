@@ -1,6 +1,6 @@
 # Partial Atlas mulligans and replay toolbar — 25 October 2026
 
-Website deployment pending final verification. The user requested a partial opponent mulligan view, a local installer, removal of the Cards up button, unclipped toolbar labels and publication of the website updates.
+**Live at 10:08 UK:** website runtime `ae1932ea6543c64f512ba13604a34db13becf8e7`, deployment `dpl_Ba73x37qveZeLBKVTPCJoGPU7Zny`, on `https://www.riftlite.com`. The user requested a partial opponent mulligan view, a local installer, removal of the Cards up button, unclipped toolbar labels and publication of the website updates. All 206 distinct relevant website tests, scoped lint, TypeScript, production build and six candidate/six live HTTP checks passed, with local Chromium summary/privacy and toolbar-bounds checks. Runtime archive SHA256: `0ade75d790d84ab7b3f3cc31e94d4dce5971ece5dfad3e9dcfbc7242022add34`.
 
 ## Behaviour
 
