@@ -824,7 +824,8 @@ export function ReplayV2Player({
   const allCardsActive = atlasPostgame.allCards && atlasProjection?.available === true && !analysisSession && !capturedOpening && !combinedReplay;
   const atlasMulligan = atlasPostgame.allCards && !analysisSession && !combinedReplay
     ? atlasPostgame.mulliganSummaries.find(summary => summary.gameId === canonicalState?.gameId) ?? null : null;
-  const showingAtlasMulligan = Boolean(atlasMulligan && (presentationStage === "mulligan" || (!presentationStage && replay && canonicalState && activeScene(replay, canonicalState, currentMs) === "mulligan")));
+  const summaryScene = presentationStage || (replay && canonicalState ? activeScene(replay, canonicalState, currentMs) : null);
+  const showingAtlasMulligan = Boolean(atlasMulligan && (summaryScene === "opening" || summaryScene === "mulligan"));
   const cardsUpProjectionActive = cardsUp && Boolean(cardsUpProjection) && !analysisSession && !atlasPostgame.allCards;
   const cardInformationBoundary = `${atlasPostgame.boundaryKey}:${atlasPostgame.allCards}:${allCardsActive}:${showingAtlasMulligan}`;
   const previousAllCards = useRef(false);
@@ -4449,18 +4450,27 @@ function SceneOverlay({
       );
       break;
     }
-    case "opening":
+    case "opening": {
+      const opponentSummary = atlasMulligan?.gameId === game?.id ? atlasMulligan?.players[players.top.id] : undefined;
       content = (
         <div className={styles.sceneColumn}>
           <SceneHeading eyebrow={`Game ${game?.gameNumber ?? 1}`} title="Opening hands" />
           <div className={styles.openingHands}>
-            <SceneHand faceDown={!openHands} label={players.top.name} player={players.top} />
+            {opponentSummary ? <AtlasMulliganPanel
+              playerName={players.top.name}
+              summary={opponentSummary}
+              renderCard={card => <CardTile card={card} size="scene" />}
+            /> : <>
+              <SceneHand faceDown={!openHands} label={players.top.name} player={players.top} />
+              {atlasMulliganRequested ? <p role="status">This Atlas replay has no verified mulligan details. Captured view is shown.</p> : null}
+            </>}
             <div className={styles.handDivider}>Ready</div>
             <SceneHand label={players.bottom.name} player={players.bottom} />
           </div>
         </div>
       );
       break;
+    }
     case "game_start":
       content = (
         <div className={styles.gameTransition}>
@@ -4580,7 +4590,7 @@ function InitiativeTile({ player, roll }: { player: ReplayPlayerState; roll: num
 function SceneHand({ faceDown = false, label, player }: { faceDown?: boolean; label: string; player: ReplayPlayerState }) {
   const cards = handCards(player).slice(0, 8);
   return (
-    <div className={styles.sceneHand}>
+    <div className={styles.sceneHand} data-opening-player={player.id}>
       <span>{label} · {cards.length} cards</span>
       <div>
         {cards.map((card, index) => (

@@ -53,8 +53,8 @@ export function AtlasPostgameControls({ atlas, disabled, covered, capturedOpenin
           <p className={styles.hint}>If automatic sync is missing, download the completed game’s JSON from Atlas. For a multi-game match, choose each game’s file separately.</p>
           <button className={styles.primary} type="button" disabled={atlas.busy} onClick={() => input.current?.click()}>{atlas.busy ? "Working…" : "Choose Atlas JSON"}</button>
         </details>
-        <p className={styles.hint}>Additional card information is private by default. Only the replay owner can replace it or choose to share it.</p>
-      </> : <p>The replay owner has shared the imported card information with viewers of this replay.</p>}
+        <p className={styles.hint}>All cards is shared by default with people who can already access this replay. Untick a game below to keep its extra card information only for you. Your notes stay private.</p>
+      </> : <p>All cards is available to people who can already access this replay. Each viewer’s notes stay private.</p>}
       {atlas.metadata?.games.map(game => <section className={styles.game} key={game.gameId}>
         <div><b>Game {game.gameNumber}</b><span>{game.frameCount} Atlas frames · {game.shared ? "Shared with replay viewers" : "Only you"}</span></div>
         {owner ? <label><input type="checkbox" checked={game.shared} disabled={atlas.busy} onChange={event => void atlas.setShared(game.gameId, event.currentTarget.checked)} /> Share All cards with replay viewers</label> : null}

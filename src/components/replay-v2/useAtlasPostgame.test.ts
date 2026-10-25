@@ -60,15 +60,17 @@ describe("Atlas post-game viewer account boundary", () => {
     expect(result.current.error).toContain("different replay"); expect(fetcher.mock.calls).toHaveLength(1); expect(result.current.allCards).toBe(false);
   });
 
-  it("imports privately with a replacement revision and requires explicit sharing", async () => {
-    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => json(init?.method === "PATCH" ? { ...metadata(), games: [{ ...game, shared: true }] } : metadata())); vi.stubGlobal("fetch", fetcher);
+  it("uses the server's shared default and lets the owner opt out or restore sharing per game", async () => {
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => json({ ...metadata(), games: [{ ...game, shared: init?.method === "PATCH" ? JSON.parse(String(init.body)).shared : true }] })); vi.stubGlobal("fetch", fetcher);
     const { result } = renderHook(useTestHook); await waitFor(() => expect(result.current.metadata?.canManage).toBe(true));
     await act(async () => { expect(await result.current.importFile(file())).toBe(true); });
     const put = fetcher.mock.calls.find(call => call[1]?.method === "PUT")![1]!;
     expect(JSON.parse(String(put.body))).toEqual({ replay: { format: "riftatlas-replay" }, expectedAccountId: "alice", expectedSha256: "hash1" });
-    expect(result.current.allCards).toBe(false); expect(result.current.metadata?.games[0].shared).toBe(false);
+    expect(result.current.allCards).toBe(false); expect(result.current.metadata?.games[0].shared).toBe(true);
+    await act(async () => result.current.setShared("g1", false));
+    expect(JSON.parse(String(fetcher.mock.calls.find(call => call[1]?.method === "PATCH")![1]!.body))).toEqual({ gameId: "g1", shared: false, expectedAccountId: "alice", expectedSha256: "hash1" });
+    expect(result.current.metadata?.games[0].shared).toBe(false);
     await act(async () => result.current.setShared("g1", true));
-    expect(JSON.parse(String(fetcher.mock.calls.find(call => call[1]?.method === "PATCH")![1]!.body))).toEqual({ gameId: "g1", shared: true, expectedAccountId: "alice", expectedSha256: "hash1" });
     expect(result.current.metadata?.games[0].shared).toBe(true);
   });
 

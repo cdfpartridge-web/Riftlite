@@ -17,6 +17,7 @@ import { ReplayV2Error } from "./errors";
 import { createArtifactGeneration, sha256Hex } from "./ids";
 import type { ReplayRecord } from "./model";
 import { readReadableReplayMetadata } from "./service";
+import { atlasPostgameGameIsShared } from "./atlas-postgame-model";
 import type {
   AtlasPostgameGameMetadata, AtlasPostgameManifest, AtlasPostgameMetadataResponse, StoredAtlasPostgameGame,
 } from "./atlas-postgame-model";
@@ -56,7 +57,8 @@ function manifest(value: unknown): AtlasPostgameManifest {
         !boundedInteger(game.lastMatchedEventIndex, game.firstMatchedEventIndex) ||
         !SHA256.test(game.sha256) || !SHA256.test(game.canonicalSha256) ||
         !boundedInteger(game.encodedBytes, 1, MAX_ATLAS_POSTGAME_TOTAL_BYTES) ||
-        typeof game.shared !== "boolean" || typeof game.importedAt !== "string" || !Number.isFinite(Date.parse(game.importedAt)) ||
+        typeof game.shared !== "boolean" || (game.sharingPreferenceVersion !== undefined && game.sharingPreferenceVersion !== 1) ||
+        typeof game.importedAt !== "string" || !Number.isFinite(Date.parse(game.importedAt)) ||
         !game.artifact || game.artifact.kind !== "raw") ||
       new Set(input.games.map(game => game.gameId)).size !== input.games.length ||
       new Set(input.games.map(game => game.gameNumber)).size !== input.games.length) {
@@ -86,12 +88,12 @@ function gameMetadata(game: StoredAtlasPostgameGame): AtlasPostgameGameMetadata 
     firstElapsedMs: game.firstElapsedMs, lastElapsedMs: game.lastElapsedMs,
     matchedEventCount: game.matchedEventCount, firstMatchedEventIndex: game.firstMatchedEventIndex,
     lastMatchedEventIndex: game.lastMatchedEventIndex, sha256: game.sha256,
-    importedAt: game.importedAt, shared: game.shared,
+    importedAt: game.importedAt, shared: atlasPostgameGameIsShared(game),
   };
 }
 function metadata(record: ReplayRecord, accountId: string, canManage: boolean): AtlasPostgameMetadataResponse {
   const games = manifest(record.atlasPostgame).games
-    .filter(game => game.canonicalSha256 === record.canonicalArtifact?.sha256 && (canManage || game.shared))
+    .filter(game => game.canonicalSha256 === record.canonicalArtifact?.sha256 && (canManage || atlasPostgameGameIsShared(game)))
     .sort((a, b) => a.gameNumber - b.gameNumber).map(gameMetadata);
   return { accountId: accountId || "public", canManage, available: games.length > 0,
     shared: games.length > 0 && games.every(game => game.shared), games };
@@ -231,7 +233,8 @@ export async function saveAtlasPostgame(accountId: string, replayId: string, inp
         firstElapsedMs: alignment.firstElapsedMs, lastElapsedMs: alignment.lastElapsedMs,
         matchedEventCount: alignment.matchedEventCount, firstMatchedEventIndex: alignment.firstMatchedEventIndex,
         lastMatchedEventIndex: alignment.lastMatchedEventIndex,
-        sha256, encodedBytes: encoded.length, canonicalSha256, importedAt: new Date().toISOString(), shared: false, artifact,
+        sha256, encodedBytes: encoded.length, canonicalSha256, importedAt: new Date().toISOString(),
+        shared: previous ? atlasPostgameGameIsShared(previous) : true, sharingPreferenceVersion: 1, artifact,
       };
       const games = [...before.games.filter(item => item.gameId !== game.gameId), game].sort((a, b) => a.gameNumber - b.gameNumber);
       if (games.length > 3 || new Set(games.map(item => item.gameNumber)).size !== games.length ||
@@ -278,7 +281,8 @@ export async function shareAtlasPostgame(accountId: string, replayId: string, in
       throw new ReplayV2Error(409, "postgame_import_changed", "The Atlas import changed on another device. Reload before sharing it.");
     }
     const atlasPostgame: AtlasPostgameManifest = { ...before, games: before.games.map(game =>
-      eligible.some(item => item.gameId === game.gameId) ? { ...game, shared: value.shared as boolean } : game) };
+      eligible.some(item => item.gameId === game.gameId)
+        ? { ...game, shared: value.shared as boolean, sharingPreferenceVersion: 1 } : game) };
     transaction.update(ref, { atlasPostgame });
     return { ...current, atlasPostgame };
   });

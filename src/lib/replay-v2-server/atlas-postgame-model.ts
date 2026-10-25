@@ -15,10 +15,21 @@ export type AtlasPostgameGameMetadata = {
 };
 
 export type StoredAtlasPostgameGame = AtlasPostgameGameMetadata & {
+  /** Absent on legacy imports whose stored false was the old default. */
+  sharingPreferenceVersion?: 1;
   encodedBytes: number;
   canonicalSha256: string;
   artifact: ReplayArtifactPointer;
 };
+
+/**
+ * All existing imports now share with the original replay's permitted viewers.
+ * Legacy records cannot distinguish the former default false from an owner
+ * choice. Versioned preferences preserve every choice made under this policy.
+ */
+export function atlasPostgameGameIsShared(game: Pick<StoredAtlasPostgameGame, "shared" | "sharingPreferenceVersion">): boolean {
+  return game.sharingPreferenceVersion === undefined || (game.sharingPreferenceVersion === 1 && game.shared);
+}
 
 export type AtlasPostgameManifest = {
   schema: "riftlite-atlas-postgame-attachments";

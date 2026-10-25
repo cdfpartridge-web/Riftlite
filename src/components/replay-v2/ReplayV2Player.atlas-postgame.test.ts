@@ -47,7 +47,7 @@ describe("All cards through the complete replay player", () => {
     expect(JSON.stringify(fixture.canonical)).toBe(before);
   });
 
-  it("shows exact kept and replacement cards only in the mulligan summary, preserving the opening and Player view", async () => {
+  it("shows verified opponent cards in Opening hands and Mulligan while preserving our hand and Player view", async () => {
     const fixture = atlasPostgameMulliganFixture();
     const before = JSON.stringify(fixture.canonical);
     mockFixture(fixture);
@@ -58,12 +58,22 @@ describe("All cards through the complete replay player", () => {
       fireEvent.click(view.getByRole("button", { name: "Next action" }));
       await waitFor(() => expect(view.container.querySelector(`[data-scene="${scene}"]`)).toBeInTheDocument());
     }
+    const ownOpeningBefore = view.container.querySelector('[data-opening-player="a"]')!.innerHTML;
     fireEvent.click(all);
     await waitFor(() => expect(all).toHaveAttribute("aria-pressed", "true"));
-    expect(view.container.querySelector("[data-atlas-mulligan]")).not.toBeInTheDocument();
     const opening = view.container.querySelector('[data-scene="opening"]')!;
-    expect(opening.querySelector('[aria-label="Daring Poro"]')).not.toBeInTheDocument();
-    expect(opening.querySelectorAll('[aria-label="Hidden card"]')).toHaveLength(4);
+    const openingPanel = within(opening as HTMLElement).getByRole("region", { name: "Player Beta mulligan summary" });
+    expect(within(openingPanel).getByRole("button", { name: "Daring Poro" })).toBeInTheDocument();
+    expect(within(openingPanel).getByRole("button", { name: "Harnessed Dragon" })).toBeInTheDocument();
+    expect(within(openingPanel).getByLabelText("2 returned cards, identities unknown")).toBeInTheDocument();
+    expect(openingPanel.querySelector('[data-card-id="b-opening"]')).not.toBeInTheDocument();
+    expect(view.container.querySelector('[data-opening-player="a"]')!.innerHTML).toBe(ownOpeningBefore);
+    fireEvent.click(view.getByRole("button", { name: "Player view" }));
+    await waitFor(() => expect(opening.querySelector("[data-atlas-mulligan]")).not.toBeInTheDocument());
+    expect(opening.querySelector('[data-opening-player="b"]')!.querySelectorAll('[aria-label="Hidden card"]')).toHaveLength(4);
+    expect(view.container.querySelector('[data-opening-player="a"]')!.innerHTML).toBe(ownOpeningBefore);
+    fireEvent.click(all);
+    await waitFor(() => expect(all).toHaveAttribute("aria-pressed", "true"));
     fireEvent.click(view.getByRole("button", { name: "Next action" }));
     const panel = await view.findByRole("region", { name: "Player Beta mulligan summary" });
     const kept = panel.querySelector('[data-atlas-mulligan-group="kept"]') as HTMLElement;
@@ -84,7 +94,7 @@ describe("All cards through the complete replay player", () => {
     expect(JSON.stringify(fixture.canonical)).toBe(before);
   });
 
-  it("removes the private mulligan summary when access is revoked", async () => {
+  it.each([["opening", 3, "data-opening-player"], ["mulligan", 4, "data-mulligan-player"]])("removes the %s summary when access is revoked", async (_scene, steps, playerAttribute) => {
     const fixture = atlasPostgameMulliganFixture();
     let revoked = false;
     mockFixture(fixture, () => revoked);
@@ -93,15 +103,15 @@ describe("All cards through the complete replay player", () => {
     await waitFor(() => expect(all).toBeEnabled());
     fireEvent.click(all);
     await waitFor(() => expect(all).toHaveAttribute("aria-pressed", "true"));
-    for (let index = 0; index < 4; index++) fireEvent.click(view.getByRole("button", { name: "Next action" }));
+    for (let index = 0; index < Number(steps); index++) fireEvent.click(view.getByRole("button", { name: "Next action" }));
     await view.findByRole("region", { name: "Player Beta mulligan summary" });
     revoked = true;
     fireEvent(window, new Event("focus"));
     await waitFor(() => expect(view.container.querySelector("[data-atlas-mulligan]")).not.toBeInTheDocument());
-    expect(view.container.querySelector('[data-mulligan-player="b"] [aria-label="Hidden card"]')).toBeInTheDocument();
+    expect(view.container.querySelector(`[${playerAttribute}="b"] [aria-label="Hidden card"]`)).toBeInTheDocument();
   });
 
-  it("keeps old attachments playable and explains missing mulligan information", async () => {
+  it.each([["opening", 3, "data-opening-player"], ["mulligan", 4, "data-mulligan-player"]])("keeps old attachments playable and explains missing %s information", async (_scene, steps, playerAttribute) => {
     const fixture = atlasPostgameMulliganFixture(true);
     mockFixture(fixture);
     const view = render(createElement(ReplayV2Player, { replayId: fixture.replayId }));
@@ -109,10 +119,10 @@ describe("All cards through the complete replay player", () => {
     await waitFor(() => expect(all).toBeEnabled());
     fireEvent.click(all);
     await waitFor(() => expect(all).toHaveAttribute("aria-pressed", "true"));
-    for (let index = 0; index < 4; index++) fireEvent.click(view.getByRole("button", { name: "Next action" }));
+    for (let index = 0; index < Number(steps); index++) fireEvent.click(view.getByRole("button", { name: "Next action" }));
     await view.findByText("This Atlas replay has no verified mulligan details. Captured view is shown.");
     expect(view.container.querySelector("[data-atlas-mulligan]")).not.toBeInTheDocument();
-    expect(view.container.querySelector('[data-mulligan-player="b"] [aria-label="Hidden card"]')).toBeInTheDocument();
+    expect(view.container.querySelector(`[${playerAttribute}="b"] [aria-label="Hidden card"]`)).toBeInTheDocument();
   });
 });
 

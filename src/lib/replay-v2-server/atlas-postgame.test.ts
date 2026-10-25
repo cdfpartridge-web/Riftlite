@@ -19,6 +19,7 @@ vi.mock("./artifacts", () => ({
 import { readAtlasPostgame, saveAtlasPostgame, shareAtlasPostgame, MAX_ATLAS_POSTGAME_REQUEST_BYTES } from "./atlas-postgame";
 import { atlasPostgameArtifactPointers } from "./atlas-postgame-model";
 import { ReplayV2Error } from "./errors";
+import { REPLAY_COLLECTION } from "./constants";
 import { sha256Hex } from "./ids";
 import { projectReplaySummaryRecord, sanitizeCanonicalReplay } from "./projection";
 import { REPLAY_EMBED_COOKIE, signReplayEmbedSession } from "./session";
@@ -117,8 +118,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
-describe("private per-game Atlas post-game attachments", () => {
-  it("accepts an actual-shaped masked player capture through PUT while keeping its opening and all-cards attachment private", async () => {
+describe("per-game Atlas post-game attachments with default viewer sharing", () => {
+  it("shares an actual-shaped All cards import with public viewers while preserving the masked canonical and opening", async () => {
     const actual = await vi.importActual<typeof import("@/lib/replay-v2/atlas-postgame")>("@/lib/replay-v2/atlas-postgame");
     mocks.decode.mockImplementation(actual.decodeAtlasPostgameReplay);
     mocks.encode.mockImplementation(actual.encodeAtlasPostgameReplay);
@@ -181,12 +182,12 @@ describe("private per-game Atlas post-game attachments", () => {
     const response = await PUT(request("PUT", { expectedAccountId: "owner", expectedSha256: null, replay: source },
       { authorization: "Bearer owner" }), context);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ canManage: true, available: true, shared: false,
-      games: [{ gameNumber: 1, shared: false, frameCount: 2 }] });
-    expect(await readAtlasPostgame("", ID, { metadataOnly: true })).toEqual({
-      accountId: "public", canManage: false, available: false, shared: false, games: [],
+    expect(await response.json()).toMatchObject({ canManage: true, available: true, shared: true,
+      games: [{ gameNumber: 1, shared: true, frameCount: 2 }] });
+    expect(await readAtlasPostgame("", ID, { metadataOnly: true })).toMatchObject({
+      accountId: "public", canManage: false, available: true, shared: true, games: [{ gameNumber: 1, shared: true }],
     });
-    expect(await readAtlasPostgame("", ID)).toMatchObject({ available: false, exports: [] });
+    expect(await readAtlasPostgame("", ID)).toMatchObject({ available: true, exports: [{ gameId: original.series.games[0].id }] });
     const validated = actual.decodeAtlasPostgameReplay(source), aligned = actual.matchAtlasPostgameReplay(original, validated);
     const openingEvent = original.events.find(event => event.kind === "snapshot" && event.snapshot.room.rawPhase === "mulligan")!;
     const opening = projectReplayState(original, openingEvent.index);
@@ -205,8 +206,8 @@ describe("private per-game Atlas post-game attachments", () => {
   it("stores only the re-encoded compact export and leaves the canonical, raw metadata, title, visibility and timeline intact", async () => {
     const before = structuredClone(record);
     const response = await importGame();
-    expect(response).toMatchObject({ accountId: "owner", canManage: true, available: true, shared: false,
-      games: [{ gameId: "game-1", shared: false, frameCount: 12 }] });
+    expect(response).toMatchObject({ accountId: "owner", canManage: true, available: true, shared: true,
+      games: [{ gameId: "game-1", shared: true, frameCount: 12 }] });
     expect(writes).toHaveLength(1); expect(Object.keys(writes[0])).toEqual(["atlasPostgame"]);
     const { atlasPostgame, ...after } = record;
     expect(after).toEqual(before);
@@ -217,8 +218,72 @@ describe("private per-game Atlas post-game attachments", () => {
     expect(projectReplaySummaryRecord(record, false)).not.toHaveProperty("atlasPostgame");
     expect(projectReplaySummaryRecord(record, true)).not.toHaveProperty("atlasPostgame");
   });
-  it.each(["", "viewer", "hub-member"])("hides private attachment availability and contents from %s, even on a public replay", async uid => {
+  it.each(["public", "unlisted"] as const)("serves new and legacy implicit-private imports to permitted anonymous %s viewers without a backfill", async visibility => {
+    record.visibility = visibility;
     await importGame();
+    expect(record.atlasPostgame!.games[0]).toMatchObject({ shared: true, sharingPreferenceVersion: 1 });
+    const newResponse = await readAtlasPostgame("", ID);
+    expect(newResponse).toMatchObject({ accountId: "public", canManage: false, available: true, shared: true,
+      games: [{ gameId: "game-1", shared: true }], exports: [{ gameId: "game-1", replay: safeExport }] });
+    // Old stored false had no provenance: the requested new default applies to
+    // every legacy attachment, without rewriting any replay or review data.
+    delete record.atlasPostgame!.games[0].sharingPreferenceVersion;
+    record.atlasPostgame!.games[0].shared = false;
+    const before = structuredClone(record); writes.length = 0;
+    expect(await readAtlasPostgame("", ID)).toEqual(newResponse);
+    expect(await readAtlasPostgame("owner", ID, { metadataOnly: true })).toMatchObject({ shared: true, games: [{ shared: true }] });
+    expect(record).toEqual(before); expect(writes).toEqual([]);
+  });
+  it("keeps notes separate and never changes replay access or canonical data when opting out and back in", async () => {
+    const original = structuredClone(record);
+    await importGame();
+    await shareGame(false);
+    await shareGame(true);
+    const response = await readAtlasPostgame("", ID);
+    const rest = { ...record }; delete rest.atlasPostgame;
+    expect(rest).toEqual(original);
+    expect(writes).toHaveLength(3);
+    expect(writes.every(fields => Object.keys(fields).length === 1 && "atlasPostgame" in fields)).toBe(true);
+    // This feature must not read or write the separate private-review collection.
+    expect(mocks.db().collection.mock.calls.every(([name]: [string]) => name === REPLAY_COLLECTION)).toBe(true);
+    expect(response).not.toHaveProperty("notes");
+    expect(response.games[0]).not.toHaveProperty("notes");
+  });
+  it("keeps legacy default sharing behind private replay permissions and revoked hub access", async () => {
+    await importGame();
+    delete record.atlasPostgame!.games[0].sharingPreferenceVersion;
+    record.atlasPostgame!.games[0].shared = false;
+    record.visibility = "private";
+    mocks.read.mockClear();
+    await expect(readAtlasPostgame("", ID)).rejects.toMatchObject({ status: 403 });
+    await expect(readAtlasPostgame("outsider", ID, { metadataOnly: true })).rejects.toMatchObject({ status: 403 });
+    expect(mocks.read).not.toHaveBeenCalled();
+    granted.add("member");
+    expect(await readAtlasPostgame("member", ID)).toMatchObject({ available: true, shared: true, exports: [{ gameId: "game-1" }] });
+    granted.clear(); mocks.read.mockClear();
+    await expect(readAtlasPostgame("member", ID)).rejects.toMatchObject({ status: 403 });
+    expect(mocks.read).not.toHaveBeenCalled();
+    expect(await readAtlasPostgame("owner", ID)).toMatchObject({ canManage: true, exports: [{ gameId: "game-1" }] });
+  });
+  it("makes an explicit legacy opt-out persistent and allows the owner to restore sharing", async () => {
+    await importGame();
+    delete record.atlasPostgame!.games[0].sharingPreferenceVersion;
+    record.atlasPostgame!.games[0].shared = false;
+    expect(await shareGame(false)).toMatchObject({ shared: false, games: [{ shared: false }] });
+    expect(record.atlasPostgame!.games[0]).toMatchObject({ shared: false, sharingPreferenceVersion: 1 });
+    expect(await readAtlasPostgame("", ID)).toMatchObject({ available: false, games: [], exports: [] });
+    await shareGame(true);
+    expect(await readAtlasPostgame("", ID)).toMatchObject({ shared: true, exports: [{ gameId: "game-1" }] });
+  });
+  it.each([null, 0, 2, "1"])("rejects unrecognised sharing preference version %j before reading an artifact", async version => {
+    await importGame();
+    Object.assign(record.atlasPostgame!.games[0], { sharingPreferenceVersion: version });
+    mocks.read.mockClear();
+    await expect(readAtlasPostgame("", ID)).rejects.toMatchObject({ code: "postgame_metadata_invalid" });
+    expect(mocks.read).not.toHaveBeenCalled();
+  });
+  it.each(["", "viewer", "hub-member"])("honours the owner's opt-out for %s, even on a public replay", async uid => {
+    await importGame(); await shareGame(false);
     mocks.read.mockClear();
     expect(await readAtlasPostgame(uid, ID, { metadataOnly: true })).toEqual({
       accountId: uid || "public", canManage: false, available: false, shared: false, games: [],
@@ -231,13 +296,16 @@ describe("private per-game Atlas post-game attachments", () => {
     }
   });
   it("allows server-verified owner aliases without broadening other accounts", async () => {
-    await importGame();
+    await importGame(); await shareGame(false);
     mocks.aliases.mockImplementation(async uid => uid === "linked-owner" ? ["owner"] : []);
     expect(await readAtlasPostgame("linked-owner", ID)).toMatchObject({ accountId: "linked-owner", canManage: true, exports: [{ gameId: "game-1" }] });
     expect(await readAtlasPostgame("outsider", ID)).toMatchObject({ canManage: false, exports: [] });
   });
   it("preserves other games and shares only the owner's explicitly selected game", async () => {
     await importGame(1); await importGame(2);
+    expect(await readAtlasPostgame("", ID)).toMatchObject({ shared: true,
+      games: [{ gameNumber: 1, shared: true }, { gameNumber: 2, shared: true }] });
+    await shareAtlasPostgame("owner", ID, { expectedAccountId: "owner", shared: false });
     const originalPointer = record.canonicalArtifact;
     const shared = await shareGame(true, "game-2");
     expect(shared.shared).toBe(false);
@@ -248,8 +316,8 @@ describe("private per-game Atlas post-game attachments", () => {
     await shareGame(false, "game-2");
     expect(await readAtlasPostgame("", ID)).toMatchObject({ available: false, exports: [] });
   });
-  it("keeps explicit sharing subject to current original replay/hub access", async () => {
-    await importGame(); await shareGame(true);
+  it("keeps default sharing subject to current original replay/hub access", async () => {
+    await importGame();
     record.visibility = "private"; granted.add("member");
     expect(await readAtlasPostgame("member", ID)).toMatchObject({ available: true, canManage: false });
     granted.clear();
@@ -283,23 +351,45 @@ describe("private per-game Atlas post-game attachments", () => {
     await expect(saveAtlasPostgame("owner", ID, { expectedAccountId: "owner", replay: {} })).rejects.toMatchObject({ status: 409 });
     expect(mocks.store).not.toHaveBeenCalled(); expect(writes).toEqual([]);
   });
-  it("uses optimistic replacement, preserves sibling games, resets replacement sharing and cleans only its old attachment", async () => {
+  it("uses optimistic replacement, preserves explicit opt-out and sibling games, and cleans only its old attachment", async () => {
     await importGame(1); await importGame(2);
     const old = record.atlasPostgame!.games[0], sibling = record.atlasPostgame!.games[1];
-    await shareGame(true);
+    await shareGame(false);
     mocks.encode.mockReturnValue({ ...safeExport, nodes: [["o", [["changed", true]]]] });
     await expect(importGame(1, { replay: {}, expectedSha256: null })).rejects.toMatchObject({ code: "postgame_import_changed" });
     await importGame(1, { replay: {}, expectedSha256: old.sha256 });
-    expect(record.atlasPostgame!.games[0].shared).toBe(false);
+    expect(record.atlasPostgame!.games[0]).toMatchObject({ shared: false, sharingPreferenceVersion: 1 });
+    expect(await readAtlasPostgame("", ID)).toMatchObject({ games: [{ gameNumber: 2 }], exports: [{ gameId: "game-2" }] });
     expect(record.atlasPostgame!.games[1]).toEqual(sibling);
     expect(mocks.remove).toHaveBeenCalledWith(expect.anything(), old.artifact);
     expect(files.has(record.canonicalArtifact!.generation)).toBe(true);
   });
-  it("keeps an identical import idempotent without resetting sharing", async () => {
-    await importGame(); await shareGame(true);
+  it.each([false, true])("keeps an identical import idempotent without resetting sharing=%s", async shared => {
+    await importGame(); await shareGame(shared);
     mocks.store.mockClear(); mocks.remove.mockClear(); const before = structuredClone(record);
-    expect(await importGame()).toMatchObject({ shared: true });
+    expect(await importGame()).toMatchObject({ shared });
     expect(record).toEqual(before); expect(mocks.store).not.toHaveBeenCalled(); expect(mocks.remove).not.toHaveBeenCalled();
+  });
+  it.each([false, true])("preserves effective default sharing when replacing a legacy=%s attachment", async legacy => {
+    await importGame();
+    if (legacy) {
+      delete record.atlasPostgame!.games[0].sharingPreferenceVersion;
+      record.atlasPostgame!.games[0].shared = false;
+    }
+    const previous = record.atlasPostgame!.games[0].sha256;
+    mocks.encode.mockReturnValue({ ...safeExport, nodes: [["o", [["replacement", true]]]] });
+    await importGame(1, { replay: {}, expectedSha256: previous });
+    expect(record.atlasPostgame!.games[0]).toMatchObject({ shared: true, sharingPreferenceVersion: 1 });
+    expect(await readAtlasPostgame("", ID)).toMatchObject({ available: true, shared: true, exports: [{ gameId: "game-1" }] });
+  });
+  it("preserves a sharing opt-out made while replacement validation was in flight", async () => {
+    await importGame();
+    const previous = record.atlasPostgame!.games[0].sha256;
+    mocks.encode.mockReturnValue({ ...safeExport, nodes: [["o", [["replacement", true]]]] });
+    beforeTransaction = () => { record.atlasPostgame!.games[0].shared = false; };
+    await importGame(1, { replay: {}, expectedSha256: previous });
+    expect(record.atlasPostgame!.games[0]).toMatchObject({ shared: false, sharingPreferenceVersion: 1 });
+    expect(await readAtlasPostgame("", ID)).toMatchObject({ available: false, exports: [] });
   });
   it("rejects a canonical change during import and deletes the unreferenced new artifact", async () => {
     beforeTransaction = () => { record.canonicalArtifact = { ...record.canonicalArtifact!, sha256: "f".repeat(64) }; };
@@ -318,7 +408,7 @@ describe("private per-game Atlas post-game attachments", () => {
     expect(mocks.store).not.toHaveBeenCalled();
     mocks.encode.mockReturnValue(safeExport); await importGame();
     const response = await readAtlasPostgame("owner", ID, { metadataOnly: true });
-    expect(JSON.stringify(response)).not.toMatch(/artifactId|generation|canonicalSha256/);
+    expect(JSON.stringify(response)).not.toMatch(/artifactId|generation|canonicalSha256|sharingPreferenceVersion/);
     expect(atlasPostgameArtifactPointers(record.atlasPostgame)).toEqual([record.atlasPostgame!.games[0].artifact]);
   });
   it("verifies stored compact artifact bytes instead of returning corrupted content", async () => {
@@ -344,10 +434,10 @@ describe("private per-game Atlas post-game attachments", () => {
       .rejects.toMatchObject({ status: 400 });
     await expect(shareAtlasPostgame("owner", ID, { expectedAccountId: "owner", shared: true, gameId: "game-1" }))
       .rejects.toMatchObject({ status: 400 });
-    expect(writes).toEqual([]); expect(record.atlasPostgame!.games[0].shared).toBe(false);
+    expect(writes).toEqual([]); expect(record.atlasPostgame!.games[0].shared).toBe(true);
     await shareGame(true);
     await shareAtlasPostgame("owner", ID, { expectedAccountId: "owner", shared: false });
-    expect(record.atlasPostgame!.games[0].shared).toBe(false);
+    expect(record.atlasPostgame!.games[0]).toMatchObject({ shared: false, sharingPreferenceVersion: 1 });
   });
 });
 
@@ -361,7 +451,7 @@ describe("Atlas post-game HTTP authentication and bounded requests", () => {
   it("allows a same-origin owner cookie, returns account binding, and marks every response no-store", async () => {
     const response = await PUT(request("PUT", { expectedAccountId: "owner", replay: {} }, { cookie: cookie("owner"), origin }), context);
     expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toMatchObject({ accountId: "owner", available: true, shared: false });
+    expect(await response.json()).toMatchObject({ accountId: "owner", available: true, shared: true });
     const viewed = await GET(request("GET", undefined, { cookie: cookie("owner") }, "?metadata=1"), context);
     expect(await viewed.json()).toMatchObject({ accountId: "owner", canManage: true });
   });
