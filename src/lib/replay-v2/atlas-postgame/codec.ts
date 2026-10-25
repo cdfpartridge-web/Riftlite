@@ -1,7 +1,7 @@
 import { isRecord, redactSecrets } from "../json";
 import type { JsonObject, JsonValue } from "../types";
 import { ATLAS_POSTGAME_LIMITS as LIMITS, AtlasPostgameError, type AtlasPostgameEnvelopeV2, type AtlasPostgameSource } from "./types";
-import { validateAtlasPostgameView } from "./validation";
+import { sanitizeAtlasMulliganPlayback, validateAtlasPostgameView } from "./validation";
 
 const FORBIDDEN = new Set(["__proto__", "prototype", "constructor"]);
 const encoder = new TextEncoder();
@@ -14,7 +14,9 @@ const KEYS: Record<string, Set<string>> = {
   view: allowed("replayId viewerPlayerId players canFork forkBlockedReason privateDeckPlayerIds canSwitchPerspective canExtend createdAt completedAt expiresAt frames"),
   metaPlayer: allowed("id name seat"),
   frame: allowed("index sequence elapsedMs actionType actorPlayerId turnNumber activePlayerId state"),
-  state: allowed("roomCode createdAt updatedAt phase rewindProtocolVersion testMode gameVariant roomMode teamIdByPlayerId playMode deckRulesMode matchFormat gameNumber seriesStartedAt winsByPlayerId gameHistoryStartedAt gameHistoryEndedAt firstPlayerId activeTurnPlayerId activeTurnStep turnNumber playerTurnCounts players log chainEntries chainResolveVotes gameOutcome bo3CompletedGames targetArrowsByPlayer"),
+  state: allowed("roomCode createdAt updatedAt phase rewindProtocolVersion testMode gameVariant roomMode teamIdByPlayerId playMode deckRulesMode matchFormat gameNumber seriesStartedAt winsByPlayerId gameHistoryStartedAt gameHistoryEndedAt firstPlayerId activeTurnPlayerId activeTurnStep turnNumber playerTurnCounts players log chainEntries chainResolveVotes gameOutcome bo3CompletedGames targetArrowsByPlayer mulliganPlaybackByPlayerId"),
+  mulligan: allowed("redrawCount draws"),
+  mulliganDraw: allowed("id cardId handCountBeforeDraw kind"),
   player: allowed("id seat name joinedAt leftAt leftReason selectedBattlefield board"),
   board: allowed("score floatingEnergy floatingPower legendXp deck hand base trash discard banished battlefieldA battlefieldB battlefieldC battlefieldToken champion legend additionalLegends runeDeck runeArea sideboard removed recycledDeckBottomCount handRevealToOpponent handRevealedToPlayerIds deckPeek"),
   card: allowed("id name source exhausted createdAt ownerPlayerId isDuplicate hidden revealedToPlayerIds revealedToOpponent oriannaAnimation neekoSourceCardId attachedToCardId banishedByCardId banishedUntilEndingPlayerId empowerTriggerUsed cardCode hasWhenYouPlayMe type domains text energyCost powerCost might temporaryMightBuff whiteCounter redCounter customLabels rarity set keywords subtypes isPlaceholder"),
@@ -36,6 +38,9 @@ function childKind(kind: string, key: string): string {
   if (kind === "state" && key === "log") return "log[]";
   if (kind === "state" && key === "gameOutcome") return "outcome";
   if (kind === "state" && key === "targetArrowsByPlayer") return "arrowMap";
+  if (kind === "state" && key === "mulliganPlaybackByPlayerId") return "mulliganMap";
+  if (kind === "mulliganMap") return "mulligan";
+  if (kind === "mulligan" && key === "draws") return "mulliganDraw[]";
   if (kind === "arrowMap") return "arrow[]";
   if (kind === "state" && ["teamIdByPlayerId", "winsByPlayerId", "playerTurnCounts"].includes(key)) return "scalarMap";
   if (kind === "state" && key === "bo3CompletedGames") return "completedGame[]";
@@ -89,6 +94,7 @@ function sanitizeGraph(input: unknown): JsonObject {
   const memo = new WeakMap<object, Map<string, { value: JsonValue; cost: number; depth: number }>>();
   const active = new WeakSet<object>();
   const safeKeys = new Map<string, boolean>();
+  const mulliganMemo = new WeakMap<object, JsonObject | null>();
   let entries = 0, nodes = 0, encodedBytes = 0;
   const visit = (value: unknown, level: number, kind: string): { value: JsonValue; cost: number; depth: number } => {
     if (level > LIMITS.maxDepth) return fail("The Atlas replay is nested too deeply.");
@@ -101,11 +107,23 @@ function sanitizeGraph(input: unknown): JsonObject {
     active.add(value);
     const output: JsonValue[] | JsonObject = Array.isArray(value) ? [] : Object.create(null);
     let cost = 2, depth = 1;
-    for (const [key, child] of Object.entries(value)) {
+    for (const [key, rawChild] of Object.entries(value)) {
+      let child = rawChild;
       if (++entries > LIMITS.maxEntries) return fail("The Atlas replay has too many entries.");
       if (FORBIDDEN.has(key) || key.length > 512) return fail("Invalid Atlas replay property.");
       if (!Array.isArray(value)) {
         if (KEYS[kind] && !KEYS[kind].has(key)) continue;
+        if (kind === "state" && key === "mulliganPlaybackByPlayerId") {
+          if (!child || typeof child !== "object") continue;
+          if (!mulliganMemo.has(child)) {
+            const players = (value as Record<string, unknown>).players;
+            const ids = Array.isArray(players) ? players.map(player => isRecord(player) && typeof player.id === "string" ? player.id : "") : [];
+            mulliganMemo.set(child, sanitizeAtlasMulliganPlayback(child, ids));
+          }
+          const optional = mulliganMemo.get(child);
+          if (!optional) continue;
+          child = optional;
+        }
         let safe = safeKeys.get(key);
         if (safe === undefined) { safe = Object.hasOwn(redactSecrets({ [key]: null }) as object, key); safeKeys.set(key, safe); }
         if (!safe) continue;

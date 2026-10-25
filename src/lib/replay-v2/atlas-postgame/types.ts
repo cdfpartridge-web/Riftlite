@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, ReplayState } from "../types";
+import type { JsonObject, JsonValue, ReplayCardState, ReplayState } from "../types";
 
 export const ATLAS_POSTGAME_LIMITS = Object.freeze({
   maxInputBytes: 16 * 1024 * 1024,
@@ -45,5 +45,13 @@ export type AtlasPostgameAlignment = {
 };
 export type AtlasPostgameProjection = {
   state: ReplayState; available: boolean; frameIndex?: number; reason?: string;
+};
+export type AtlasMulliganDraw = JsonObject & {
+  id: string; cardId: string; handCountBeforeDraw: number; kind: "refill" | "opening";
+};
+export type AtlasMulliganPlayback = JsonObject & { redrawCount: number; draws: AtlasMulliganDraw[] };
+export type AtlasMulliganSummary = {
+  gameId: string;
+  players: Record<string, { kept: ReplayCardState[]; replacements: ReplayCardState[]; returnedCount: number }>;
 };
 export type AtlasJson = JsonValue;

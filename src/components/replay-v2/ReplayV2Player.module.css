@@ -3210,26 +3210,37 @@ button.cardPile { cursor: pointer; }
 
 .transportInner {
   display: flex;
+  width: 100%;
   height: 100%;
+  flex-wrap: wrap;
+  align-content: center;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 6px 8px;
+  padding: 12px 16px;
 }
 
-.transportGroup { display: flex; align-items: center; gap: 4px; }
+.transportInner > * { flex-shrink: 0; }
+.transportInner button { white-space: nowrap; line-height: 1.2; }
+.transportInner button svg { flex-shrink: 0; }
+.transportInner .fullscreenButton,
+.transportInner .moreButton,
+.transportInner .analysisToggleButton { height: auto; min-height: 39px; padding: 9px 12px; font-size: 13px; font-weight: 650; }
+.transportInner .speedControl { font-size: 13px; font-weight: 750; }
+.transportGroup { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
 .controlButton, .speedControl, .moreButton, .fullscreenButton { display: inline-flex; height: 39px; align-items: center; justify-content: center; gap: 2px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #71859b; cursor: pointer; }
-.controlButton { width: 43px; }
+.controlButton { width: 36px; flex-shrink: 0; }
 .controlButton:hover, .controlButton:focus-visible, .speedControl:hover, .moreButton:hover, .fullscreenButton:hover, .fullscreenButton:focus-visible, .fullscreenButton[aria-pressed="true"], .moreButtonActive { border-color: rgba(118,198,237,.19); outline: none; background: rgba(91,176,224,.08); color: #d9f2ff; }
 .controlButton svg { width: 20px; height: 20px; }
 .controlButton span { margin-left: -7px; font-size: 8px; font-weight: 800; }
 .controlButtonSmall { width: 28px; height: 28px; border-radius: 7px; }
 .controlButtonSmall svg { width: 14px; height: 14px; }
 
-.playButton { display: grid; width: 61px; height: 61px; place-items: center; border: 1px solid rgba(117,241,229,.55); border-radius: 50%; background: radial-gradient(circle at 45% 35%,rgba(54,177,193,.55),rgba(12,43,62,.96)); color: white; cursor: pointer; box-shadow: 0 0 0 6px rgba(71,184,201,.06),0 0 30px rgba(76,210,217,.17); transition: transform 180ms ease,box-shadow 180ms ease; }
+.playButton { display: grid; width: 52px; height: 52px; flex-shrink: 0; place-items: center; border: 1px solid rgba(117,241,229,.55); border-radius: 50%; background: radial-gradient(circle at 45% 35%,rgba(54,177,193,.55),rgba(12,43,62,.96)); color: white; cursor: pointer; box-shadow: 0 0 0 6px rgba(71,184,201,.06),0 0 30px rgba(76,210,217,.17); transition: transform 180ms ease,box-shadow 180ms ease; }
 .playButton:hover, .playButton:focus-visible { outline: none; box-shadow: 0 0 0 7px rgba(71,184,201,.1),0 0 38px rgba(76,210,217,.3); transform: scale(1.055); }
 .playButton svg { width: 26px; height: 26px; }
 
-.timeReadout { display: flex; min-width: 120px; align-items: baseline; justify-content: center; gap: 5px; margin-left: 17px; font-family: ui-monospace,Consolas,monospace; }
+.timeReadout { display: flex; min-width: 112px; align-items: baseline; justify-content: center; gap: 5px; font-family: ui-monospace,Consolas,monospace; }
 .timeReadout b { color: #e2f4ff; font-size: 13px; }
 .timeReadout span { color: #52677d; font-size: 10px; }
 .speedControl { width: 43px; color: #a6c7dc; font-size: 11px; font-weight: 750; }
@@ -3249,9 +3260,10 @@ button.cardPile { cursor: pointer; }
   border-radius: 10px;
   color: #8ca1b7;
   cursor: pointer;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 720;
   padding: 0 10px;
+  white-space: nowrap;
 }
 
 .scoreTagsToggle:hover,

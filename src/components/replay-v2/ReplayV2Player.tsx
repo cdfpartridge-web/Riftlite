@@ -40,6 +40,8 @@ import { ReplayHistoryDeckPanel } from "./ReplayHistoryDeckPanel";
 import { ReplayReviewPanel } from "./ReplayReviewPanel";
 import { buildReplayReview } from "./review-model";
 import { ReplayArtworkImage } from "./ReplayArtworkImage";
+import { AtlasMulliganPanel } from "./AtlasMulliganPanel";
+import type { AtlasMulliganSummary } from "@/lib/replay-v2/atlas-postgame";
 import { CardStatusBadge } from "./CardStatusBadge";
 import { cardStatuses, cardStatusText } from "./card-status";
 import { totalBattlefieldMight } from "./battlefield-might";
@@ -820,8 +822,11 @@ export function ReplayV2Player({
   const atlasProjection = useMemo(() => projectAtlasState(canonicalState), [projectAtlasState, canonicalState]);
   const capturedOpening = Boolean(presentationStage || (replay && canonicalState && activeScene(replay, canonicalState, currentMs) === "opening"));
   const allCardsActive = atlasPostgame.allCards && atlasProjection?.available === true && !analysisSession && !capturedOpening && !combinedReplay;
+  const atlasMulligan = atlasPostgame.allCards && !analysisSession && !combinedReplay
+    ? atlasPostgame.mulliganSummaries.find(summary => summary.gameId === canonicalState?.gameId) ?? null : null;
+  const showingAtlasMulligan = Boolean(atlasMulligan && (presentationStage === "mulligan" || (!presentationStage && replay && canonicalState && activeScene(replay, canonicalState, currentMs) === "mulligan")));
   const cardsUpProjectionActive = cardsUp && Boolean(cardsUpProjection) && !analysisSession && !atlasPostgame.allCards;
-  const cardInformationBoundary = `${atlasPostgame.boundaryKey}:${atlasPostgame.allCards}:${allCardsActive}`;
+  const cardInformationBoundary = `${atlasPostgame.boundaryKey}:${atlasPostgame.allCards}:${allCardsActive}:${showingAtlasMulligan}`;
   const previousAllCards = useRef(false);
   useLayoutEffect(() => {
     const hadAllCards = previousAllCards.current;
@@ -2427,6 +2432,8 @@ export function ReplayV2Player({
                 analysisDraggingCardId={analysisDraggingCardId}
                 cardsUp={cardsUpProjectionActive && !combinedReplay}
                 allCards={allCardsActive}
+                atlasMulligan={atlasMulligan}
+                atlasMulliganRequested={atlasPostgame.allCards && !analysisSession && !combinedReplay}
                 currentMs={currentMs}
                 eventIndex={eventIndex}
                 motionEpoch={motionEpoch}
@@ -2751,7 +2758,7 @@ export function ReplayV2Player({
               ) : (
                 <TransportControls
                   atlasControls={!casterMode && !trainingReplay && !combinedReplay ? <AtlasPostgameControls
-                    atlas={atlasPostgame} covered={allCardsActive} capturedOpening={capturedOpening} knownCards={cardsUpProjectionActive} disabled={Boolean(analysisSession)} onChangeView={resetCardView} /> : null}
+                    atlas={atlasPostgame} covered={allCardsActive} capturedOpening={capturedOpening} mulliganSummary={showingAtlasMulligan} knownCards={cardsUpProjectionActive} disabled={Boolean(analysisSession)} onChangeView={resetCardView} /> : null}
                   detailsControl={detailsCanHide ? (
                     <>
                     <button
@@ -2795,10 +2802,8 @@ export function ReplayV2Player({
                     onEnabledChange={setSoundEnabled} onVolumeChange={setSoundVolume} />}
                   practiceOnly={Boolean(trainingReplay && trainingEditable)}
                   allowAnalysis={!casterMode && (!trainingReplay || trainingEditable)}
-                  allowCardsUp={!casterMode && !combinedReplay}
                   analysisActive={Boolean(analysisSession)}
                   bookmarks={casterMode ? casterProject.bookmarks : []}
-                  cardsUp={cardsUp && !combinedReplay}
                   clipEndMarkMs={clipEndMarkMs}
                   clipRange={clipRange}
                   clipStartMarkMs={clipStartMarkMs}
@@ -2832,10 +2837,6 @@ export function ReplayV2Player({
                   onStepTurn={stepTurn}
                   onToggleMore={() => setShowMore((value) => !value)}
                   onToggleAnalysis={toggleAnalysis}
-                  onToggleCardsUp={() => { atlasPostgame.showPlayerView(); setCardsUpPreference((current) => ({
-                    enabled: current.replayId === replayId ? !current.enabled : true,
-                    replayId,
-                  })); }}
                   onShowScoreTagsChange={updateShowScoreTags}
                   onTogglePlayerNames={() => setPlayerNamePrivacy((current) => ({
                     hidden: current.replayId === replayId ? !current.hidden : true,
@@ -2937,6 +2938,8 @@ export function ReplayV2Player({
 
 function ReplayBoard({
   allCards,
+  atlasMulligan,
+  atlasMulliganRequested,
   analysisActive,
   analysisDraggingCardId,
   cardsUp,
@@ -2960,6 +2963,8 @@ function ReplayBoard({
   suppressMotion,
 }: {
   allCards: boolean;
+  atlasMulligan: AtlasMulliganSummary | null;
+  atlasMulliganRequested: boolean;
   analysisActive: boolean;
   analysisDraggingCardId: string | null;
   cardsUp: boolean;
@@ -3218,6 +3223,8 @@ function ReplayBoard({
       {scene ? (
         <SceneOverlay
           allCards={allCards && scene !== "opening"}
+          atlasMulligan={atlasMulligan}
+          atlasMulliganRequested={atlasMulliganRequested}
           battlefields={battlefields}
           cardsUp={cardsUp}
           currentMs={currentMs}
@@ -4298,6 +4305,8 @@ function TargetArrowLayer({ arrows }: { arrows: TargetArrow[] }) {
 
 function SceneOverlay({
   allCards,
+  atlasMulligan,
+  atlasMulliganRequested,
   battlefields,
   cardsUp,
   currentMs,
@@ -4309,6 +4318,8 @@ function SceneOverlay({
   state,
 }: {
   allCards: boolean;
+  atlasMulligan: AtlasMulliganSummary | null;
+  atlasMulliganRequested: boolean;
   battlefields: Array<ReplayCardState | undefined>;
   cardsUp: boolean;
   currentMs: number;
@@ -4392,6 +4403,7 @@ function SceneOverlay({
       );
       break;
     case "mulligan": {
+      const opponentSummary = atlasMulligan?.gameId === game?.id ? atlasMulligan?.players[players.top.id] : undefined;
       const rawTransitions = game
         ? mulliganHandTransitions(replay, game, players)
         : {
@@ -4411,6 +4423,11 @@ function SceneOverlay({
             title="Mulligan"
           />
           <div className={styles.openingHands}>
+            {opponentSummary ? <AtlasMulliganPanel
+              playerName={players.top.name}
+              summary={opponentSummary}
+              renderCard={card => <CardTile card={card} size="scene" />}
+            /> : <>
             <MulliganSceneHand
               faceDown={!openHands}
               label={players.top.name}
@@ -4418,6 +4435,8 @@ function SceneOverlay({
               speed={speed}
               transition={transitions.top}
             />
+            {atlasMulliganRequested ? <p role="status">This Atlas replay has no verified mulligan details. Captured view is shown.</p> : null}
+            </>}
             <div className={styles.handDivider}>Replace · Redraw · Keep</div>
             <MulliganSceneHand
               label={players.bottom.name}
@@ -6662,10 +6681,8 @@ function TransportControls({
   practiceOnly = false,
   soundControls,
   allowAnalysis,
-  allowCardsUp,
   analysisActive,
   bookmarks,
-  cardsUp,
   clipEndMarkMs,
   clipRange,
   clipStartMarkMs,
@@ -6694,7 +6711,6 @@ function TransportControls({
   onStepTurn,
   onToggleMore,
   onToggleAnalysis,
-  onToggleCardsUp,
   onTogglePlayerNames,
   onTogglePlayback,
   playing,
@@ -6715,10 +6731,8 @@ function TransportControls({
   soundControls: ReactNode;
   detailsControl: ReactNode;
   allowAnalysis: boolean;
-  allowCardsUp: boolean;
   analysisActive: boolean;
   bookmarks: CasterBookmark[];
-  cardsUp: boolean;
   clipEndMarkMs: number | null;
   clipRange: ReplayClipRange | null;
   clipStartMarkMs: number | null;
@@ -6747,7 +6761,6 @@ function TransportControls({
   onStepTurn: (direction: -1 | 1) => void;
   onToggleMore: () => void;
   onToggleAnalysis: () => void;
-  onToggleCardsUp: () => void;
   onTogglePlayerNames: () => void;
   onTogglePlayback: () => void;
   playing: boolean;
@@ -7134,23 +7147,6 @@ function TransportControls({
             type="button"
           >
             <Icon name="lock" /> {playerNamesHidden ? "Show names" : "Hide names"}
-          </button>
-        ) : null}
-        {allowCardsUp ? (
-          <button
-            aria-pressed={cardsUp}
-            className={`${styles.cardsUpButton} ${cardsUp ? styles.cardsUpButtonActive : ""}`}
-            data-control="cards-up"
-            disabled={analysisActive}
-            onClick={onToggleCardsUp}
-            title={
-              analysisActive
-                ? "Take control already includes cards proven by a later reveal."
-                : "Shows opponent cards already revealed, or later proven to be in hand. Unknown cards stay hidden."
-            }
-            type="button"
-          >
-            <Icon name="eye" /> Cards up
           </button>
         ) : null}
         {allowAnalysis ? <button

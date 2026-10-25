@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CanonicalReplayV2, ReplayState } from "@/lib/replay-v2";
-import { decodeAtlasPostgameReplay, encodeAtlasPostgameReplay, matchAtlasPostgameReplay, projectAtlasPostgameState, type AtlasPostgameSource, type AtlasPostgameAlignment } from "@/lib/replay-v2/atlas-postgame";
+import { buildAtlasMulliganSummary, decodeAtlasPostgameReplay, encodeAtlasPostgameReplay, matchAtlasPostgameReplay, projectAtlasPostgameState, type AtlasPostgameSource, type AtlasPostgameAlignment } from "@/lib/replay-v2/atlas-postgame";
 import { ReviewRequestError, StaleReviewRequest, useReviewAccountSession } from "./review-account-client";
 
 export type AtlasPostgameGame = {
@@ -52,7 +52,7 @@ export function useAtlasPostgame({ replayId, apiBasePath, replay, enabled = true
       const metadata = metadataOf(payload);
       const previous = stateRef.current;
       const sameAccount = previous.metadata?.accountId === metadata.accountId;
-      const prepared = sameAccount ? previous.prepared.filter(item => metadata.games.some(game => game.gameId === item.alignment.gameId && game.sha256 === item.sha256)) : [];
+      const prepared = sameAccount && metadata.available ? previous.prepared.filter(item => metadata.games.some(game => game.gameId === item.alignment.gameId && game.sha256 === item.sha256)) : [];
       if (!sameAccount && previous.metadata) setBoundary(value => value + 1);
       commit({ ...previous, scope: endpoint, metadata, prepared, allCards: previous.allCards && sameAccount && prepared.length > 0, error: "" });
     } catch (error) {
@@ -153,5 +153,12 @@ export function useAtlasPostgame({ replayId, apiBasePath, replay, enabled = true
     const attachment = state.prepared.find(item => item.alignment.gameId === current.gameId);
     return attachment ? projectAtlasPostgameState(current, attachment.source, attachment.alignment) : null;
   }, [enabled, state.allCards, state.prepared]);
-  return useMemo(() => ({ ...state, boundaryKey: `${endpoint}:${key}:${boundary}`, showPlayerView, showAllCards, importFile, setShared, project }), [state, endpoint, key, boundary, showPlayerView, showAllCards, importFile, setShared, project]);
+  const mulliganSummaries = useMemo(() => {
+    if (!enabled || !state.allCards || !state.metadata?.available || !replay) return [];
+    return state.prepared.flatMap(item => {
+      const summary = buildAtlasMulliganSummary(item.source, item.alignment, replay);
+      return summary ? [summary] : [];
+    });
+  }, [enabled, replay, state.allCards, state.metadata?.available, state.prepared]);
+  return useMemo(() => ({ ...state, boundaryKey: `${endpoint}:${key}:${boundary}`, showPlayerView, showAllCards, importFile, setShared, project, mulliganSummaries }), [state, endpoint, key, boundary, showPlayerView, showAllCards, importFile, setShared, project, mulliganSummaries]);
 }

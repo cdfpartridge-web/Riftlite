@@ -963,7 +963,7 @@ describe("ReplayV2Player presentation prelude", () => {
     const handCard = (id: string) => view.container.querySelector(`[data-hand-cards] [data-card-id="${id}"]`);
     try {
       const timeline = await view.findByRole("slider", { name: "Replay progress" });
-      expect(view.getByRole("button", { name: "Cards up" })).toHaveAttribute("aria-pressed", "false");
+      expect(view.queryByRole("button", { name: "Cards up" })).not.toBeInTheDocument();
       expect(handCard("opponent-hand")).toHaveAccessibleName("Hidden card");
       expect(handCard("named-private-hand")).toHaveAccessibleName("Hidden card");
 
@@ -985,14 +985,14 @@ describe("ReplayV2Player presentation prelude", () => {
       fireEvent.change(timeline, { target: { value: "1" } });
       await waitFor(() => expect(handCard("opponent-hand")).toHaveAccessibleName("Hidden card"));
       expect(handCard("opponent-hand")).not.toHaveAttribute("data-card-code");
-      expect(view.getByRole("button", { name: "Cards up" })).toHaveAttribute("aria-pressed", "false");
+      expect(view.queryByRole("button", { name: "Cards up" })).not.toBeInTheDocument();
     } finally {
       view.unmount();
       window.history.replaceState({}, "", previousUrl);
     }
   });
 
-  it("reveals only opponent cards proven by the later timeline when Cards up is enabled", async () => {
+  it("removes Cards up from playback controls without automatically revealing later-known cards", async () => {
     const replay = futureKnownAnalysisReplay();
     const snapshot = replay.events.find((event) => event.kind === "snapshot");
     if (!snapshot || snapshot.kind !== "snapshot") throw new Error("Missing replay snapshot");
@@ -1003,34 +1003,15 @@ describe("ReplayV2Player presentation prelude", () => {
     })));
     const view = render(createElement(ReplayV2Player, { replayId: "rp_cards_up" }));
 
-    const toggle = await view.findByRole("button", { name: "Cards up" });
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await view.findByRole("slider", { name: "Replay progress" });
+    expect(view.queryByRole("button", { name: "Cards up" })).not.toBeInTheDocument();
     expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
       .toHaveAccessibleName("Hidden card");
     expect(view.container.querySelector('[data-card-id="opponent-unknown"]'))
       .toHaveAccessibleName("Hidden card");
 
-    fireEvent.click(toggle);
-
-    await waitFor(() => {
-      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
-        .toHaveAccessibleName("Eager Apprentice, known from a later reveal");
-    });
-    expect(toggle).toHaveAttribute("aria-pressed", "true");
-    expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
-      .toHaveAttribute("data-analysis-card", "future-known");
-    expect(view.container.querySelector('[data-card-id="opponent-unknown"]'))
-      .toHaveAccessibleName("Hidden card");
-    expect(view.container.querySelector('[data-cards-up-badge="known-only"]'))
-      .toHaveTextContent("Cards up · 1 known card");
-
-    fireEvent.click(toggle);
-
-    await waitFor(() => {
-      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
-        .toHaveAccessibleName("Hidden card");
-    });
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(view.getByRole("button", { name: "More" }));
+    expect(view.queryByRole("button", { name: "Cards up" })).not.toBeInTheDocument();
     expect(view.container.querySelector("[data-cards-up-badge]")).not.toBeInTheDocument();
   });
 
@@ -1188,12 +1169,7 @@ describe("ReplayV2Player presentation prelude", () => {
     const view = render(createElement(ReplayV2Player, { replayId: "rp_clip_knowledge" }));
 
     try {
-      const cardsUpToggle = await view.findByRole("button", { name: "Cards up" });
-      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
-        .toHaveAccessibleName("Hidden card");
-
-      fireEvent.click(cardsUpToggle);
-      await waitFor(() => expect(cardsUpToggle).toHaveAttribute("aria-pressed", "true"));
+      await view.findByRole("slider", { name: "Replay progress" });
       expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
         .toHaveAccessibleName("Hidden card");
 
@@ -1210,7 +1186,7 @@ describe("ReplayV2Player presentation prelude", () => {
     }
   });
 
-  it("keeps a returned public card visible without exposing unrelated private hand data", async () => {
+  it("keeps returned and unrelated private cards in the recorded Player view", async () => {
     const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     window.history.replaceState({}, "", "/?t=1");
     const replay = previouslyKnownCardsUpReplay();
@@ -1221,24 +1197,13 @@ describe("ReplayV2Player presentation prelude", () => {
     const view = render(createElement(ReplayV2Player, { replayId: "rp_cards_up_returned" }));
 
     try {
-      const toggle = await view.findByRole("button", { name: "Cards up" });
+      await view.findByRole("slider", { name: "Replay progress" });
       expect(view.container.querySelector('[data-card-id="opponent-returned"]'))
         .toHaveAccessibleName("Hidden card");
       expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
         .toHaveAccessibleName("Hidden card");
 
-      fireEvent.click(toggle);
-
-      await waitFor(() => {
-        expect(view.container.querySelector('[data-card-id="opponent-returned"]'))
-          .toHaveAccessibleName("Stupefy, known from an earlier reveal");
-      });
-      expect(view.container.querySelector('[data-card-id="opponent-returned"]'))
-        .toHaveAttribute("data-analysis-card", "previously-known");
-      expect(view.container.querySelector('[data-card-id="opponent-hand"]'))
-        .toHaveAccessibleName("Hidden card");
-      expect(view.container.querySelector('[data-cards-up-badge="known-only"]'))
-        .toHaveTextContent("Cards up · 1 known card");
+      expect(view.container.querySelector('[data-cards-up-badge="known-only"]')).not.toBeInTheDocument();
     } finally {
       view.unmount();
       window.history.replaceState({}, "", previousUrl || "/");

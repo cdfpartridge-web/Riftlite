@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanonicalReplayV2, ReplayState } from "@/lib/replay-v2";
 
 const auth = vi.hoisted(() => ({ user: null as null | { uid: string; isAnonymous: boolean; getIdToken: () => Promise<string> }, listeners: new Set<(user: unknown) => void>() }));
-const core = vi.hoisted(() => ({ decode: vi.fn(), match: vi.fn(), encode: vi.fn(), project: vi.fn() }));
+const core = vi.hoisted(() => ({ decode: vi.fn(), match: vi.fn(), encode: vi.fn(), project: vi.fn(), mulligan: vi.fn() }));
 vi.mock("firebase/auth", () => ({ getAuth: () => ({}), onIdTokenChanged: (_: unknown, listener: (user: unknown) => void) => { auth.listeners.add(listener); listener(auth.user); return () => auth.listeners.delete(listener); } }));
 vi.mock("@/lib/firebase/client", () => ({ firebaseClientApp: {} }));
-vi.mock("@/lib/replay-v2/atlas-postgame", () => ({ decodeAtlasPostgameReplay: core.decode, matchAtlasPostgameReplay: core.match, encodeAtlasPostgameReplay: core.encode, projectAtlasPostgameState: core.project }));
+vi.mock("@/lib/replay-v2/atlas-postgame", () => ({ decodeAtlasPostgameReplay: core.decode, matchAtlasPostgameReplay: core.match, encodeAtlasPostgameReplay: core.encode, projectAtlasPostgameState: core.project, buildAtlasMulliganSummary: core.mulligan }));
 import { useAtlasPostgame } from "./useAtlasPostgame";
 
 const replay = { replayId: "test" } as unknown as CanonicalReplayV2;
@@ -24,6 +24,7 @@ describe("Atlas post-game viewer account boundary", () => {
     auth.user = null; auth.listeners.clear(); vi.clearAllMocks();
     core.decode.mockReturnValue({ view: { frames: [] } }); core.match.mockReturnValue({ gameId: "g1" }); core.encode.mockReturnValue({ format: "riftatlas-replay" });
     core.project.mockImplementation(state => ({ state: { ...state, imported: true }, available: true }));
+    core.mulligan.mockReturnValue({ gameId: "g1", players: {} });
   });
   afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -32,10 +33,10 @@ describe("Atlas post-game viewer account boundary", () => {
     const storage = vi.spyOn(Storage.prototype, "setItem");
     const { result } = renderHook(useTestHook);
     await waitFor(() => expect(result.current.metadata?.available).toBe(true));
-    expect(result.current.allCards).toBe(false); expect(core.decode).not.toHaveBeenCalled(); expect(result.current.project(position)).toBeNull();
+    expect(result.current.allCards).toBe(false); expect(core.decode).not.toHaveBeenCalled(); expect(result.current.project(position)).toBeNull(); expect(result.current.mulliganSummaries).toEqual([]);
     await act(async () => result.current.showAllCards());
-    expect(result.current.allCards).toBe(true); expect(result.current.project(position)?.available).toBe(true);
-    act(() => result.current.showPlayerView()); expect(result.current.project(position)).toBeNull();
+    expect(result.current.allCards).toBe(true); expect(result.current.project(position)?.available).toBe(true); expect(result.current.mulliganSummaries).toHaveLength(1);
+    act(() => result.current.showPlayerView()); expect(result.current.project(position)).toBeNull(); expect(result.current.mulliganSummaries).toEqual([]);
     await act(async () => result.current.showAllCards()); expect(core.decode).toHaveBeenCalledTimes(1);
     expect(storage).not.toHaveBeenCalled();
     expect(fetcher.mock.calls.filter(call => !String(call[0]).includes("metadata=1"))).toHaveLength(2);
@@ -46,7 +47,7 @@ describe("Atlas post-game viewer account boundary", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: unknown) => String(url).includes("metadata=1") ? json(metadata(auth.user?.uid ?? "public", auth.user?.uid === "alice")) : new Promise<Response>(done => { resolve = done; })));
     const { result } = renderHook(useTestHook); await waitFor(() => expect(result.current.metadata?.accountId).toBe("alice"));
     let request!: Promise<void>; act(() => { request = result.current.showAllCards(); }); await waitFor(() => expect(resolve).toBeTypeOf("function"));
-    act(() => signIn("bob")); expect(result.current.prepared).toEqual([]); expect(result.current.allCards).toBe(false);
+    act(() => signIn("bob")); expect(result.current.prepared).toEqual([]); expect(result.current.allCards).toBe(false); expect(result.current.mulliganSummaries).toEqual([]);
     await act(async () => { resolve(json(full("alice"))); await request; });
     await waitFor(() => expect(result.current.metadata?.accountId).toBe("bob")); expect(result.current.project(position)).toBeNull(); expect(core.decode).not.toHaveBeenCalled();
   });
@@ -77,7 +78,30 @@ describe("Atlas post-game viewer account boundary", () => {
     const { result } = renderHook(useTestHook); await waitFor(() => expect(result.current.metadata?.available).toBe(true));
     await act(async () => result.current.showAllCards()); expect(result.current.allCards).toBe(true);
     expired = true; act(() => window.dispatchEvent(new Event("focus")));
-    await waitFor(() => expect(result.current.prepared).toEqual([])); expect(result.current.project(position)).toBeNull();
+    await waitFor(() => expect(result.current.prepared).toEqual([])); expect(result.current.project(position)).toBeNull(); expect(result.current.mulliganSummaries).toEqual([]);
+  });
+
+  it("drops an already visible mulligan summary on account change or attachment replacement", async () => {
+    signIn("alice"); let replaced = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => {
+      const current = metadata(auth.user?.uid ?? "public");
+      if (replaced) current.games = [{ ...game, sha256: "replacement" }];
+      return json(String(url).includes("metadata=1") ? current : full(auth.user?.uid ?? "public"));
+    }));
+    const { result } = renderHook(useTestHook);
+    await waitFor(() => expect(result.current.metadata?.available).toBe(true));
+    await act(async () => result.current.showAllCards());
+    expect(result.current.mulliganSummaries).toHaveLength(1);
+    replaced = true; act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(result.current.mulliganSummaries).toEqual([]));
+    expect(result.current.allCards).toBe(false);
+    replaced = false; act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(result.current.metadata?.games[0].sha256).toBe("hash1"));
+    await act(async () => result.current.showAllCards());
+    expect(result.current.mulliganSummaries).toHaveLength(1);
+    act(() => signIn("bob"));
+    expect(result.current.mulliganSummaries).toEqual([]);
+    expect(result.current.prepared).toEqual([]);
   });
 
   it("keeps an older server usable when the optional endpoint is not deployed", async () => {

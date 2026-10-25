@@ -10,10 +10,11 @@ type Props = {
   covered: boolean;
   knownCards?: boolean;
   capturedOpening?: boolean;
+  mulliganSummary?: boolean;
   onChangeView: () => void;
 };
 
-export function AtlasPostgameControls({ atlas, disabled, covered, capturedOpening = false, knownCards = false, onChangeView }: Props) {
+export function AtlasPostgameControls({ atlas, disabled, covered, capturedOpening = false, mulliganSummary = false, knownCards = false, onChangeView }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
@@ -32,7 +33,7 @@ export function AtlasPostgameControls({ atlas, disabled, covered, capturedOpenin
       onClick={() => { setMessage(""); dialog.current?.showModal(); }}>
       {owner ? "Card views" : "About All cards"}
     </button>
-    {atlas.allCards && !covered && !disabled ? <span className={styles.coverage} role="status">{capturedOpening ? "Captured opening · Player view preserved" : "Captured view here · no matching Atlas frame"}</span> : null}
+    {atlas.allCards && !covered && !disabled ? <span className={styles.coverage} role="status">{mulliganSummary ? "Mulligan summary · returned cards unknown" : capturedOpening ? "Captured opening · Player view preserved" : "Captured view here · no matching Atlas frame"}</span> : null}
     {atlas.error ? <span className={styles.error} role="alert">{atlas.error}</span> : null}
     <dialog ref={dialog} className={styles.dialog} aria-labelledby="atlas-postgame-title" onClick={event => {
       if (event.target === dialog.current) { const box = dialog.current.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.current.close(); }

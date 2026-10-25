@@ -1,6 +1,6 @@
 import { isRecord } from "../json";
 import type { JsonObject } from "../types";
-import { ATLAS_POSTGAME_LIMITS, AtlasPostgameError, type AtlasPostgameSource, type AtlasPostgameView } from "./types";
+import { ATLAS_POSTGAME_LIMITS, AtlasPostgameError, type AtlasMulliganDraw, type AtlasMulliganPlayback, type AtlasPostgameSource, type AtlasPostgameView } from "./types";
 
 export const ATLAS_CARD_ZONES = ["deck", "hand", "base", "trash", "discard", "banished", "battlefieldA", "battlefieldB", "battlefieldToken", "champion", "legend", "runeDeck", "runeArea", "sideboard", "removed"] as const;
 const REQUIRED_ZONES = ["deck", "hand", "base", "trash", "battlefieldA", "battlefieldB", "champion", "legend", "runeDeck", "runeArea"];
@@ -9,6 +9,27 @@ const text = (value: unknown): value is string => typeof value === "string" && v
 const time = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 const integer = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 const sameIds = (a: string[], b: string[]) => a.length === b.length && [...a].sort().every((id, i) => id === [...b].sort()[i]);
+
+/** Optional evidence is deliberately small. Invalid metadata never disables the ordinary replay. */
+export function sanitizeAtlasMulliganPlayback(value: unknown, participantIds: string[]): Record<string, AtlasMulliganPlayback> | null {
+  if (!isRecord(value) || participantIds.length !== 2 || new Set(participantIds).size !== 2
+    || !sameIds(Object.keys(value), participantIds)) return null;
+  const result: Record<string, AtlasMulliganPlayback> = Object.create(null);
+  for (const playerId of participantIds) {
+    if (!text(playerId) || ["__proto__", "prototype", "constructor"].includes(playerId)) return null;
+    const entry = value[playerId];
+    if (!isRecord(entry) || !integer(entry.redrawCount) || entry.redrawCount > 4 || !Array.isArray(entry.draws) || entry.draws.length > 5) return null;
+    const draws: AtlasMulliganDraw[] = [];
+    for (const draw of entry.draws) {
+      if (!isRecord(draw) || !text(draw.id) || /[\s\u0000-\u001f\u007f]/.test(draw.id)
+        || !text(draw.cardId) || /[\s\u0000-\u001f\u007f]/.test(draw.cardId) || !integer(draw.handCountBeforeDraw)
+        || draw.handCountBeforeDraw > 4 || (draw.kind !== "refill" && draw.kind !== "opening")) return null;
+      draws.push({ id: draw.id, cardId: draw.cardId, handCountBeforeDraw: draw.handCountBeforeDraw, kind: draw.kind });
+    }
+    result[playerId] = { redrawCount: entry.redrawCount, draws };
+  }
+  return result;
+}
 
 /** Imported files are user-supplied evidence, not authenticated Atlas or dual-player consent. */
 export function validateAtlasPostgameView(value: JsonObject): AtlasPostgameSource {
