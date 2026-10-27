@@ -1,5 +1,7 @@
 # BO3 native exports and per-game attachment identity — local, 26 October 2026
 
+**Website published 27 October 2026:** [release receipt](./WEB-RELEASE-2026-10-27-BO3-OVERLAY.md). The dated local-only status below is historical. The desktop candidate remains unpublished; no new live BO3 attachment is claimed.
+
 The new Riven mirror BO3 exposed two independent failures. Atlas's native Games 1–2 exports have valid completed envelopes but no `gameOutcome` or `gameHistoryEndedAt` in any frame. Separately, later games use different rooms from the replay's private first-room metadata. The old terminal checks rejected Games 1–2; the old scalar room check rejected later-game attachment.
 
 ## Local correction

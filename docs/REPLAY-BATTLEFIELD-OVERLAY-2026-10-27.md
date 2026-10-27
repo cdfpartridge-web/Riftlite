@@ -1,5 +1,7 @@
 # Selected battlefields overlay — local fix, 27 October 2026
 
+**Website published at 15:09 UK:** [release receipt](./WEB-RELEASE-2026-10-27-BO3-OVERLAY.md). The local-only status below records the pre-publication investigation. Existing canonical data has not been rewritten.
+
 Reported replay: https://www.riftlite.com/replays/rl2_70ade85aa0a70680bb74af4f86a7f378
 
 The live player was reproduced at 1:56, showing Turn 2 while the Selected battlefields overlay covered the board. Its public canonical has 2,409 events, 109 checkpoints and seven inferred games. Three gameplay continuations were split into new segments only 190–261 ms after entering gameplay; those segments retained a battlefield-pick phase for approximately 13–19 minutes. The overlay follows the canonical phase and is not a stuck CSS animation.
