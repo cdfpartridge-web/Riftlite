@@ -91,6 +91,7 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
   let currentScores = new Map<string, number>();
   let lastScoreEventId = "";
   let observedPostgameSignal = false;
+  let authoritativeGameplayInstanceId = "";
 
   const append = <TEvent extends ReplayEvent>(event: Omit<TEvent, "index">): TEvent => {
     const withIndex = { ...event, index: events.length } as TEvent;
@@ -136,6 +137,7 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
     currentScores = new Map();
     lastScoreEventId = "";
     observedPostgameSignal = false;
+    authoritativeGameplayInstanceId = "";
     append<ReplayGameBoundaryEvent>({
       id: stableId("event", packet.id, "game_start", ordinal),
       kind: "game_boundary",
@@ -211,6 +213,13 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
       currentGame &&
       observation.explicitGameNumber === undefined &&
       observation.phase &&
+      // A late shell echo may omit the game number while naming the room
+      // whose authoritative gameplay we have already seen. Transport packets
+      // can mention the next room early, so the general source-identity list
+      // is not sufficient evidence. Let the stale-setup guard handle the echo
+      // before a new inferred game resets seenInGame.
+      (observedPostgameSignal || !observation.gameInstanceId ||
+        observation.gameInstanceId !== authoritativeGameplayInstanceId) &&
       startsFollowingGame(observation.phase, currentGame, format)
     ) {
       const priorOrdinal = currentGame.ordinal;
@@ -234,6 +243,10 @@ export function deriveCanonicalReplay(parsed: ParsedRawCapture): CanonicalReplay
 
     if (currentGame && observation.gameInstanceId && !currentGame.sourceIdentity.gameInstanceIds.includes(observation.gameInstanceId)) {
       currentGame.sourceIdentity.gameInstanceIds.push(observation.gameInstanceId);
+    }
+    if (currentGame && observation.phase === "in_game" && observation.gameInstanceId &&
+      (packet.packetType === "authoritative_snapshot" || packet.packetType === "authoritative_patch_commit")) {
+      authoritativeGameplayInstanceId = observation.gameInstanceId;
     }
 
     const staleSameGameSetupPhase = Boolean(

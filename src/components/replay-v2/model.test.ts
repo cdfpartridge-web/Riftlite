@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { reduceReplayEvent } from "@/lib/replay-v2/project-state";
 
 import type {
   CanonicalReplayV2,
@@ -91,6 +92,101 @@ describe("replay scene selection", () => {
 
     state.appliedEventIndex = 0;
     expect(activeScene(replay, state, 1_000)).toBe("opening");
+  });
+
+  it.each([8, 10])("hides a legacy inferred setup only after confirmed sequence %i continues", (sequence) => {
+    const { replay, stateAt } = legacyInferredSetup(sequence);
+    const before = JSON.stringify(replay);
+    expect(activeScene(replay, stateAt(4), 500)).toBe("battlefields");
+    expect(activeScene(replay, stateAt(5), 600)).toBeNull();
+    expect(activeScene(replay, stateAt(5), 600_000)).toBeNull();
+    // Proof is indexed by recorded position, so seeking back cannot use it early.
+    expect(activeScene(replay, stateAt(4), 500)).toBe("battlefields");
+    expect(JSON.stringify(replay)).toBe(before);
+  });
+
+  it.each([
+    "missing history", "missing raw phase", "missing sequence", "sequence gap", "sequence reset",
+    "explicit boundary", "different boundary source", "setup action", "changed history", "changed phase",
+  ])("preserves setup without continuity proof: %s", (change) => {
+    const fixture = legacyInferredSetup();
+    const { replay, stateAt, startAction, continuation, boundary } = fixture;
+    const fields = startAction.patch.operations[0];
+    if (fields.op !== "set_room_fields") throw new Error("Expected room fields");
+    if (change === "missing history") delete fields.fields.gameHistoryStartedAt;
+    if (change === "missing raw phase") delete fields.fields.phase;
+    if (change === "missing sequence") delete startAction.patch.sequence;
+    if (change === "sequence gap") continuation.patch.baseSequence = 9;
+    if (change === "sequence reset") continuation.patch.sequence = 0;
+    if (change === "explicit boundary") boundary.reason = "explicit_game_number";
+    if (change === "different boundary source") boundary.sourceMessageId = "a-different-message";
+    if (change === "setup action") continuation.actionType = "select_battlefield";
+    if (change === "changed history" || change === "changed phase") {
+      continuation.patch.operations.push({ id: "changed", op: "set_room_fields", fields: change === "changed history"
+        ? { gameHistoryStartedAt: 2_000 } : { phase: "battlefield_pick" } });
+    }
+    expect(activeScene(replay, stateAt(5), 600)).toBe("battlefields");
+  });
+
+  it("preserves genuine sequence-zero setup even with carried gameplay fields", () => {
+    const { replay, stateAt } = legacyInferredSetup();
+    const snapshot = legacySetupSnapshot(5, stateAt(4));
+    replay.events.splice(5, 0, snapshot);
+    replay.events.forEach((event, index) => { event.index = index; });
+    const state = stateAt(6);
+    // Even a stale caller's carried fields cannot restore cancelled evidence.
+    state.room.fields.phase = "in_game";
+    state.room.fields.gameHistoryStartedAt = 1_000;
+    expect(activeScene(replay, state, 700)).toBe("battlefields");
+  });
+
+  it("expires compatibility evidence at a later authoritative setup reset", () => {
+    const { replay, stateAt } = legacyInferredSetup();
+    replay.events.push(legacySetupSnapshot(6, stateAt(5)));
+    const reset = stateAt(6);
+    reset.room.fields.phase = "in_game";
+    reset.room.fields.gameHistoryStartedAt = 1_000;
+    expect(activeScene(replay, reset, 700)).toBe("battlefields");
+    // A reset later in the recording must not affect earlier playback either.
+    expect(activeScene(replay, stateAt(5), 600)).toBeNull();
+  });
+
+  it.each([9, 10])("keeps proof through a healthy snapshot at sequence %i", (sequence) => {
+    const { replay, stateAt } = legacyInferredSetup();
+    const snapshot = legacySetupSnapshot(6, stateAt(5));
+    snapshot.sequence = sequence;
+    snapshot.snapshot.room.fields = { phase: "in_game", gameHistoryStartedAt: 1_000 };
+    replay.events.push(snapshot);
+    expect(activeScene(replay, stateAt(6), 700)).toBeNull();
+  });
+
+  it("rejects a sequence-zero snapshot even if its carried phase and history still match", () => {
+    const { replay, stateAt } = legacyInferredSetup();
+    const snapshot = legacySetupSnapshot(6, stateAt(5));
+    snapshot.snapshot.room.fields = { phase: "in_game", gameHistoryStartedAt: 1_000 };
+    replay.events.push(snapshot);
+    expect(activeScene(replay, stateAt(6), 700)).toBe("battlefields");
+  });
+
+  it("requires current authoritative phase and history to still match", () => {
+    const { replay, stateAt } = legacyInferredSetup();
+    const cases: Array<ReplayState["room"]["fields"]> = [{ phase: "battlefield_pick", gameHistoryStartedAt: 1_000 },
+      { phase: "in_game", gameHistoryStartedAt: 2_000 }, { phase: "in_game" }];
+    for (const fields of cases) {
+      const state = stateAt(5);
+      state.room.fields = fields;
+      expect(activeScene(replay, state, 600)).toBe("battlefields");
+    }
+  });
+
+  it("indexes legacy continuity once per replay instead of scanning every playback frame", () => {
+    const { replay, stateAt } = legacyInferredSetup();
+    const state = stateAt(5);
+    const events = replay.events;
+    let reads = 0;
+    Object.defineProperty(replay, "events", { get: () => { reads += 1; return events; } });
+    for (let frame = 0; frame < 100; frame += 1) expect(activeScene(replay, state, 600 + frame)).toBeNull();
+    expect(reads).toBe(1);
   });
 });
 
@@ -820,5 +916,51 @@ function replayPhase(
     phase,
     rawPhase: phase,
     gameNumber: 1,
+  };
+}
+
+function legacyInferredSetup(sequence = 8) {
+  const startAction = replayAction(1, "submit_mulligan") as Extract<ReplayEvent, { kind: "action" }>;
+  startAction.patch.baseSequence = sequence - 1;
+  startAction.patch.sequence = sequence;
+  startAction.patch.operations = [{
+    id: "start-fields", op: "set_room_fields",
+    fields: { phase: "in_game", gameHistoryStartedAt: 1_000, turnNumber: 1, activeTurnPlayerId: "self" },
+  }];
+  const boundary: Extract<ReplayEvent, { kind: "game_boundary" }> = {
+    id: "inferred-start", index: 3, at: 1_300, atMs: 300, sourceMessageId: "late-setup-shell",
+    gameId: "game-2", kind: "game_boundary", boundary: "start", gameOrdinal: 2, gameNumber: 2, reason: "phase_rollover",
+  };
+  const continuation = replayAction(5, "payment_batch") as Extract<ReplayEvent, { kind: "action" }>;
+  continuation.gameId = "game-2";
+  continuation.patch.baseSequence = sequence;
+  continuation.patch.sequence = sequence + 1;
+  const replay = {
+    events: [
+      replayPhase(0, "in_game", 0),
+      startAction,
+      { ...boundary, id: "inferred-end", index: 2, gameId: "game-1", boundary: "end", gameOrdinal: 1, gameNumber: 1 },
+      boundary,
+      { ...replayPhase(4, "battlefield_pick", 400), gameId: "game-2", gameNumber: 2 },
+      continuation,
+    ],
+    series: { games: [
+      { id: "game-1", phases: [{ phase: "in_game", startEventIndex: 0 }] },
+      { id: "game-2", phases: [{ phase: "battlefield_pick", startEventIndex: 4 }] },
+    ] },
+  } as unknown as CanonicalReplayV2;
+  const stateAt = (index: number) => replay.events.slice(0, index + 1).reduce(reduceReplayEvent,
+    replayState(replayPlayer("self", "Local", {}), replayPlayer("opponent", "Opponent", {})));
+  return { replay, stateAt, startAction, continuation, boundary };
+}
+
+function legacySetupSnapshot(index: number, state: ReplayState): Extract<ReplayEvent, { kind: "snapshot" }> {
+  return {
+    id: `snapshot-${index}`, index, at: 1_000 + index * 100, atMs: index * 100,
+    sourceMessageId: `snapshot-message-${index}`, gameId: "game-2", kind: "snapshot", sequence: 0,
+    snapshot: {
+      room: { phase: "battlefield_pick", rawPhase: "battlefield_pick", gameNumber: 2, fields: { phase: "battlefield_pick" } },
+      players: state.players, chain: [], log: [],
+    },
   };
 }

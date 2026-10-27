@@ -40,6 +40,7 @@ export function validateAtlasPostgameView(value: JsonObject): AtlasPostgameSourc
   if (!time(value.createdAt) || !time(value.completedAt) || value.completedAt < value.createdAt) return fail("The Atlas replay is not a completed game.");
   if (!Array.isArray(value.frames) || value.frames.length < 2 || value.frames.length > ATLAS_POSTGAME_LIMITS.maxFrames) return fail("The Atlas replay has an unsupported number of frames.");
   let previousSequence = -1, previousElapsed = -1, roomCode = "", roomCreatedAt = 0, historyStartedAt = 0, gameNumber = 0;
+  let archivedBo3Game = value.completedAt <= Date.now() + 60_000, seriesStartedAt = 0;
   const boardsChecked = new WeakSet<object>();
   const cardsChecked = new WeakSet<object>();
   for (const [index, frame] of value.frames.entries()) {
@@ -56,6 +57,14 @@ export function validateAtlasPostgameView(value: JsonObject): AtlasPostgameSourc
     if (!index) { roomCode = state.roomCode; roomCreatedAt = state.createdAt; historyStartedAt = state.gameHistoryStartedAt; gameNumber = number; }
     if (state.roomCode !== roomCode || state.createdAt !== roomCreatedAt || state.gameHistoryStartedAt !== historyStartedAt || number !== gameNumber) return fail("Attach one Atlas game at a time.");
     if (state.gameHistoryStartedAt !== value.createdAt) return fail("The Atlas replay game timestamps do not match.");
+    if (!index && time(state.seriesStartedAt)) seriesStartedAt = state.seriesStartedAt;
+    // Atlas archives earlier BO3 games when the next room is created. Those
+    // completed exports retain no terminal room fields and their final captured
+    // action precedes the envelope's completedAt. Keep that exact native shape;
+    // never manufacture a winner, terminal frame or end timestamp.
+    archivedBo3Game &&= state.matchFormat === "bo3" && number < 3
+      && time(state.seriesStartedAt) && state.seriesStartedAt === seriesStartedAt && state.seriesStartedAt <= historyStartedAt
+      && state.gameOutcome === undefined && state.gameHistoryEndedAt === undefined;
     if (!sameIds(ids, state.players.map(player => isRecord(player) && text(player.id) ? player.id : ""))) return fail("The Atlas replay participants changed during the game.");
     for (const player of state.players) {
       if (!isRecord(player) || !isRecord(player.board)) return fail("Invalid Atlas player board.");
@@ -83,8 +92,8 @@ export function validateAtlasPostgameView(value: JsonObject): AtlasPostgameSourc
   const finalFrame = value.frames[value.frames.length - 1] as JsonObject;
   const finalState = finalFrame.state as JsonObject;
   const outcome = finalState.gameOutcome;
-  if (!isRecord(outcome) || !["score", "concession"].includes(outcome.reason as string) || !Array.isArray(outcome.winnerPlayerIds) || outcome.winnerPlayerIds.length !== 1 || !ids.includes(outcome.winnerPlayerIds[0] as string)) return fail("Finish the Atlas game before importing its replay.");
-  if (Math.abs(previousElapsed - (value.completedAt - value.createdAt)) > 1000) return fail("The Atlas replay is missing its completed ending.");
+  if (!archivedBo3Game && (!isRecord(outcome) || !["score", "concession"].includes(outcome.reason as string) || !Array.isArray(outcome.winnerPlayerIds) || outcome.winnerPlayerIds.length !== 1 || !ids.includes(outcome.winnerPlayerIds[0] as string))) return fail("Finish the Atlas game before importing its replay.");
+  if (!archivedBo3Game && Math.abs(previousElapsed - (value.completedAt - value.createdAt)) > 1000) return fail("The Atlas replay is missing its completed ending.");
   const view = value as AtlasPostgameView;
   return { view, metadata: { replayId: view.replayId, roomCode, participantIds: ids, viewerPlayerId: view.viewerPlayerId, createdAt: view.createdAt, completedAt: view.completedAt, gameNumber, frameCount: view.frames.length } };
 }

@@ -5,6 +5,7 @@ import {
   syntheticTerminalScoreCapture,
 } from "@/lib/replay-v2/__fixtures__/synthetic-captures";
 import { normalizeRawCaptureV1 } from "@/lib/replay-v2/normalize-replay";
+import { projectReplayState } from "@/lib/replay-v2/project-state";
 import type { RawCaptureV1 } from "@/lib/replay-v2/types";
 
 describe("normalizeRawCaptureV1", () => {
@@ -364,6 +365,56 @@ describe("normalizeRawCaptureV1", () => {
     }));
   });
 
+  it("keeps an unnumbered same-room setup echo in the authoritative game instead of splitting its gameplay", () => {
+    const capture = unnumberedSetupEchoCapture();
+    const replay = normalizeRawCaptureV1(capture);
+    expect(replay.series.games).toHaveLength(1);
+    expect(replay.series.games[0].phases.map(phase => phase.phase)).toEqual(["battlefield_pick", "mulligan", "in_game"]);
+    expect(replay.events.filter(event => event.kind === "action").map(event => event.gameId))
+      .toEqual(Array(3).fill(replay.series.games[0].id));
+    expect(projectReplayState(replay, replay.events.length - 1)).toMatchObject({ phase: "in_game", room: { turnNumber: 2 } });
+    expect(replay.diagnostics.some(entry => entry.code === "inferred_game_rollover")).toBe(false);
+    expect(replay.diagnostics.some(entry => entry.code === "stale_same_game_setup_phase")).toBe(true);
+  });
+
+  it.each(["changed-room", "explicit-next-game", "unknown-room"])("preserves a next-game setup boundary with %s evidence", evidence => {
+    const capture = unnumberedSetupEchoCapture();
+    const setup = JSON.parse(String(capture.messages[3].raw));
+    if (evidence === "changed-room") setup.gameInstanceId = "GAME-2";
+    if (evidence === "explicit-next-game") setup.sessionDoc.gameNumber = 2;
+    if (evidence === "unknown-room") delete setup.gameInstanceId;
+    capture.messages = [...capture.messages.slice(0, 3), rawMessage(3, 1290, setup)];
+    const replay = normalizeRawCaptureV1(capture);
+    expect(replay.series.games.map(game => game.gameNumber)).toEqual([1, 2]);
+    expect(replay.series.games[1].phases.map(phase => phase.phase)).toEqual(["battlefield_pick"]);
+  });
+
+  it.each(["room_shell_leave", "lobby", "explicit-result"])("preserves same-room setup after %s", ending => {
+    const capture = unnumberedSetupEchoCapture();
+    const packet = ending === "room_shell_leave"
+      ? { type: "room_shell_leave", gameInstanceId: "GAME-1" }
+      : ending === "lobby"
+        ? { type: "room_shell_sync", gameInstanceId: "GAME-1", sessionDoc: { phase: "lobby" } }
+        : { type: "authoritative_patch_commit", gameInstanceId: "GAME-1", baseSequence: 8, sequence: 9,
+            action: { type: "game_result", winnerPlayerId: "player-local" }, patch: { operations: [] } };
+    capture.messages = [...capture.messages.slice(0, 3), rawMessage(3, 1200, packet), { ...capture.messages[3], seq: 4 }];
+    const replay = normalizeRawCaptureV1(capture);
+    expect(replay.series.games.map(game => game.gameNumber)).toEqual([1, 2]);
+    expect(replay.series.games[1].phases.map(phase => phase.phase)).toEqual(["battlefield_pick"]);
+  });
+
+  it("does not mistake next-room transport observations for the current authoritative gameplay room", () => {
+    const capture = unnumberedSetupEchoCapture();
+    const setup = JSON.parse(String(capture.messages[3].raw));
+    setup.gameInstanceId = "GAME-2";
+    capture.messages = [...capture.messages.slice(0, 3),
+      rawMessage(3, 1200, { type: "join_game", gameInstanceId: "GAME-2" }),
+      rawMessage(4, 1290, setup)];
+    const replay = normalizeRawCaptureV1(capture);
+    expect(replay.series.games.map(game => game.gameNumber)).toEqual([1, 2]);
+    expect(replay.series.games[1].phases.map(phase => phase.phase)).toEqual(["battlefield_pick"]);
+  });
+
   it("keeps raw-derived results authoritative over conflicting desktop metadata", () => {
     const capture = desktopResultBo3Capture();
     capture.messages.splice(capture.messages.length - 1, 0, {
@@ -480,6 +531,31 @@ function desktopResultBo3Capture(): RawCaptureV1 {
         type: "room_shell_leave",
         gameInstanceId: "GAME-2",
       }),
+    ],
+  };
+}
+
+/** Synthetic equivalent of an unnumbered shell echo 190ms after gameplay starts, followed by continuing commits. */
+function unnumberedSetupEchoCapture(): RawCaptureV1 {
+  const shell: Record<string, unknown> = matchSessionDoc(1, "battlefield_pick");
+  delete shell.gameNumber;
+  const snapshot: Record<string, unknown> = { ...gameSnapshot(1, 0, 0), phase: "mulligan" };
+  delete snapshot.gameNumber;
+  return {
+    schema: "riftreplay-raw-capture", version: 1,
+    capture: { captureSessionId: "unnumbered-setup-echo", identity: { firstSeenAt: 1000, lastSeenAt: 23000 } },
+    messages: [
+      rawMessage(0, 1000, { type: "room_shell_sync", gameInstanceId: "GAME-1", sessionDoc: shell }),
+      rawMessage(1, 1050, { type: "authoritative_snapshot", gameInstanceId: "GAME-1", sequence: 7, snapshot }),
+      rawMessage(2, 1100, { type: "authoritative_patch_commit", gameInstanceId: "GAME-1", baseSequence: 7, sequence: 8,
+        action: { type: "submit_mulligan" }, patch: { operations: [{ op: "set_room_fields", fields: {
+          phase: "in_game", turnNumber: 1, activeTurnPlayerId: "player-local", gameHistoryStartedAt: 1100,
+        } }] } }),
+      rawMessage(3, 1290, { type: "room_shell_sync", gameInstanceId: "GAME-1", sessionDoc: shell }),
+      rawMessage(4, 21000, { type: "authoritative_patch_commit", gameInstanceId: "GAME-1", baseSequence: 8, sequence: 9,
+        action: { type: "payment_batch" }, patch: { operations: [{ op: "set_room_fields", fields: { rewindablePlayerIds: ["player-local"] } }] } }),
+      rawMessage(5, 23000, { type: "authoritative_patch_commit", gameInstanceId: "GAME-1", baseSequence: 9, sequence: 10,
+        action: { type: "end_turn" }, patch: { operations: [{ op: "set_room_fields", fields: { turnNumber: 2, activeTurnPlayerId: "player-opponent" } }] } }),
     ],
   };
 }

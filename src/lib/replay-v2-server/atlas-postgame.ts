@@ -1,6 +1,7 @@
 import "server-only";
 
 import { gzipSync, gunzipSync } from "node:zlib";
+import { isDeepStrictEqual } from "node:util";
 import type { Firestore } from "firebase-admin/firestore";
 import { getFirestoreAdmin } from "@/lib/firebase/admin";
 import { identityUidsFor } from "@/lib/social/server";
@@ -8,15 +9,17 @@ import {
   decodeAtlasPostgameReplay, encodeAtlasPostgameReplay, matchAtlasPostgameReplay,
 } from "@/lib/replay-v2/atlas-postgame";
 import type { CanonicalReplayV2 } from "@/lib/replay-v2/types";
+import { normalizeReplayProviderCapture } from "@/lib/replay-v2/provider-normalization";
 import { AtlasPostgameError, ATLAS_POSTGAME_MISMATCH_REASONS } from "@/lib/replay-v2/atlas-postgame/types";
 import {
   deleteImmutableArtifact, readImmutableArtifact, storeImmutableArtifact,
 } from "./artifacts";
-import { MAX_CANONICAL_JSON_BYTES, REPLAY_COLLECTION } from "./constants";
+import { MAX_CANONICAL_JSON_BYTES, MAX_RAW_GZIP_BYTES, MAX_RAW_JSON_BYTES, REPLAY_COLLECTION } from "./constants";
 import { ReplayV2Error } from "./errors";
 import { createArtifactGeneration, sha256Hex } from "./ids";
 import type { ReplayRecord } from "./model";
 import { readReadableReplayMetadata } from "./service";
+import { sanitizeCanonicalReplay } from "./projection";
 import { atlasPostgameGameIsShared } from "./atlas-postgame-model";
 import type {
   AtlasPostgameGameMetadata, AtlasPostgameManifest, AtlasPostgameMetadataResponse, StoredAtlasPostgameGame,
@@ -107,6 +110,34 @@ function parseCanonical(bytes: Buffer): CanonicalReplayV2 {
     throw new ReplayV2Error(422, "postgame_canonical_invalid", "The original replay could not be checked.");
   }
 }
+
+/** Resolve a later BO3 room from the already-owned immutable capture, never from the import's claim alone. */
+async function assertOriginalBo3GameRoom(
+  database: Firestore, record: ReplayRecord, canonical: CanonicalReplayV2,
+  source: ReturnType<typeof decodeAtlasPostgameReplay>, gameId: string,
+): Promise<void> {
+  try {
+    const raw = record.rawArtifact;
+    if (canonical.series.format !== "bo3" || !raw || raw.kind !== "raw"
+      || !Number.isSafeInteger(raw.bytes) || raw.bytes < 1 || raw.bytes > MAX_RAW_GZIP_BYTES
+      || raw.bytes !== record.expectedRaw.bytes || raw.sha256 !== record.expectedRaw.sha256) throw new Error();
+    const bytes = await readImmutableArtifact(database, raw);
+    if (bytes.length !== raw.bytes || sha256Hex(bytes) !== raw.sha256) throw new Error();
+    const payload = JSON.parse(gunzipSync(bytes, { maxOutputLength: MAX_RAW_JSON_BYTES }).toString("utf8"));
+    const normalized = normalizeReplayProviderCapture(payload, "atlas", record.replayId);
+    if (normalized.captureId !== record.captureId || normalized.replay.source.roomCode !== record.roomCode) throw new Error();
+    const projected = sanitizeCanonicalReplay(normalized.replay);
+    // Publication adds quality diagnostics after this transform. Everything
+    // else, including private-identity aliases, event positions and checkpoints,
+    // must reproduce the immutable canonical being supplemented. Fail closed
+    // if an older normalizer generated a different original.
+    if (!isDeepStrictEqual({ ...projected, diagnostics: [] }, { ...canonical, diagnostics: [] })) throw new Error();
+    const games = normalized.replay.series.games.filter(game => game.id === gameId && game.gameNumber === source.metadata.gameNumber);
+    if (games.length !== 1 || !games[0].sourceIdentity.gameInstanceIds.includes(source.metadata.roomCode)) throw new Error();
+  } catch {
+    throw new AtlasPostgameError("This Atlas file belongs to a different replay.", { metadata: 1 });
+  }
+}
 function assertExpectedAccount(accountId: string, expectedAccountId: unknown): void {
   if (typeof expectedAccountId !== "string" || !expectedAccountId || expectedAccountId.length > 128 || /[\u0000-\u001f\u007f/]/.test(expectedAccountId)) {
     throw new ReplayV2Error(400, "postgame_account_invalid", "Reload the replay before changing its Atlas import.");
@@ -178,14 +209,21 @@ export async function saveAtlasPostgame(accountId: string, replayId: string, inp
   try { source = decodeAtlasPostgameReplay(value.replay); }
   catch { throw new ReplayV2Error(422, "postgame_export_invalid", "This must be a supported completed Atlas duel export with available card information."); }
   let alignment: ReturnType<typeof matchAtlasPostgameReplay>;
+  let usedRawRoomBinding = false;
   try {
     // The immutable public canonical intentionally has no room code. Bind the
     // import against private upload metadata without restoring that private
     // value to the artifact or sending it to the browser.
-    if (!record.roomCode || record.roomCode !== source.metadata.roomCode) {
+    if (!record.roomCode) {
       throw new AtlasPostgameError("This Atlas file belongs to a different replay.", { metadata: 1 });
     }
     alignment = matchAtlasPostgameReplay(canonical, source);
+    const finalState = source.view?.frames?.at(-1)?.state;
+    const archivedBo3Game = finalState?.matchFormat === "bo3" && finalState.gameOutcome === undefined;
+    if (archivedBo3Game || record.roomCode !== source.metadata.roomCode || canonical.series.format === "bo3" && alignment.gameNumber > 1) {
+      await assertOriginalBo3GameRoom(database, record, canonical, source, alignment.gameId);
+      usedRawRoomBinding = true;
+    }
   }
   catch (error) {
     const counts: Record<string, number> = {};
@@ -221,6 +259,12 @@ export async function saveAtlasPostgame(accountId: string, replayId: string, inp
       const current = recordFromSnapshot(await transaction.get(ref));
       assertOwner(current, owners); assertReady(current);
       if (current.canonicalArtifact!.sha256 !== canonicalSha256) {
+        throw new ReplayV2Error(409, "postgame_original_changed", "The original replay changed. Reload before importing.");
+      }
+      if (usedRawRoomBinding && (current.captureId !== record.captureId || current.roomCode !== record.roomCode
+        || !isDeepStrictEqual(current.expectedRaw, record.expectedRaw)
+        || !isDeepStrictEqual(current.rawArtifact, record.rawArtifact)
+        || !isDeepStrictEqual(current.canonicalArtifact, record.canonicalArtifact))) {
         throw new ReplayV2Error(409, "postgame_original_changed", "The original replay changed. Reload before importing.");
       }
       const before = manifest(current.atlasPostgame);

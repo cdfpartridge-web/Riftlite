@@ -19,6 +19,15 @@ function fixture() {
   const final: JsonObject = { ...state, turnNumber: 2, gameOutcome: { winnerPlayerIds: ["a"], reason: "concession", decidedAtTurnNumber: 2 } };
   return { format: "riftatlas-replay", version: 1, replay: { replayId: "test-export", viewerPlayerId: "a", players: players.map(({ id, name, seat }) => ({ id, name, seat })), canFork: true, canSwitchPerspective: true, createdAt: START, completedAt: START + 1000, frames: [{ index: 0, sequence: 10, elapsedMs: 0, actionType: "start", state }, { index: 1, sequence: 11, elapsedMs: 1000, actionType: "concede", state: final }] } };
 }
+function archivedBo3Fixture(gameNumber = 1) {
+  const input = fixture();
+  input.replay.completedAt += 5000;
+  for (const frame of input.replay.frames) {
+    frame.state.matchFormat = "bo3"; frame.state.gameNumber = gameNumber; frame.state.seriesStartedAt = START - 10_000;
+    delete frame.state.gameOutcome; delete frame.state.gameHistoryEndedAt;
+  }
+  return input;
+}
 function canonicalFor(input = fixture()): CanonicalReplayV2 {
   const source = decodeAtlasPostgameReplay(input);
   const events: ReplayEvent[] = [{ kind: "game_boundary", boundary: "start", id: "opening", index: 0, at: START - 5000, atMs: 0, sourceMessageId: "0", gameId: "game-1", gameOrdinal: 1, gameNumber: 1, reason: "series_start" }];
@@ -54,6 +63,36 @@ function maskedCanonicalFor(input = fixture()): CanonicalReplayV2 {
 }
 
 describe("Atlas post-game files", () => {
+  it.each([1, 2])("accepts the native archived BO3 game %i shape without inventing terminal data", gameNumber => {
+    const input = archivedBo3Fixture(gameNumber), before = JSON.stringify(input);
+    const source = decodeAtlasPostgameReplay(input);
+    const roundtrip = decodeAtlasPostgameReplay(encodeAtlasPostgameReplay(source));
+    expect(roundtrip.metadata.gameNumber).toBe(gameNumber);
+    expect(roundtrip.view.completedAt - roundtrip.view.createdAt - roundtrip.view.frames.at(-1)!.elapsedMs).toBe(5000);
+    for (const frame of roundtrip.view.frames) {
+      expect(frame.state.gameOutcome).toBeUndefined(); expect(frame.state.gameHistoryEndedAt).toBeUndefined();
+    }
+    expect(JSON.stringify(input)).toBe(before);
+  });
+  it.each([
+    ["BO1", (f: ReturnType<typeof fixture>) => { f.replay.frames.forEach(frame => { frame.state.matchFormat = "bo1"; }); }],
+    ["terminal BO3 game", (f: ReturnType<typeof fixture>) => { f.replay.frames.forEach(frame => { frame.state.gameNumber = 3; }); }],
+    ["missing series", (f: ReturnType<typeof fixture>) => { f.replay.frames.forEach(frame => { delete frame.state.seriesStartedAt; }); }],
+    ["changed series", (f: ReturnType<typeof fixture>) => { f.replay.frames[1].state.seriesStartedAt = START - 5000; }],
+    ["series after game start", (f: ReturnType<typeof fixture>) => { f.replay.frames.forEach(frame => { frame.state.seriesStartedAt = START + 1; }); }],
+    ["changed format", (f: ReturnType<typeof fixture>) => { f.replay.frames[0].state.matchFormat = "bo1"; }],
+    ["null final outcome", (f: ReturnType<typeof fixture>) => { f.replay.frames[1].state.gameOutcome = null; }],
+    ["null earlier outcome", (f: ReturnType<typeof fixture>) => { f.replay.frames[0].state.gameOutcome = null; }],
+    ["partial final ending", (f: ReturnType<typeof fixture>) => { f.replay.frames[1].state.gameHistoryEndedAt = f.replay.completedAt; }],
+    ["partial earlier ending", (f: ReturnType<typeof fixture>) => { f.replay.frames[0].state.gameHistoryEndedAt = f.replay.completedAt; }],
+    ["malformed earlier outcome", (f: ReturnType<typeof fixture>) => { f.replay.frames[0].state.gameOutcome = {}; }],
+    ["future completed envelope", (f: ReturnType<typeof fixture>) => { f.replay.completedAt = Date.now() + 120_000; }],
+    ["frame past completion", (f: ReturnType<typeof fixture>) => { f.replay.frames[1].elapsedMs = 8000; }],
+    ["incomplete final index", (f: ReturnType<typeof fixture>) => { f.replay.frames[1].index = 3; }],
+    ["restricted source", (f: ReturnType<typeof fixture>) => { f.replay.canFork = false; }],
+  ])("does not apply archived BO3 completion to %s", (_name, mutate) => {
+    const input = archivedBo3Fixture(); mutate(input); expect(() => decodeAtlasPostgameReplay(input)).toThrow();
+  });
   it("accepts completed duel v1/v2 and retains shared board references without expansion", () => {
     const first = decodeAtlasPostgameReplay(fixture());
     expect(first.view.frames[0].state.players).toBe(first.view.frames[1].state.players);

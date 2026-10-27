@@ -835,9 +835,107 @@ function setupPhaseFollowedGameplayInSameGame(
 ): boolean {
   if (!state.gameId) return false;
   const game = replay.series.games.find((candidate) => candidate.id === state.gameId);
-  return Boolean(game?.phases.some((phase) => (
+  if (game?.phases.some((phase) => (
     phase.phase === "in_game" && phase.startEventIndex < state.appliedEventIndex
-  )));
+  ))) return true;
+
+  const proof = inferredGameContinuations(replay).get(state.gameId);
+  return Boolean(
+    proof && state.appliedEventIndex >= proof.eventIndex &&
+    state.appliedEventIndex < proof.untilEventIndex &&
+    state.room.fields.phase === "in_game" &&
+    state.room.fields.gameHistoryStartedAt === proof.historyStartedAt,
+  );
+}
+
+type InferredGameContinuation = {
+  eventIndex: number;
+  untilEventIndex: number;
+  historyStartedAt: number;
+};
+const inferredGameContinuationCache = new WeakMap<CanonicalReplayV2, ReadonlyMap<string, InferredGameContinuation>>();
+
+/**
+ * Older canonical replays could turn a late setup shell echo into a new game.
+ * Only confirmed gameplay continuing the prior authoritative sequence proves
+ * that inferred boundary false. Carried board/turn fields alone do not: real
+ * next-game setup also retains them until its fresh snapshot arrives.
+ * Cache the proof's event range, not a boolean, so seeking never uses the future.
+ */
+function inferredGameContinuations(replay: CanonicalReplayV2): ReadonlyMap<string, InferredGameContinuation> {
+  const cached = inferredGameContinuationCache.get(replay);
+  if (cached) return cached;
+  const proofs = new Map<string, InferredGameContinuation>();
+  let phase: unknown;
+  let historyStartedAt: unknown;
+  let sequence: number | undefined;
+  let authorityGameId: string | null = null;
+  let rolloverEnd: Extract<ReplayEvent, { kind: "game_boundary" }> | undefined;
+  let candidate: { gameId: string; historyStartedAt: number; sequence: number } | undefined;
+
+  for (const event of replay.events) {
+    if (event.kind === "game_boundary") {
+      if (event.boundary === "end") {
+        rolloverEnd = event.reason === "phase_rollover" ? event : undefined;
+      } else {
+        candidate = event.reason === "phase_rollover" && rolloverEnd?.sourceMessageId === event.sourceMessageId &&
+          rolloverEnd.gameId === authorityGameId && event.gameId && phase === "in_game" &&
+          typeof historyStartedAt === "number" && Number.isFinite(historyStartedAt) && historyStartedAt > 0 &&
+          typeof sequence === "number" && Number.isInteger(sequence) && sequence >= 0
+          ? { gameId: event.gameId, historyStartedAt, sequence }
+          : undefined;
+        rolloverEnd = undefined;
+      }
+      continue;
+    }
+    if (event.kind !== "snapshot" && event.kind !== "action") continue;
+    const previousSequence = sequence;
+    if (event.kind === "snapshot") {
+      phase = event.snapshot.room.fields.phase;
+      historyStartedAt = event.snapshot.room.fields.gameHistoryStartedAt;
+      sequence = event.sequence;
+      candidate = undefined;
+    } else {
+      for (const operation of event.patch.operations) {
+        if (operation.op === "set_room_fields") {
+          if (Object.hasOwn(operation.fields, "phase")) phase = operation.fields.phase;
+          if (Object.hasOwn(operation.fields, "gameHistoryStartedAt")) historyStartedAt = operation.fields.gameHistoryStartedAt;
+        } else if (operation.op === "unset_room_fields") {
+          if (operation.fields.includes("phase")) phase = undefined;
+          if (operation.fields.includes("gameHistoryStartedAt")) historyStartedAt = undefined;
+        }
+      }
+      sequence = event.patch.sequence;
+    }
+    authorityGameId = event.gameId;
+    const existing = event.gameId ? proofs.get(event.gameId) : undefined;
+    const snapshotReset = event.kind === "snapshot" && (
+      typeof sequence !== "number" || !Number.isInteger(sequence) ||
+      typeof previousSequence !== "number" || sequence < previousSequence
+    );
+    if (existing && (snapshotReset || phase !== "in_game" || historyStartedAt !== existing.historyStartedAt)) {
+      existing.untilEventIndex = Math.min(existing.untilEventIndex, event.index);
+    }
+    if (!candidate || event.gameId !== candidate.gameId) {
+      candidate = undefined;
+      continue;
+    }
+    if (event.kind === "action" &&
+      event.confirmation.status === "confirmed" && event.confirmation.authority === "authoritative_patch_commit" &&
+      ["paymentbatch", "endturn"].includes(normalizeKey(event.actionType)) &&
+      previousSequence === candidate.sequence && event.patch.baseSequence === candidate.sequence &&
+      sequence === candidate.sequence + 1 && phase === "in_game" && historyStartedAt === candidate.historyStartedAt) {
+      proofs.set(candidate.gameId, {
+        eventIndex: event.index,
+        untilEventIndex: Infinity,
+        historyStartedAt: candidate.historyStartedAt,
+      });
+    }
+    // A later unrelated action must not retroactively validate the boundary.
+    candidate = undefined;
+  }
+  inferredGameContinuationCache.set(replay, proofs);
+  return proofs;
 }
 
 export function turnMarkers(replay: CanonicalReplayV2): ReplayTurnMarker[] {
